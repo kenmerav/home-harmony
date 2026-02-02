@@ -4,11 +4,28 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { mockHouseTasks } from '@/data/mockData';
-import { HouseTask, TaskStatus, DayOfWeek } from '@/types';
-import { Plus, Circle, Clock, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { HouseTask, TaskStatus, TaskType, TaskFrequency, DayOfWeek } from '@/types';
+import { Plus, Circle, Clock, CheckCircle2, AlertCircle, Info, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -16,6 +33,18 @@ const getCurrentDay = (): DayOfWeek => {
 };
 
 const statusOrder: TaskStatus[] = ['in_progress', 'not_started', 'done'];
+
+const dayLabels: Record<DayOfWeek, string> = {
+  monday: 'Monday',
+  tuesday: 'Tuesday',
+  wednesday: 'Wednesday',
+  thursday: 'Thursday',
+  friday: 'Friday',
+  saturday: 'Saturday',
+  sunday: 'Sunday',
+};
+
+const allDays: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 const typeIcons = {
   do: AlertCircle,
@@ -26,7 +55,16 @@ const typeIcons = {
 export default function TasksPage() {
   const [tasks, setTasks] = useState(mockHouseTasks);
   const [view, setView] = useState<'manager' | 'owner'>('manager');
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: '',
+    notes: '',
+    type: 'do' as TaskType,
+    frequency: 'once' as TaskFrequency,
+    day: 'monday' as DayOfWeek,
+  });
   const currentDay = getCurrentDay();
+  const { toast } = useToast();
 
   const cycleStatus = (taskId: string) => {
     setTasks(prev => prev.map(task => {
@@ -35,6 +73,40 @@ export default function TasksPage() {
       const nextIndex = (currentIndex + 1) % statusOrder.length;
       return { ...task, status: statusOrder[nextIndex] };
     }));
+  };
+
+  const deleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    toast({ title: "Task deleted" });
+  };
+
+  const addTask = () => {
+    if (!newTask.title.trim()) return;
+    
+    const task: HouseTask = {
+      id: `task-${Date.now()}`,
+      title: newTask.title.trim(),
+      notes: newTask.notes.trim() || undefined,
+      type: newTask.type,
+      status: 'not_started',
+      frequency: newTask.frequency,
+      day: newTask.frequency !== 'once' ? newTask.day : undefined,
+      createdAt: new Date(),
+    };
+    
+    setTasks(prev => [...prev, task]);
+    setAddTaskOpen(false);
+    setNewTask({
+      title: '',
+      notes: '',
+      type: 'do',
+      frequency: 'once',
+      day: 'monday',
+    });
+    toast({
+      title: "Task added",
+      description: `"${task.title}" has been added`,
+    });
   };
 
   const todaysTasks = tasks.filter(task => 
@@ -61,7 +133,7 @@ export default function TasksPage() {
         title="House Manager" 
         subtitle="Keep the house running smoothly"
         action={
-          <Button size="sm">
+          <Button size="sm" onClick={() => setAddTaskOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Add Task
           </Button>
@@ -81,7 +153,7 @@ export default function TasksPage() {
             {sortedTodaysTasks.length > 0 ? (
               <div className="space-y-2">
                 {sortedTodaysTasks.map(task => (
-                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} />
+                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} onDelete={deleteTask} />
                 ))}
               </div>
             ) : (
@@ -94,7 +166,7 @@ export default function TasksPage() {
             {oneTimeTasks.length > 0 ? (
               <div className="space-y-2">
                 {oneTimeTasks.map(task => (
-                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} />
+                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} onDelete={deleteTask} />
                 ))}
               </div>
             ) : (
@@ -104,22 +176,36 @@ export default function TasksPage() {
 
           {/* Recurring Tasks */}
           <SectionCard title="Weekly Schedule">
-            <div className="space-y-2">
-              {thisWeeksTasks.map(task => (
-                <div 
-                  key={task.id}
-                  className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <StatusBadge type={task.type} />
-                    <span className="text-sm">{task.title}</span>
+            {thisWeeksTasks.length > 0 ? (
+              <div className="space-y-2">
+                {thisWeeksTasks.map(task => (
+                  <div 
+                    key={task.id}
+                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                  >
+                    <div className="flex items-center gap-3">
+                      <StatusBadge type={task.type} />
+                      <span className="text-sm">{task.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground capitalize">
+                        {task.day || task.frequency}
+                      </span>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6"
+                        onClick={() => deleteTask(task.id)}
+                      >
+                        <Trash2 className="w-3 h-3 text-muted-foreground" />
+                      </Button>
+                    </div>
                   </div>
-                  <span className="text-xs text-muted-foreground capitalize">
-                    {task.day || task.frequency}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center py-6 text-muted-foreground">No recurring tasks</p>
+            )}
           </SectionCard>
         </TabsContent>
 
@@ -162,24 +248,126 @@ export default function TasksPage() {
           </SectionCard>
         </TabsContent>
       </Tabs>
+
+      {/* Add Task Dialog */}
+      <Dialog open={addTaskOpen} onOpenChange={setAddTaskOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add Task</DialogTitle>
+            <DialogDescription>
+              Create a new task for house management
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Task title"
+              value={newTask.title}
+              onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+            />
+            
+            <Textarea
+              placeholder="Notes (optional)"
+              value={newTask.notes}
+              onChange={(e) => setNewTask(prev => ({ ...prev, notes: e.target.value }))}
+              rows={2}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Type</label>
+                <Select 
+                  value={newTask.type} 
+                  onValueChange={(v) => setNewTask(prev => ({ ...prev, type: v as TaskType }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="do">Do (action required)</SelectItem>
+                    <SelectItem value="maintain">Maintain (recurring)</SelectItem>
+                    <SelectItem value="notice">Notice (info only)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Frequency</label>
+                <Select 
+                  value={newTask.frequency} 
+                  onValueChange={(v) => setNewTask(prev => ({ ...prev, frequency: v as TaskFrequency }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="once">One-time</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {newTask.frequency === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Day of Week</label>
+                <Select 
+                  value={newTask.day} 
+                  onValueChange={(v) => setNewTask(prev => ({ ...prev, day: v as DayOfWeek }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allDays.map(day => (
+                      <SelectItem key={day} value={day}>
+                        {dayLabels[day]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setAddTaskOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addTask} disabled={!newTask.title.trim()}>
+                Add Task
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
 
-function TaskRow({ task, onStatusChange }: { task: HouseTask; onStatusChange: (id: string) => void }) {
+function TaskRow({ 
+  task, 
+  onStatusChange, 
+  onDelete 
+}: { 
+  task: HouseTask; 
+  onStatusChange: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
   const TypeIcon = typeIcons[task.type];
   
   return (
     <div 
       className={cn(
-        "flex items-center gap-3 p-3 rounded-lg border border-border transition-gentle cursor-pointer",
+        "flex items-center gap-3 p-3 rounded-lg border border-border transition-gentle",
         "hover:bg-muted/50",
         task.status === 'done' && "bg-muted/30 opacity-60"
       )}
-      onClick={() => task.type !== 'notice' && onStatusChange(task.id)}
     >
-      {/* Status indicator */}
-      <div className="flex-shrink-0">
+      {/* Status indicator - clickable */}
+      <button 
+        className="flex-shrink-0"
+        onClick={() => task.type !== 'notice' && onStatusChange(task.id)}
+      >
         {task.status === 'done' ? (
           <CheckCircle2 className="w-5 h-5 text-primary" />
         ) : task.status === 'in_progress' ? (
@@ -187,7 +375,7 @@ function TaskRow({ task, onStatusChange }: { task: HouseTask; onStatusChange: (i
         ) : (
           <Circle className="w-5 h-5 text-muted-foreground" />
         )}
-      </div>
+      </button>
 
       {/* Task info */}
       <div className="flex-1 min-w-0">
@@ -204,6 +392,16 @@ function TaskRow({ task, onStatusChange }: { task: HouseTask; onStatusChange: (i
 
       {/* Type badge */}
       <StatusBadge type={task.type} />
+      
+      {/* Delete button */}
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        className="h-6 w-6 flex-shrink-0"
+        onClick={() => onDelete(task.id)}
+      >
+        <Trash2 className="w-3 h-3 text-muted-foreground" />
+      </Button>
     </div>
   );
 }

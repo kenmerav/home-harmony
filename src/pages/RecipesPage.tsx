@@ -1,14 +1,21 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { mockRecipes } from '@/data/mockData';
 import { Recipe, DayOfWeek } from '@/types';
-import { Plus, Search, Upload, UtensilsCrossed, Anchor, Calendar } from 'lucide-react';
+import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, X, Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useToast } from '@/hooks/use-toast';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -20,13 +27,127 @@ const dayLabels: Record<DayOfWeek, string> = {
   sunday: 'Sunday',
 };
 
+// Mock extracted recipes from PDF
+const mockExtractedRecipes: Partial<Recipe>[] = [
+  {
+    name: 'Mediterranean Chicken Bowl',
+    servings: 4,
+    macrosPerServing: { calories: 450, protein_g: 38, carbs_g: 32, fat_g: 18 },
+    ingredients: ['2 lbs chicken breast', 'Quinoa', 'Cucumber', 'Tomatoes', 'Feta cheese', 'Olive oil'],
+    ingredientsRaw: '2 lbs chicken breast\n2 cups quinoa\n1 cucumber\n2 tomatoes\n1/2 cup feta\n3 tbsp olive oil',
+    instructions: '1. Cook quinoa\n2. Grill chicken\n3. Dice vegetables\n4. Assemble bowls',
+  },
+  {
+    name: 'Spicy Thai Basil Beef',
+    servings: 4,
+    macrosPerServing: { calories: 380, protein_g: 28, carbs_g: 24, fat_g: 16 },
+    ingredients: ['1.5 lbs ground beef', 'Thai basil', 'Garlic', 'Fish sauce', 'Chili peppers', 'Rice'],
+    ingredientsRaw: '1.5 lbs ground beef\n1 cup Thai basil\n6 cloves garlic\n3 tbsp fish sauce\n4 Thai chilies\nJasmine rice',
+    instructions: '1. Cook rice\n2. Stir fry beef with garlic and chilies\n3. Add fish sauce and basil\n4. Serve over rice',
+  },
+  {
+    name: 'Creamy Tuscan Salmon',
+    servings: 4,
+    macrosPerServing: { calories: 520, protein_g: 42, carbs_g: 12, fat_g: 34 },
+    ingredients: ['4 salmon fillets', 'Sun-dried tomatoes', 'Spinach', 'Heavy cream', 'Parmesan', 'Garlic'],
+    ingredientsRaw: '4 salmon fillets\n1/2 cup sun-dried tomatoes\n3 cups spinach\n1 cup heavy cream\n1/2 cup parmesan\n4 cloves garlic',
+    instructions: '1. Sear salmon\n2. Make cream sauce with garlic and tomatoes\n3. Add spinach\n4. Pour over salmon',
+  },
+];
+
 export default function RecipesPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [recipes] = useState(mockRecipes);
+  const [recipes, setRecipes] = useState(mockRecipes);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadStep, setUploadStep] = useState<'upload' | 'review'>('upload');
+  const [extractedRecipes, setExtractedRecipes] = useState<typeof mockExtractedRecipes>([]);
+  const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
+  const [isProcessing, setIsProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const filteredRecipes = recipes.filter(recipe =>
     recipe.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      processPdf(file);
+    } else if (file) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a PDF file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const processPdf = async (file: File) => {
+    setIsProcessing(true);
+    
+    // Simulate PDF processing delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // In a real app, this would call an API to parse the PDF
+    setExtractedRecipes(mockExtractedRecipes);
+    setSelectedRecipes(new Set(mockExtractedRecipes.map((_, i) => i)));
+    setUploadStep('review');
+    setIsProcessing(false);
+    
+    toast({
+      title: "PDF processed",
+      description: `Found ${mockExtractedRecipes.length} recipes`,
+    });
+  };
+
+  const toggleRecipeSelection = (index: number) => {
+    const newSelected = new Set(selectedRecipes);
+    if (newSelected.has(index)) {
+      newSelected.delete(index);
+    } else {
+      newSelected.add(index);
+    }
+    setSelectedRecipes(newSelected);
+  };
+
+  const importSelectedRecipes = () => {
+    const newRecipes: Recipe[] = extractedRecipes
+      .filter((_, index) => selectedRecipes.has(index))
+      .map((recipe, index) => ({
+        id: `imported-${Date.now()}-${index}`,
+        name: recipe.name || 'Untitled Recipe',
+        servings: recipe.servings || 4,
+        ingredients: recipe.ingredients || [],
+        ingredientsRaw: recipe.ingredientsRaw || '',
+        instructions: recipe.instructions || '',
+        macrosPerServing: recipe.macrosPerServing || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+        mealType: 'dinner' as const,
+        isAnchored: false,
+        createdAt: new Date(),
+      }));
+
+    setRecipes(prev => [...prev, ...newRecipes]);
+    setUploadModalOpen(false);
+    setUploadStep('upload');
+    setExtractedRecipes([]);
+    setSelectedRecipes(new Set());
+    
+    toast({
+      title: "Recipes imported",
+      description: `${newRecipes.length} recipes added to your library`,
+    });
+  };
+
+  const closeModal = () => {
+    setUploadModalOpen(false);
+    setUploadStep('upload');
+    setExtractedRecipes([]);
+    setSelectedRecipes(new Set());
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <AppLayout>
@@ -34,7 +155,7 @@ export default function RecipesPage() {
         title="Recipes" 
         subtitle={`${recipes.length} recipes in your library`}
         action={
-          <Button>
+          <Button onClick={() => setUploadModalOpen(true)}>
             <Upload className="w-4 h-4 mr-2" />
             Upload PDF
           </Button>
@@ -65,6 +186,121 @@ export default function RecipesPage() {
           <p className="text-muted-foreground">No recipes found</p>
         </div>
       )}
+
+      {/* Upload PDF Modal */}
+      <Dialog open={uploadModalOpen} onOpenChange={(open) => !open && closeModal()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {uploadStep === 'upload' ? 'Upload Cookbook PDF' : 'Review Extracted Recipes'}
+            </DialogTitle>
+            <DialogDescription>
+              {uploadStep === 'upload' 
+                ? 'Upload a PDF cookbook to extract and import recipes'
+                : `${extractedRecipes.length} recipes found. Select which ones to import.`
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          {uploadStep === 'upload' ? (
+            <div className="space-y-4">
+              <div 
+                className={cn(
+                  "border-2 border-dashed border-border rounded-xl p-8 text-center transition-gentle cursor-pointer",
+                  "hover:border-primary/50 hover:bg-primary/5",
+                  isProcessing && "pointer-events-none opacity-50"
+                )}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                
+                {isProcessing ? (
+                  <>
+                    <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    <p className="font-medium">Processing PDF...</p>
+                    <p className="text-sm text-muted-foreground mt-1">Extracting recipes</p>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="font-medium">Click to upload PDF</p>
+                    <p className="text-sm text-muted-foreground mt-1">or drag and drop</p>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-muted/50 rounded-lg p-4 text-sm">
+                <p className="font-medium mb-2">What we'll extract:</p>
+                <ul className="space-y-1 text-muted-foreground">
+                  <li>• Recipe name and servings</li>
+                  <li>• Ingredients list</li>
+                  <li>• Cooking instructions</li>
+                  <li>• Nutrition facts (calories, protein, carbs, fat)</li>
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="max-h-[400px] overflow-y-auto space-y-3 pr-2">
+                {extractedRecipes.map((recipe, index) => (
+                  <div 
+                    key={index}
+                    className={cn(
+                      "border border-border rounded-lg p-4 transition-gentle cursor-pointer",
+                      selectedRecipes.has(index) && "border-primary bg-primary/5"
+                    )}
+                    onClick={() => toggleRecipeSelection(index)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Checkbox 
+                        checked={selectedRecipes.has(index)}
+                        onCheckedChange={() => toggleRecipeSelection(index)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium">{recipe.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {recipe.servings} servings
+                        </p>
+                        <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                          <span>{recipe.macrosPerServing?.calories} cal</span>
+                          <span>{recipe.macrosPerServing?.protein_g}g protein</span>
+                          <span>{recipe.macrosPerServing?.carbs_g}g carbs</span>
+                          <span>{recipe.macrosPerServing?.fat_g}g fat</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-border">
+                <p className="text-sm text-muted-foreground">
+                  {selectedRecipes.size} of {extractedRecipes.length} selected
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setUploadStep('upload')}>
+                    Back
+                  </Button>
+                  <Button 
+                    onClick={importSelectedRecipes}
+                    disabled={selectedRecipes.size === 0}
+                  >
+                    <Check className="w-4 h-4 mr-2" />
+                    Import {selectedRecipes.size} Recipe{selectedRecipes.size !== 1 ? 's' : ''}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

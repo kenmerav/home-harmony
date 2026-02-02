@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { format } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -5,13 +6,21 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { MacroBar } from '@/components/ui/MacroBar';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { mockMealPlan, mockChildren, mockHouseTasks, mockMealLogs, mockProfiles } from '@/data/mockData';
-import { Macros, DayOfWeek } from '@/types';
-import { UtensilsCrossed, Check, SkipForward, Lock, Plus } from 'lucide-react';
+import { Macros, DayOfWeek, MealLog } from '@/types';
+import { UtensilsCrossed, Check, SkipForward, Plus, User, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 
 const dayNames: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -32,9 +41,19 @@ export default function TodayPage() {
   const today = format(new Date(), 'EEEE, MMMM d');
   const currentDay = getCurrentDay();
   const todaysMeal = mockMealPlan.find(m => m.day === currentDay);
+  const { toast } = useToast();
+  
+  const [mealLogs, setMealLogs] = useState(mockMealLogs);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddData, setQuickAddData] = useState({
+    name: '',
+    calories: '',
+    protein: '',
+    person: 'both' as 'me' | 'wife' | 'both',
+  });
   
   // Calculate today's totals
-  const todaysLogs = mockMealLogs.filter(log => log.date === new Date().toISOString().split('T')[0]);
+  const todaysLogs = mealLogs.filter(log => log.date === new Date().toISOString().split('T')[0]);
   const myLogs = todaysLogs.filter(log => log.person === 'me');
   const wifeLogs = todaysLogs.filter(log => log.person === 'wife');
   
@@ -69,6 +88,67 @@ export default function TodayPage() {
     }));
   };
 
+  const logMeal = (person: 'me' | 'wife' | 'both') => {
+    if (!todaysMeal) return;
+    
+    const createLog = (p: 'me' | 'wife'): MealLog => ({
+      id: `log-${Date.now()}-${p}`,
+      recipeId: todaysMeal.recipeId,
+      recipeName: todaysMeal.recipe.name,
+      date: new Date().toISOString().split('T')[0],
+      person: p,
+      servings: 1,
+      macros: { ...todaysMeal.recipe.macrosPerServing },
+      isQuickAdd: false,
+      createdAt: new Date(),
+    });
+
+    if (person === 'both') {
+      setMealLogs(prev => [...prev, createLog('me'), createLog('wife')]);
+      toast({ title: "Logged for both", description: todaysMeal.recipe.name });
+    } else {
+      setMealLogs(prev => [...prev, createLog(person)]);
+      toast({ title: `Logged for ${person === 'me' ? 'Me' : 'Wife'}`, description: todaysMeal.recipe.name });
+    }
+  };
+
+  const handleQuickAdd = () => {
+    const calories = parseInt(quickAddData.calories) || 0;
+    const protein = parseInt(quickAddData.protein) || 0;
+    
+    if (calories === 0) {
+      toast({ title: "Please enter calories", variant: "destructive" });
+      return;
+    }
+
+    const createLog = (p: 'me' | 'wife'): MealLog => ({
+      id: `quickadd-${Date.now()}-${p}`,
+      recipeName: quickAddData.name || 'Quick Add',
+      date: new Date().toISOString().split('T')[0],
+      person: p,
+      servings: 1,
+      macros: { calories, protein_g: protein, carbs_g: 0, fat_g: 0 },
+      isQuickAdd: true,
+      createdAt: new Date(),
+    });
+
+    if (quickAddData.person === 'both') {
+      setMealLogs(prev => [...prev, createLog('me'), createLog('wife')]);
+    } else if (quickAddData.person === 'me') {
+      setMealLogs(prev => [...prev, createLog('me')]);
+    } else {
+      setMealLogs(prev => [...prev, createLog('wife')]);
+    }
+
+    toast({ 
+      title: "Added", 
+      description: `${calories} cal${quickAddData.name ? ` - ${quickAddData.name}` : ''}` 
+    });
+    
+    setQuickAddOpen(false);
+    setQuickAddData({ name: '', calories: '', protein: '', person: 'both' });
+  };
+
   return (
     <AppLayout>
       <PageHeader title="Today" subtitle={today} />
@@ -101,12 +181,18 @@ export default function TodayPage() {
               </div>
               
               <div className="flex gap-2 pt-2">
-                <Button size="sm" className="flex-1">
+                <Button size="sm" className="flex-1" onClick={() => logMeal('both')}>
                   <Check className="w-4 h-4 mr-2" />
                   Log for Both
                 </Button>
-                <Button size="sm" variant="outline">Log Me</Button>
-                <Button size="sm" variant="outline">Log Wife</Button>
+                <Button size="sm" variant="outline" onClick={() => logMeal('me')}>
+                  <User className="w-4 h-4 mr-1" />
+                  Me
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => logMeal('wife')}>
+                  <Users className="w-4 h-4 mr-1" />
+                  Wife
+                </Button>
               </div>
             </div>
           ) : (
@@ -240,11 +326,79 @@ export default function TodayPage() {
         </SectionCard>
 
         {/* Quick Add */}
-        <Button variant="outline" className="w-full">
+        <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Quick Add Meal
         </Button>
       </div>
+
+      {/* Quick Add Dialog */}
+      <Dialog open={quickAddOpen} onOpenChange={setQuickAddOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Quick Add</DialogTitle>
+            <DialogDescription>
+              Log an unplanned meal or snack
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Name (optional)"
+              value={quickAddData.name}
+              onChange={(e) => setQuickAddData(prev => ({ ...prev, name: e.target.value }))}
+            />
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Calories *</label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 200"
+                  value={quickAddData.calories}
+                  onChange={(e) => setQuickAddData(prev => ({ ...prev, calories: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Protein (g)</label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 20"
+                  value={quickAddData.protein}
+                  onChange={(e) => setQuickAddData(prev => ({ ...prev, protein: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Log for</label>
+              <div className="flex gap-2">
+                {(['both', 'me', 'wife'] as const).map(option => (
+                  <Button
+                    key={option}
+                    type="button"
+                    variant={quickAddData.person === option ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setQuickAddData(prev => ({ ...prev, person: option }))}
+                  >
+                    {option === 'both' ? 'Both' : option === 'me' ? 'Me' : 'Wife'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setQuickAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleQuickAdd}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
