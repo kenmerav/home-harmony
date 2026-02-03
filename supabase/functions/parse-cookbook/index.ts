@@ -26,11 +26,11 @@ serve(async (req) => {
   }
 
   try {
-    const { pdfContent } = await req.json();
+    const { pdfBase64, fileName } = await req.json();
 
-    if (!pdfContent) {
+    if (!pdfBase64) {
       return new Response(
-        JSON.stringify({ success: false, error: 'PDF content is required' }),
+        JSON.stringify({ success: false, error: 'PDF file is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -44,36 +44,33 @@ serve(async (req) => {
       );
     }
 
-    console.log('Processing PDF content, length:', pdfContent.length);
+    console.log('Processing PDF:', fileName, 'Base64 length:', pdfBase64.length);
 
-    const systemPrompt = `You are a recipe extraction expert. You will be given text extracted from a PDF cookbook.
-Your job is to identify and extract individual recipes from this text.
+    const systemPrompt = `You are an expert at extracting recipes from cookbook PDFs. 
+Analyze the provided PDF document and extract ALL recipes you can find.
 
-For each recipe found, extract:
-1. Recipe name/title
-2. Number of servings
-3. Nutrition facts per serving:
+For each recipe, extract:
+1. Recipe name/title (exact name from the document)
+2. Number of servings (if not specified, estimate 4-6 for main dishes)
+3. Nutrition facts per serving (if available):
    - calories
    - protein (in grams)
-   - carbs (in grams)
+   - carbs (in grams)  
    - fat (in grams)
-   - fiber (in grams, if available)
-4. Ingredients list (as an array of strings)
-5. Raw ingredients text (the original text format)
-6. Cooking instructions
+   - fiber (in grams, optional)
+4. Complete ingredients list with quantities
+5. Step-by-step cooking instructions
 
-IMPORTANT:
-- Extract ALL recipes you can identify from the text
-- If nutrition info is missing, estimate reasonable values based on the ingredients
-- If servings aren't specified, estimate based on recipe type (typically 4-6 for main dishes)
-- Clean up ingredient formatting but preserve quantities and measurements
-- Keep instructions in a readable format with step numbers`;
+CRITICAL INSTRUCTIONS:
+- Extract EVERY recipe from the PDF, not just a few
+- Use the EXACT recipe names from the document
+- If nutrition info is not provided, make reasonable estimates based on ingredients
+- Include ALL ingredients with their measurements
+- Preserve the original instruction steps`;
 
-    const userPrompt = `Extract all recipes from this cookbook PDF content. Return the recipes as a JSON array.
+    const userPrompt = `Please analyze this cookbook PDF and extract ALL recipes. Return them in the structured format requested.`;
 
-PDF Content:
-${pdfContent}`;
-
+    // Use Gemini's document understanding capability
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -81,26 +78,39 @@ ${pdfContent}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
+        model: 'google/gemini-2.5-pro',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { 
+            role: 'user', 
+            content: [
+              { type: 'text', text: userPrompt },
+              { 
+                type: 'file',
+                file: {
+                  filename: fileName || 'cookbook.pdf',
+                  file_data: `data:application/pdf;base64,${pdfBase64}`
+                }
+              }
+            ]
+          },
         ],
         tools: [
           {
             type: 'function',
             function: {
               name: 'extract_recipes',
-              description: 'Extract recipes from cookbook text and return structured data',
+              description: 'Extract all recipes from the cookbook PDF',
               parameters: {
                 type: 'object',
                 properties: {
                   recipes: {
                     type: 'array',
+                    description: 'All recipes extracted from the PDF',
                     items: {
                       type: 'object',
                       properties: {
-                        name: { type: 'string', description: 'Recipe name/title' },
+                        name: { type: 'string', description: 'Exact recipe name from the document' },
                         servings: { type: 'number', description: 'Number of servings' },
                         macrosPerServing: {
                           type: 'object',
@@ -116,10 +126,10 @@ ${pdfContent}`;
                         ingredients: {
                           type: 'array',
                           items: { type: 'string' },
-                          description: 'List of ingredients',
+                          description: 'List of ingredients with quantities',
                         },
                         ingredientsRaw: { type: 'string', description: 'Raw ingredients text' },
-                        instructions: { type: 'string', description: 'Cooking instructions' },
+                        instructions: { type: 'string', description: 'Full cooking instructions' },
                       },
                       required: ['name', 'servings', 'macrosPerServing', 'ingredients', 'ingredientsRaw', 'instructions'],
                     },
@@ -135,6 +145,9 @@ ${pdfContent}`;
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('AI gateway error:', response.status, errorText);
+      
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ success: false, error: 'Rate limit exceeded. Please try again in a moment.' }),
@@ -147,23 +160,23 @@ ${pdfContent}`;
           { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to process PDF with AI' }),
+        JSON.stringify({ success: false, error: `AI processing failed: ${errorText}` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const aiResponse = await response.json();
-    console.log('AI response received');
+    console.log('AI response received, choices:', aiResponse.choices?.length);
 
     // Extract the function call result
     const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall || toolCall.function.name !== 'extract_recipes') {
-      console.error('Unexpected AI response format:', JSON.stringify(aiResponse));
+      // Try to get content directly if tool call failed
+      const content = aiResponse.choices?.[0]?.message?.content;
+      console.error('No tool call in response. Content:', content?.substring(0, 500));
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to extract recipes from PDF' }),
+        JSON.stringify({ success: false, error: 'Failed to extract recipes from PDF. The AI could not parse the document structure.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -173,7 +186,7 @@ ${pdfContent}`;
       const parsed = JSON.parse(toolCall.function.arguments);
       recipes = parsed.recipes || [];
     } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
+      console.error('Failed to parse AI response:', parseError, 'Arguments:', toolCall.function.arguments?.substring(0, 500));
       return new Response(
         JSON.stringify({ success: false, error: 'Failed to parse extracted recipes' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -181,6 +194,9 @@ ${pdfContent}`;
     }
 
     console.log(`Successfully extracted ${recipes.length} recipes`);
+    
+    // Log recipe names for debugging
+    recipes.forEach((r, i) => console.log(`  ${i + 1}. ${r.name}`));
 
     return new Response(
       JSON.stringify({ success: true, recipes }),

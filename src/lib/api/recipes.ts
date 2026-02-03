@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import { extractTextFromPdf } from '@/lib/pdfParser';
+import { fileToBase64 } from '@/lib/pdfParser';
 
 export interface ExtractedRecipe {
   name: string;
@@ -24,19 +24,24 @@ interface ParseCookbookResponse {
 
 export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResponse> {
   try {
-    // Extract text from PDF on the client side
-    const pdfContent = await extractTextFromPdf(file);
+    // Convert PDF to base64 for sending to edge function
+    const pdfBase64 = await fileToBase64(file);
     
-    if (!pdfContent || pdfContent.trim().length < 50) {
+    if (!pdfBase64) {
       return { 
         success: false, 
-        error: 'Could not extract text from PDF. The file may be image-based or corrupted.' 
+        error: 'Could not read PDF file.' 
       };
     }
 
+    console.log('Sending PDF to edge function, size:', pdfBase64.length);
+
     // Send to edge function for AI processing
     const { data, error } = await supabase.functions.invoke('parse-cookbook', {
-      body: { pdfContent },
+      body: { 
+        pdfBase64,
+        fileName: file.name 
+      },
     });
 
     if (error) {
