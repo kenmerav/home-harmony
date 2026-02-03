@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { mockRecipes } from '@/data/mockData';
 import { Recipe, DayOfWeek } from '@/types';
-import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, X, Check, AlertCircle } from 'lucide-react';
+import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
+import { parseRecipesFromPdf, ExtractedRecipe } from '@/lib/api/recipes';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -27,42 +28,15 @@ const dayLabels: Record<DayOfWeek, string> = {
   sunday: 'Sunday',
 };
 
-// Mock extracted recipes from PDF
-const mockExtractedRecipes: Partial<Recipe>[] = [
-  {
-    name: 'Mediterranean Chicken Bowl',
-    servings: 4,
-    macrosPerServing: { calories: 450, protein_g: 38, carbs_g: 32, fat_g: 18 },
-    ingredients: ['2 lbs chicken breast', 'Quinoa', 'Cucumber', 'Tomatoes', 'Feta cheese', 'Olive oil'],
-    ingredientsRaw: '2 lbs chicken breast\n2 cups quinoa\n1 cucumber\n2 tomatoes\n1/2 cup feta\n3 tbsp olive oil',
-    instructions: '1. Cook quinoa\n2. Grill chicken\n3. Dice vegetables\n4. Assemble bowls',
-  },
-  {
-    name: 'Spicy Thai Basil Beef',
-    servings: 4,
-    macrosPerServing: { calories: 380, protein_g: 28, carbs_g: 24, fat_g: 16 },
-    ingredients: ['1.5 lbs ground beef', 'Thai basil', 'Garlic', 'Fish sauce', 'Chili peppers', 'Rice'],
-    ingredientsRaw: '1.5 lbs ground beef\n1 cup Thai basil\n6 cloves garlic\n3 tbsp fish sauce\n4 Thai chilies\nJasmine rice',
-    instructions: '1. Cook rice\n2. Stir fry beef with garlic and chilies\n3. Add fish sauce and basil\n4. Serve over rice',
-  },
-  {
-    name: 'Creamy Tuscan Salmon',
-    servings: 4,
-    macrosPerServing: { calories: 520, protein_g: 42, carbs_g: 12, fat_g: 34 },
-    ingredients: ['4 salmon fillets', 'Sun-dried tomatoes', 'Spinach', 'Heavy cream', 'Parmesan', 'Garlic'],
-    ingredientsRaw: '4 salmon fillets\n1/2 cup sun-dried tomatoes\n3 cups spinach\n1 cup heavy cream\n1/2 cup parmesan\n4 cloves garlic',
-    instructions: '1. Sear salmon\n2. Make cream sauce with garlic and tomatoes\n3. Add spinach\n4. Pour over salmon',
-  },
-];
-
 export default function RecipesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [recipes, setRecipes] = useState(mockRecipes);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadStep, setUploadStep] = useState<'upload' | 'review'>('upload');
-  const [extractedRecipes, setExtractedRecipes] = useState<typeof mockExtractedRecipes>([]);
+  const [extractedRecipes, setExtractedRecipes] = useState<ExtractedRecipe[]>([]);
   const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -85,20 +59,42 @@ export default function RecipesPage() {
 
   const processPdf = async (file: File) => {
     setIsProcessing(true);
+    setProcessingStatus('Extracting text from PDF...');
     
-    // Simulate PDF processing delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // In a real app, this would call an API to parse the PDF
-    setExtractedRecipes(mockExtractedRecipes);
-    setSelectedRecipes(new Set(mockExtractedRecipes.map((_, i) => i)));
-    setUploadStep('review');
-    setIsProcessing(false);
-    
-    toast({
-      title: "PDF processed",
-      description: `Found ${mockExtractedRecipes.length} recipes`,
-    });
+    try {
+      setProcessingStatus('Analyzing recipes with AI...');
+      const result = await parseRecipesFromPdf(file);
+      
+      if (!result.success || !result.recipes) {
+        toast({
+          title: "Failed to process PDF",
+          description: result.error || "Could not extract recipes from the PDF",
+          variant: "destructive",
+        });
+        setIsProcessing(false);
+        setProcessingStatus('');
+        return;
+      }
+
+      setExtractedRecipes(result.recipes);
+      setSelectedRecipes(new Set(result.recipes.map((_, i) => i)));
+      setUploadStep('review');
+      
+      toast({
+        title: "PDF processed",
+        description: `Found ${result.recipes.length} recipes`,
+      });
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      toast({
+        title: "Error",
+        description: "Failed to process the PDF file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
   };
 
   const toggleRecipeSelection = (index: number) => {
@@ -224,7 +220,7 @@ export default function RecipesPage() {
                   <>
                     <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
                     <p className="font-medium">Processing PDF...</p>
-                    <p className="text-sm text-muted-foreground mt-1">Extracting recipes</p>
+                    <p className="text-sm text-muted-foreground mt-1">{processingStatus || 'Extracting recipes'}</p>
                   </>
                 ) : (
                   <>
