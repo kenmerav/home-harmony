@@ -1,1 +1,4 @@
 project_id = "txvxzluebvtwdemaujnt"
+
+[functions.parse-cookbook]
+verify_jwt = false
