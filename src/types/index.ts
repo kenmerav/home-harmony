@@ -8,7 +8,7 @@ export interface Recipe {
   instructions: string;
   macrosPerServing: Macros;
   defaultDay?: DayOfWeek;
-  mealType: 'dinner';
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
   isAnchored: boolean;
   sourceFile?: string;
   createdAt: Date;

@@ -1,9 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { mockRecipes } from '@/data/mockData';
 import { Recipe, DayOfWeek } from '@/types';
 import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { parseRecipesFromPdf, ExtractedRecipe } from '@/lib/api/recipes';
+import { parseRecipesFromPdf, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -28,9 +27,32 @@ const dayLabels: Record<DayOfWeek, string> = {
   sunday: 'Sunday',
 };
 
+// Convert DB recipe to display format
+function dbRecipeToDisplayRecipe(dbRecipe: DbRecipe): Recipe {
+  return {
+    id: dbRecipe.id,
+    name: dbRecipe.name,
+    servings: dbRecipe.servings,
+    ingredients: dbRecipe.ingredients,
+    ingredientsRaw: dbRecipe.ingredients_raw || '',
+    instructions: dbRecipe.instructions || '',
+    macrosPerServing: {
+      calories: dbRecipe.calories,
+      protein_g: dbRecipe.protein_g,
+      carbs_g: dbRecipe.carbs_g,
+      fat_g: dbRecipe.fat_g,
+    },
+    mealType: dbRecipe.meal_type as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    isAnchored: dbRecipe.is_anchored,
+    defaultDay: dbRecipe.default_day as DayOfWeek | undefined,
+    createdAt: new Date(dbRecipe.created_at),
+  };
+}
+
 export default function RecipesPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [recipes, setRecipes] = useState(mockRecipes);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadStep, setUploadStep] = useState<'upload' | 'review'>('upload');
   const [extractedRecipes, setExtractedRecipes] = useState<ExtractedRecipe[]>([]);
@@ -39,6 +61,28 @@ export default function RecipesPage() {
   const [processingStatus, setProcessingStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Load recipes from database on mount
+  useEffect(() => {
+    loadRecipes();
+  }, []);
+
+  const loadRecipes = async () => {
+    try {
+      setIsLoading(true);
+      const dbRecipes = await fetchRecipes();
+      setRecipes(dbRecipes.map(dbRecipeToDisplayRecipe));
+    } catch (error) {
+      console.error('Failed to load recipes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load recipes from database",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredRecipes = recipes.filter(recipe =>
     recipe.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -107,32 +151,39 @@ export default function RecipesPage() {
     setSelectedRecipes(newSelected);
   };
 
-  const importSelectedRecipes = () => {
-    const newRecipes: Recipe[] = extractedRecipes
-      .filter((_, index) => selectedRecipes.has(index))
-      .map((recipe, index) => ({
-        id: `imported-${Date.now()}-${index}`,
-        name: recipe.name || 'Untitled Recipe',
-        servings: recipe.servings || 4,
-        ingredients: recipe.ingredients || [],
-        ingredientsRaw: recipe.ingredientsRaw || '',
-        instructions: recipe.instructions || '',
-        macrosPerServing: recipe.macrosPerServing || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
-        mealType: 'dinner' as const,
-        isAnchored: false,
-        createdAt: new Date(),
-      }));
-
-    setRecipes(prev => [...prev, ...newRecipes]);
-    setUploadModalOpen(false);
-    setUploadStep('upload');
-    setExtractedRecipes([]);
-    setSelectedRecipes(new Set());
+  const importSelectedRecipes = async () => {
+    const selectedExtracted = extractedRecipes.filter((_, index) => selectedRecipes.has(index));
     
-    toast({
-      title: "Recipes imported",
-      description: `${newRecipes.length} recipes added to your library`,
-    });
+    if (selectedExtracted.length === 0) return;
+
+    setIsProcessing(true);
+    setProcessingStatus('Saving recipes to database...');
+
+    try {
+      const savedRecipes = await saveRecipes(selectedExtracted);
+      const displayRecipes = savedRecipes.map(dbRecipeToDisplayRecipe);
+      
+      setRecipes(prev => [...displayRecipes, ...prev]);
+      setUploadModalOpen(false);
+      setUploadStep('upload');
+      setExtractedRecipes([]);
+      setSelectedRecipes(new Set());
+      
+      toast({
+        title: "Recipes imported",
+        description: `${savedRecipes.length} recipes saved to your library`,
+      });
+    } catch (error) {
+      console.error('Failed to save recipes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save recipes. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
   };
 
   const closeModal = () => {

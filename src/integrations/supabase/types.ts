@@ -14,7 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      recipes: {
+        Row: {
+          calories: number
+          carbs_g: number
+          created_at: string
+          default_day: string | null
+          fat_g: number
+          fiber_g: number | null
+          id: string
+          ingredients: string[]
+          ingredients_raw: string | null
+          instructions: string | null
+          is_anchored: boolean
+          meal_type: string
+          name: string
+          protein_g: number
+          servings: number
+          updated_at: string
+        }
+        Insert: {
+          calories?: number
+          carbs_g?: number
+          created_at?: string
+          default_day?: string | null
+          fat_g?: number
+          fiber_g?: number | null
+          id?: string
+          ingredients?: string[]
+          ingredients_raw?: string | null
+          instructions?: string | null
+          is_anchored?: boolean
+          meal_type?: string
+          name: string
+          protein_g?: number
+          servings?: number
+          updated_at?: string
+        }
+        Update: {
+          calories?: number
+          carbs_g?: number
+          created_at?: string
+          default_day?: string | null
+          fat_g?: number
+          fiber_g?: number | null
+          id?: string
+          ingredients?: string[]
+          ingredients_raw?: string | null
+          instructions?: string | null
+          is_anchored?: boolean
+          meal_type?: string
+          name?: string
+          protein_g?: number
+          servings?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -5,45 +5,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-function buildRecipeFocusedText(pdfText: string) {
-  const lines = pdfText.split(/\r?\n/);
-  const markers: RegExp[] = [
-    /^\s*ingredients\s*$/i,
-    /^\s*instructions\s*$/i,
-    /nutrition\s*facts/i,
-    /\bcalories\b/i,
-    /\bprotein\b/i,
-    /\bcarbs?\b/i,
-    /\bfat\b/i,
-  ];
-
-  const windows: Array<{ start: number; end: number }> = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? '';
-    if (markers.some((re) => re.test(line))) {
-      windows.push({
-        start: Math.max(0, i - 40),
-        end: Math.min(lines.length, i + 240),
-      });
-    }
+// No filtering - send the FULL text to AI. Gemini 2.5 Pro handles up to 1M tokens.
+// The previous filtering was causing recipes to be missed.
+function prepareFullText(pdfText: string) {
+  // Gemini 2.5 Pro has a 1M token context window (~4M chars)
+  // We can safely send much larger documents
+  const MAX_CHARS = 500_000;
+  if (pdfText.length > MAX_CHARS) {
+    console.log(`Text truncated from ${pdfText.length} to ${MAX_CHARS} chars`);
+    return `${pdfText.slice(0, MAX_CHARS)}\n\n[TRUNCATED - document too large]`;
   }
-
-  windows.sort((a, b) => a.start - b.start);
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const w of windows) {
-    const last = merged[merged.length - 1];
-    if (!last || w.start > last.end) merged.push({ ...w });
-    else last.end = Math.max(last.end, w.end);
-  }
-
-  const focused = merged
-    .map((w) => lines.slice(w.start, w.end).join('\n'))
-    .filter(Boolean)
-    .join('\n\n');
-
-  const text = focused.length >= 2000 ? focused : pdfText;
-  const MAX_CHARS = 140_000;
-  return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n\n[TRUNCATED]` : text;
+  return pdfText;
 }
 
 interface ExtractedRecipe {
@@ -85,41 +57,42 @@ serve(async (req) => {
       );
     }
 
-    const focusedText = buildRecipeFocusedText(pdfText);
+    const fullText = prepareFullText(pdfText);
     console.log('Processing cookbook:', {
       fileName,
       pageCount,
       textChars: pdfText.length,
-      focusedChars: focusedText.length,
+      sentChars: fullText.length,
     });
 
-    const systemPrompt = `You are an expert at extracting recipes from cookbook text.
-You will be given text that was extracted from a cookbook PDF.
-Extract recipes ONLY if they are clearly present in the provided text.
+    const systemPrompt = `You are an expert at extracting ALL recipes from cookbook text.
+You will be given the COMPLETE text extracted from a cookbook PDF.
+Your job is to find and extract EVERY SINGLE RECIPE in the document.
 
-For each recipe, extract:
-1. Recipe name/title (exact name from the document)
-2. Number of servings (if not specified, estimate 4-6 for main dishes)
-3. Nutrition facts per serving (if available):
-   - calories
-   - protein (in grams)
-   - carbs (in grams)  
-   - fat (in grams)
-   - fiber (in grams, optional)
+For each recipe found, extract:
+1. Recipe name/title (exact name from the document, verbatim)
+2. Number of servings (use the value from the document, or estimate 4 if not specified)
+3. Nutrition facts per serving (from document):
+   - calories, protein (g), carbs (g), fat (g), fiber (g, optional)
 4. Complete ingredients list with quantities
 5. Step-by-step cooking instructions
 
-CRITICAL INSTRUCTIONS:
+CRITICAL RULES:
+- Extract EVERY recipe in the document - do not skip any
+- A recipe typically has: a title, ingredients section, and instructions/directions
+- Use EXACT recipe names from the text (verbatim, including any numbering or prefixes)
+- If nutrition info is not provided for a recipe, set all macros to 0
+- Include ALL ingredients with their exact measurements
+- Preserve instruction steps exactly as written
+- Look for recipe patterns throughout the ENTIRE document
+- Do NOT invent recipes - only extract what exists in the text`;
 
-- Do NOT invent recipes. If a recipe title does not appear in the text, do not include it.
-- Use the EXACT recipe names from the text (verbatim).
-- Prefer recipes that contain clear section headers like "Nutrition Facts", "Ingredients", and "Instructions".
-- If nutrition info is not provided, set macros to 0 (do NOT guess).
-- Include ALL ingredients with their measurements when present.
-- Preserve instruction steps and wording as much as possible.`;
+    const userPrompt = `Extract ALL recipes from this complete cookbook (filename: ${fileName || 'cookbook.pdf'}, ${pageCount ?? 'unknown'} pages).
 
-    const userPrompt = `Extract all recipes from this cookbook text (filename: ${fileName || 'cookbook.pdf'}, pages: ${pageCount ?? 'unknown'}).
-Return ONLY recipes that appear in the text.\n\nCOOKBOOK TEXT:\n${focusedText}`;
+IMPORTANT: This cookbook contains 30+ recipes. Make sure you extract EVERY recipe, not just a subset. Scan the entire document carefully.
+
+COOKBOOK TEXT:
+${fullText}`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
