@@ -5,6 +5,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+function buildRecipeFocusedText(pdfText: string) {
+  const lines = pdfText.split(/\r?\n/);
+  const markers: RegExp[] = [
+    /^\s*ingredients\s*$/i,
+    /^\s*instructions\s*$/i,
+    /nutrition\s*facts/i,
+    /\bcalories\b/i,
+    /\bprotein\b/i,
+    /\bcarbs?\b/i,
+    /\bfat\b/i,
+  ];
+
+  const windows: Array<{ start: number; end: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (markers.some((re) => re.test(line))) {
+      windows.push({
+        start: Math.max(0, i - 40),
+        end: Math.min(lines.length, i + 240),
+      });
+    }
+  }
+
+  windows.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const w of windows) {
+    const last = merged[merged.length - 1];
+    if (!last || w.start > last.end) merged.push({ ...w });
+    else last.end = Math.max(last.end, w.end);
+  }
+
+  const focused = merged
+    .map((w) => lines.slice(w.start, w.end).join('\n'))
+    .filter(Boolean)
+    .join('\n\n');
+
+  const text = focused.length >= 2000 ? focused : pdfText;
+  const MAX_CHARS = 140_000;
+  return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n\n[TRUNCATED]` : text;
+}
+
 interface ExtractedRecipe {
   name: string;
   servings: number;
@@ -26,11 +67,11 @@ serve(async (req) => {
   }
 
   try {
-    const { pdfBase64, fileName } = await req.json();
+    const { pdfText, fileName, pageCount } = await req.json();
 
-    if (!pdfBase64) {
+    if (!pdfText || typeof pdfText !== 'string' || !pdfText.trim()) {
       return new Response(
-        JSON.stringify({ success: false, error: 'PDF file is required' }),
+        JSON.stringify({ success: false, error: 'Extracted PDF text is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -44,10 +85,17 @@ serve(async (req) => {
       );
     }
 
-    console.log('Processing PDF:', fileName, 'Base64 length:', pdfBase64.length);
+    const focusedText = buildRecipeFocusedText(pdfText);
+    console.log('Processing cookbook:', {
+      fileName,
+      pageCount,
+      textChars: pdfText.length,
+      focusedChars: focusedText.length,
+    });
 
-    const systemPrompt = `You are an expert at extracting recipes from cookbook PDFs. 
-Analyze the provided PDF document and extract ALL recipes you can find.
+    const systemPrompt = `You are an expert at extracting recipes from cookbook text.
+You will be given text that was extracted from a cookbook PDF.
+Extract recipes ONLY if they are clearly present in the provided text.
 
 For each recipe, extract:
 1. Recipe name/title (exact name from the document)
@@ -62,15 +110,17 @@ For each recipe, extract:
 5. Step-by-step cooking instructions
 
 CRITICAL INSTRUCTIONS:
-- Extract EVERY recipe from the PDF, not just a few
-- Use the EXACT recipe names from the document
-- If nutrition info is not provided, make reasonable estimates based on ingredients
-- Include ALL ingredients with their measurements
-- Preserve the original instruction steps`;
 
-    const userPrompt = `Please analyze this cookbook PDF and extract ALL recipes. Return them in the structured format requested.`;
+- Do NOT invent recipes. If a recipe title does not appear in the text, do not include it.
+- Use the EXACT recipe names from the text (verbatim).
+- Prefer recipes that contain clear section headers like "Nutrition Facts", "Ingredients", and "Instructions".
+- If nutrition info is not provided, set macros to 0 (do NOT guess).
+- Include ALL ingredients with their measurements when present.
+- Preserve instruction steps and wording as much as possible.`;
 
-    // Use Gemini's document understanding capability
+    const userPrompt = `Extract all recipes from this cookbook text (filename: ${fileName || 'cookbook.pdf'}, pages: ${pageCount ?? 'unknown'}).
+Return ONLY recipes that appear in the text.\n\nCOOKBOOK TEXT:\n${focusedText}`;
+
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -79,21 +129,10 @@ CRITICAL INSTRUCTIONS:
       },
       body: JSON.stringify({
         model: 'google/gemini-2.5-pro',
+        temperature: 0.2,
         messages: [
           { role: 'system', content: systemPrompt },
-          { 
-            role: 'user', 
-            content: [
-              { type: 'text', text: userPrompt },
-              { 
-                type: 'file',
-                file: {
-                  filename: fileName || 'cookbook.pdf',
-                  file_data: `data:application/pdf;base64,${pdfBase64}`
-                }
-              }
-            ]
-          },
+          { role: 'user', content: userPrompt },
         ],
         tools: [
           {
@@ -110,7 +149,7 @@ CRITICAL INSTRUCTIONS:
                     items: {
                       type: 'object',
                       properties: {
-                        name: { type: 'string', description: 'Exact recipe name from the document' },
+                        name: { type: 'string', description: 'Exact recipe name from the text (verbatim)' },
                         servings: { type: 'number', description: 'Number of servings' },
                         macrosPerServing: {
                           type: 'object',
@@ -121,7 +160,7 @@ CRITICAL INSTRUCTIONS:
                             fat_g: { type: 'number' },
                             fiber_g: { type: 'number' },
                           },
-                          required: ['calories', 'protein_g', 'carbs_g', 'fat_g'],
+                           required: ['calories', 'protein_g', 'carbs_g', 'fat_g'],
                         },
                         ingredients: {
                           type: 'array',

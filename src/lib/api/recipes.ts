@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import { fileToBase64 } from '@/lib/pdfParser';
+import { extractPdfText } from '@/lib/pdfParser';
 
 export interface ExtractedRecipe {
   name: string;
@@ -24,23 +24,24 @@ interface ParseCookbookResponse {
 
 export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResponse> {
   try {
-    // Convert PDF to base64 for sending to edge function
-    const pdfBase64 = await fileToBase64(file);
-    
-    if (!pdfBase64) {
+    // Extract text from the PDF client-side for reliable parsing.
+    const { text: pdfText, pageCount } = await extractPdfText(file);
+
+    if (!pdfText || !pdfText.trim()) {
       return { 
         success: false, 
-        error: 'Could not read PDF file.' 
+        error: 'Could not extract readable text from this PDF.' 
       };
     }
 
-    console.log('Sending PDF to edge function, size:', pdfBase64.length);
+    console.log('Sending extracted PDF text to backend, chars:', pdfText.length, 'pages:', pageCount);
 
     // Send to edge function for AI processing
     const { data, error } = await supabase.functions.invoke('parse-cookbook', {
       body: { 
-        pdfBase64,
-        fileName: file.name 
+        pdfText,
+        pageCount,
+        fileName: file.name,
       },
     });
 
