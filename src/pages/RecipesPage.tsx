@@ -103,10 +103,31 @@ export default function RecipesPage() {
 
   const processPdf = async (file: File) => {
     setIsProcessing(true);
-    setProcessingStatus('Extracting text from PDF...');
+    
+    const fileSizeMB = file.size / (1024 * 1024);
+    
+    if (fileSizeMB > 100) {
+      toast({
+        title: "File too large",
+        description: "Please upload a PDF smaller than 100MB",
+        variant: "destructive",
+      });
+      setIsProcessing(false);
+      return;
+    }
+
+    if (fileSizeMB > 20) {
+      setProcessingStatus(`Large file (${fileSizeMB.toFixed(0)}MB) - extracting text...`);
+    } else {
+      setProcessingStatus('Extracting text from PDF...');
+    }
     
     try {
-      setProcessingStatus('Analyzing recipes with AI...');
+      setProcessingStatus(fileSizeMB > 20 
+        ? `Processing large cookbook (${fileSizeMB.toFixed(0)}MB)... this may take a minute`
+        : 'Analyzing recipes with AI...'
+      );
+      
       const result = await parseRecipesFromPdf(file);
       
       if (!result.success || !result.recipes) {
