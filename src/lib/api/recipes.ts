@@ -22,8 +22,6 @@ interface ParseCookbookResponse {
   recipes?: ExtractedRecipe[];
 }
 
-// Maximum payload size for edge functions (~5MB to be safe)
-const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024;
 // Maximum text characters to send in a single request
 const MAX_CHUNK_CHARS = 400000;
 
