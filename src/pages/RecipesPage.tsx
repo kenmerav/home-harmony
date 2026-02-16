@@ -16,6 +16,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { parseRecipesFromPdf, parseRecipesFromJson, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
+import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
+import { EditRecipeDialog } from '@/components/recipes/EditRecipeDialog';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -61,6 +63,8 @@ export default function RecipesPage() {
   const [processingStatus, setProcessingStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
+  const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
 
   // Load recipes from database on mount
   useEffect(() => {
@@ -287,7 +291,12 @@ export default function RecipesPage() {
       {/* Recipe Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
         {filteredRecipes.map(recipe => (
-          <RecipeCard key={recipe.id} recipe={recipe} />
+          <RecipeCard
+            key={recipe.id}
+            recipe={recipe}
+            onView={() => setViewingRecipe(recipe)}
+            onEdit={() => setEditingRecipe(recipe)}
+          />
         ))}
       </div>
 
@@ -412,11 +421,31 @@ export default function RecipesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* View Recipe Dialog */}
+      <ViewRecipeDialog
+        recipe={viewingRecipe}
+        open={!!viewingRecipe}
+        onOpenChange={(open) => !open && setViewingRecipe(null)}
+      />
+
+      {/* Edit Recipe Dialog */}
+      <EditRecipeDialog
+        recipe={editingRecipe}
+        open={!!editingRecipe}
+        onOpenChange={(open) => !open && setEditingRecipe(null)}
+        onSaved={(updated) => {
+          setRecipes(prev => prev.map(r => r.id === updated.id ? dbRecipeToDisplayRecipe(updated) : r));
+        }}
+        onDeleted={(id) => {
+          setRecipes(prev => prev.filter(r => r.id !== id));
+        }}
+      />
     </AppLayout>
   );
 }
 
-function RecipeCard({ recipe }: { recipe: Recipe }) {
+function RecipeCard({ recipe, onView, onEdit }: { recipe: Recipe; onView: () => void; onEdit: () => void }) {
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden card-hover">
       {/* Header */}
@@ -455,10 +484,10 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
 
       {/* Actions */}
       <div className="p-3 flex gap-2">
-        <Button variant="outline" size="sm" className="flex-1">
+        <Button variant="outline" size="sm" className="flex-1" onClick={onView}>
           View Recipe
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" onClick={onEdit}>
           Edit
         </Button>
       </div>
