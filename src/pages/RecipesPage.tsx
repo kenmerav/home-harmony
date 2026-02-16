@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { parseRecipesFromPdf, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
+import { parseRecipesFromPdf, parseRecipesFromJson, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -90,14 +90,57 @@ export default function RecipesPage() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type === 'application/pdf') {
+    if (!file) return;
+    
+    if (file.type === 'application/json' || file.name.endsWith('.json')) {
+      processJson(file);
+    } else if (file.type === 'application/pdf') {
       processPdf(file);
-    } else if (file) {
+    } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a PDF file",
+        description: "Please upload a JSON or PDF file",
         variant: "destructive",
       });
+    }
+  };
+
+  const processJson = async (file: File) => {
+    setIsProcessing(true);
+    setProcessingStatus('Parsing JSON file...');
+    
+    try {
+      const result = await parseRecipesFromJson(file);
+      
+      if (!result.success || !result.recipes) {
+        toast({
+          title: "Failed to parse JSON",
+          description: result.error || "Could not extract recipes from the JSON file",
+          variant: "destructive",
+        });
+        setIsProcessing(false);
+        setProcessingStatus('');
+        return;
+      }
+
+      setExtractedRecipes(result.recipes);
+      setSelectedRecipes(new Set(result.recipes.map((_, i) => i)));
+      setUploadStep('review');
+      
+      toast({
+        title: "JSON processed",
+        description: `Found ${result.recipes.length} recipes`,
+      });
+    } catch (error) {
+      console.error('Error processing JSON:', error);
+      toast({
+        title: "Error",
+        description: "Failed to process the JSON file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
     }
   };
 
@@ -223,9 +266,9 @@ export default function RecipesPage() {
         title="Recipes" 
         subtitle={`${recipes.length} recipes in your library`}
         action={
-          <Button onClick={() => setUploadModalOpen(true)}>
+            <Button onClick={() => setUploadModalOpen(true)}>
             <Upload className="w-4 h-4 mr-2" />
-            Upload PDF
+            Upload Recipes
           </Button>
         }
       />
@@ -260,11 +303,11 @@ export default function RecipesPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-display">
-              {uploadStep === 'upload' ? 'Upload Cookbook PDF' : 'Review Extracted Recipes'}
+              {uploadStep === 'upload' ? 'Upload Recipes' : 'Review Extracted Recipes'}
             </DialogTitle>
             <DialogDescription>
               {uploadStep === 'upload' 
-                ? 'Upload a PDF cookbook to extract and import recipes'
+                ? 'Upload a JSON file or PDF cookbook to import recipes'
                 : `${extractedRecipes.length} recipes found. Select which ones to import.`
               }
             </DialogDescription>
@@ -283,7 +326,7 @@ export default function RecipesPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf"
+                  accept=".json,.pdf"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -297,8 +340,8 @@ export default function RecipesPage() {
                 ) : (
                   <>
                     <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <p className="font-medium">Click to upload PDF</p>
-                    <p className="text-sm text-muted-foreground mt-1">or drag and drop</p>
+                    <p className="font-medium">Click to upload JSON or PDF</p>
+                    <p className="text-sm text-muted-foreground mt-1">JSON recommended for best results</p>
                   </>
                 )}
               </div>

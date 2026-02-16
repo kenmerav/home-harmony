@@ -272,6 +272,39 @@ export async function fetchRecipes(): Promise<DbRecipe[]> {
   return data || [];
 }
 
+export async function parseRecipesFromJson(file: File): Promise<{ success: boolean; error?: string; recipes?: ExtractedRecipe[] }> {
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    
+    // Handle both array and single object
+    const rawRecipes: any[] = Array.isArray(json) ? json : [json];
+    
+    const recipes: ExtractedRecipe[] = rawRecipes.map((r: any) => ({
+      name: r.name || r.title || 'Untitled Recipe',
+      servings: r.servings || r.serving_size || 4,
+      macrosPerServing: {
+        calories: r.macrosPerServing?.calories || r.calories || r.nutrition?.calories || 0,
+        protein_g: r.macrosPerServing?.protein_g || r.protein_g || r.nutrition?.protein_g || r.nutrition?.protein || 0,
+        carbs_g: r.macrosPerServing?.carbs_g || r.carbs_g || r.nutrition?.carbs_g || r.nutrition?.carbs || 0,
+        fat_g: r.macrosPerServing?.fat_g || r.fat_g || r.nutrition?.fat_g || r.nutrition?.fat || 0,
+        fiber_g: r.macrosPerServing?.fiber_g || r.fiber_g || r.nutrition?.fiber_g || undefined,
+      },
+      ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+      ingredientsRaw: r.ingredientsRaw || r.ingredients_raw || (Array.isArray(r.ingredients) ? r.ingredients.join('\n') : ''),
+      instructions: r.instructions || r.directions || (Array.isArray(r.steps) ? r.steps.join('\n') : '') || '',
+    }));
+
+    return { success: true, recipes };
+  } catch (error) {
+    console.error('Error parsing JSON:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Invalid JSON file' 
+    };
+  }
+}
+
 export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[]> {
   const rows = recipes.map((r) => ({
     name: r.name || 'Untitled Recipe',
