@@ -27,11 +27,9 @@ const MAX_CHUNK_CHARS = 400000;
 
 export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResponse> {
   try {
-    // Check file size - warn user if very large
     const fileSizeMB = file.size / (1024 * 1024);
     console.log(`Processing PDF: ${file.name}, size: ${fileSizeMB.toFixed(1)}MB`);
 
-    // Extract text from the PDF client-side for reliable parsing.
     const { text: pdfText, pageCount } = await extractPdfText(file);
 
     if (!pdfText || !pdfText.trim()) {
@@ -43,12 +41,10 @@ export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResp
 
     console.log('Extracted PDF text, chars:', pdfText.length, 'pages:', pageCount);
 
-    // If text is too large, we need to process in chunks
     if (pdfText.length > MAX_CHUNK_CHARS) {
       return await processLargePdf(pdfText, pageCount, file.name);
     }
 
-    // Send to edge function for AI processing
     const { data, error } = await supabase.functions.invoke('parse-cookbook', {
       body: { 
         pdfText,
@@ -75,15 +71,11 @@ export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResp
   }
 }
 
-/**
- * Process a large PDF by splitting it into chunks and combining results.
- */
 async function processLargePdf(
   fullText: string, 
   pageCount: number, 
   fileName: string
 ): Promise<ParseCookbookResponse> {
-  // Split by page markers to keep recipes together
   const pagePattern = /----- PAGE (\d+) \/ \d+ -----/g;
   const pages: { pageNum: number; text: string }[] = [];
   
@@ -92,7 +84,6 @@ async function processLargePdf(
   
   while ((match = pagePattern.exec(fullText)) !== null) {
     if (lastIndex > 0) {
-      // Save previous page
       const prevPageEnd = match.index;
       const prevMatch = fullText.substring(0, lastIndex).match(/----- PAGE (\d+)/g);
       if (prevMatch) {
@@ -107,7 +98,6 @@ async function processLargePdf(
     lastIndex = match.index;
   }
   
-  // Add the last page
   if (lastIndex > 0) {
     const pageNumMatch = fullText.substring(lastIndex).match(/----- PAGE (\d+)/);
     const pageNum = pageNumMatch ? parseInt(pageNumMatch[1]) : pageCount;
@@ -117,13 +107,11 @@ async function processLargePdf(
     });
   }
   
-  // If we couldn't parse pages, fall back to simple chunking
   if (pages.length === 0) {
     const chunks = splitTextIntoChunks(fullText, MAX_CHUNK_CHARS);
     return await processChunks(chunks, pageCount, fileName);
   }
 
-  // Group pages into chunks that fit within the limit
   const chunks: string[] = [];
   let currentChunk = '';
   
@@ -147,9 +135,6 @@ async function processLargePdf(
   return await processChunks(chunks, pageCount, fileName);
 }
 
-/**
- * Simple text splitting for fallback
- */
 function splitTextIntoChunks(text: string, maxChars: number): string[] {
   const chunks: string[] = [];
   let start = 0;
@@ -157,7 +142,6 @@ function splitTextIntoChunks(text: string, maxChars: number): string[] {
   while (start < text.length) {
     let end = start + maxChars;
     
-    // Try to break at a paragraph boundary
     if (end < text.length) {
       const lastDoubleNewline = text.lastIndexOf('\n\n', end);
       if (lastDoubleNewline > start + maxChars / 2) {
@@ -172,9 +156,6 @@ function splitTextIntoChunks(text: string, maxChars: number): string[] {
   return chunks;
 }
 
-/**
- * Process multiple chunks and combine results
- */
 async function processChunks(
   chunks: string[], 
   pageCount: number, 
@@ -215,7 +196,6 @@ async function processChunks(
     }
   }
 
-  // Deduplicate recipes by name
   const seen = new Set<string>();
   const uniqueRecipes = allRecipes.filter(recipe => {
     const key = recipe.name.toLowerCase().trim();
@@ -277,7 +257,6 @@ export async function parseRecipesFromJson(file: File): Promise<{ success: boole
     const text = await file.text();
     const json = JSON.parse(text);
     
-    // Handle both array and single object
     const rawRecipes: any[] = Array.isArray(json) ? json : [json];
     
     const recipes: ExtractedRecipe[] = rawRecipes.map((r: any) => ({
@@ -332,4 +311,45 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
   }
 
   return data || [];
+}
+
+export async function updateRecipe(id: string, updates: {
+  name?: string;
+  servings?: number;
+  ingredients?: string[];
+  ingredients_raw?: string | null;
+  instructions?: string | null;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+  meal_type?: string;
+  is_anchored?: boolean;
+  default_day?: string | null;
+}): Promise<DbRecipe> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating recipe:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('recipes')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting recipe:', error);
+    throw error;
+  }
 }
