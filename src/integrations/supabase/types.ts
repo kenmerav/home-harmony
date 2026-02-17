@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      planned_meals: {
+        Row: {
+          created_at: string
+          day: string
+          id: string
+          is_locked: boolean
+          is_skipped: boolean
+          recipe_id: string
+          week_of: string
+        }
+        Insert: {
+          created_at?: string
+          day: string
+          id?: string
+          is_locked?: boolean
+          is_skipped?: boolean
+          recipe_id: string
+          week_of: string
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          id?: string
+          is_locked?: boolean
+          is_skipped?: boolean
+          recipe_id?: string
+          week_of?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planned_meals_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipes: {
         Row: {
           calories: number
