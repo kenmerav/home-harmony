@@ -1,5 +1,8 @@
 import { supabase } from '@/integrations/supabase/client';
 import { extractPdfText } from '@/lib/pdfParser';
+import { isDemoModeEnabled } from '@/lib/demoMode';
+import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
+import { normalizeRecipeIngredients } from '@/lib/recipeText';
 
 export interface ExtractedRecipe {
   name: string;
@@ -239,6 +242,12 @@ export interface DbRecipe {
 }
 
 export async function fetchRecipes(): Promise<DbRecipe[]> {
+  if (isDemoModeEnabled()) {
+    return [...getDemoRecipes()]
+      .map((r) => ({ ...r, ingredients: normalizeRecipeIngredients(r.ingredients) }))
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  }
+
   const { data, error } = await supabase
     .from('recipes')
     .select('*')
@@ -249,30 +258,59 @@ export async function fetchRecipes(): Promise<DbRecipe[]> {
     throw error;
   }
 
-  return data || [];
+  return (data || []).map((r) => ({ ...r, ingredients: normalizeRecipeIngredients(r.ingredients) }));
 }
 
 export async function parseRecipesFromJson(file: File): Promise<{ success: boolean; error?: string; recipes?: ExtractedRecipe[] }> {
   try {
     const text = await file.text();
     const json = JSON.parse(text);
-    
-    const rawRecipes: any[] = Array.isArray(json) ? json : [json];
-    
-    const recipes: ExtractedRecipe[] = rawRecipes.map((r: any) => ({
-      name: r.name || r.title || 'Untitled Recipe',
-      servings: r.servings || r.serving_size || 4,
+
+    const root = (typeof json === 'object' && json !== null) ? (json as Record<string, unknown>) : null;
+    const nestedRecipes = root?.recipes;
+    const rawRecipes: unknown[] = Array.isArray(json)
+      ? json
+      : Array.isArray(nestedRecipes)
+      ? nestedRecipes
+      : [json];
+    const toRecord = (value: unknown): Record<string, unknown> =>
+      typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+    const toNumber = (value: unknown, fallback = 0): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      }
+      return fallback;
+    };
+
+    const recipes: ExtractedRecipe[] = rawRecipes.map((rawRecipe) => {
+      const recipe = toRecord(rawRecipe);
+      const macros = toRecord(recipe.macrosPerServing);
+      const nutrition = toRecord(recipe.nutrition);
+      const ingredientsRaw = Array.isArray(recipe.ingredients)
+        ? recipe.ingredients.filter((item): item is string => typeof item === 'string')
+        : [];
+      const ingredients = normalizeRecipeIngredients(ingredientsRaw);
+      const steps = Array.isArray(recipe.steps)
+        ? recipe.steps.filter((item): item is string => typeof item === 'string')
+        : [];
+
+      return {
+      name: String(recipe.name || recipe.title || 'Untitled Recipe'),
+      servings: toNumber(recipe.servings ?? recipe.serving_size, 4),
       macrosPerServing: {
-        calories: r.macrosPerServing?.calories || r.calories || r.nutrition?.calories || 0,
-        protein_g: r.macrosPerServing?.protein_g || r.protein_g || r.nutrition?.protein_g || r.nutrition?.protein || 0,
-        carbs_g: r.macrosPerServing?.carbs_g || r.carbs_g || r.nutrition?.carbs_g || r.nutrition?.carbs || 0,
-        fat_g: r.macrosPerServing?.fat_g || r.fat_g || r.nutrition?.fat_g || r.nutrition?.fat || 0,
-        fiber_g: r.macrosPerServing?.fiber_g || r.fiber_g || r.nutrition?.fiber_g || undefined,
+        calories: toNumber(macros.calories ?? recipe.calories ?? nutrition.calories, 0),
+        protein_g: toNumber(macros.protein_g ?? recipe.protein_g ?? nutrition.protein_g ?? nutrition.protein, 0),
+        carbs_g: toNumber(macros.carbs_g ?? recipe.carbs_g ?? nutrition.carbs_g ?? nutrition.carbs, 0),
+        fat_g: toNumber(macros.fat_g ?? recipe.fat_g ?? nutrition.fat_g ?? nutrition.fat, 0),
+        fiber_g: toNumber(macros.fiber_g ?? recipe.fiber_g ?? nutrition.fiber_g, 0) || undefined,
       },
-      ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
-      ingredientsRaw: r.ingredientsRaw || r.ingredients_raw || (Array.isArray(r.ingredients) ? r.ingredients.join('\n') : ''),
-      instructions: r.instructions || r.directions || (Array.isArray(r.steps) ? r.steps.join('\n') : '') || '',
-    }));
+      ingredients,
+      ingredientsRaw: String(recipe.ingredientsRaw || recipe.ingredients_raw || ingredients.join('\n')),
+      instructions: String(recipe.instructions || recipe.directions || steps.join('\n')),
+    };
+    });
 
     return { success: true, recipes };
   } catch (error) {
@@ -288,8 +326,8 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
   const rows = recipes.map((r) => ({
     name: r.name || 'Untitled Recipe',
     servings: r.servings || 4,
-    ingredients: r.ingredients || [],
-    ingredients_raw: r.ingredientsRaw || null,
+    ingredients: normalizeRecipeIngredients(r.ingredients || []),
+    ingredients_raw: normalizeRecipeIngredients(r.ingredients || []).join('\n') || r.ingredientsRaw || null,
     instructions: r.instructions || null,
     calories: r.macrosPerServing?.calories || 0,
     protein_g: r.macrosPerServing?.protein_g || 0,
@@ -299,6 +337,31 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
     meal_type: 'dinner',
     is_anchored: false,
   }));
+
+  if (isDemoModeEnabled()) {
+    const existing = getDemoRecipes();
+    const now = new Date().toISOString();
+    const inserted: DbRecipe[] = rows.map((row) => ({
+      id: `demo-r-${crypto.randomUUID()}`,
+      name: row.name,
+      servings: row.servings,
+      ingredients: row.ingredients,
+      ingredients_raw: row.ingredients_raw,
+      instructions: row.instructions,
+      calories: row.calories,
+      protein_g: row.protein_g,
+      carbs_g: row.carbs_g,
+      fat_g: row.fat_g,
+      fiber_g: row.fiber_g,
+      meal_type: row.meal_type,
+      is_anchored: row.is_anchored,
+      default_day: null,
+      created_at: now,
+      updated_at: now,
+    }));
+    setDemoRecipes([...inserted, ...existing]);
+    return inserted;
+  }
 
   const { data, error } = await supabase
     .from('recipes')
@@ -327,9 +390,29 @@ export async function updateRecipe(id: string, updates: {
   is_anchored?: boolean;
   default_day?: string | null;
 }): Promise<DbRecipe> {
+  const cleanedUpdates = { ...updates };
+  if (updates.ingredients) {
+    cleanedUpdates.ingredients = normalizeRecipeIngredients(updates.ingredients);
+    cleanedUpdates.ingredients_raw = cleanedUpdates.ingredients.join('\n');
+  }
+
+  if (isDemoModeEnabled()) {
+    const recipes = getDemoRecipes();
+    const idx = recipes.findIndex((r) => r.id === id);
+    if (idx < 0) throw new Error('Recipe not found');
+    const next: DbRecipe = {
+      ...recipes[idx],
+      ...cleanedUpdates,
+      updated_at: new Date().toISOString(),
+    };
+    recipes[idx] = next;
+    setDemoRecipes(recipes);
+    return next;
+  }
+
   const { data, error } = await supabase
     .from('recipes')
-    .update(updates)
+    .update(cleanedUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -339,10 +422,16 @@ export async function updateRecipe(id: string, updates: {
     throw error;
   }
 
-  return data;
+  return { ...data, ingredients: normalizeRecipeIngredients(data.ingredients) };
 }
 
 export async function deleteRecipe(id: string): Promise<void> {
+  if (isDemoModeEnabled()) {
+    const recipes = getDemoRecipes().filter((r) => r.id !== id);
+    setDemoRecipes(recipes);
+    return;
+  }
+
   const { error } = await supabase
     .from('recipes')
     .delete()

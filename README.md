@@ -1,73 +1,73 @@
-# Welcome to your Lovable project
+# Home Harmony
 
-## Project info
+Home Harmony is a family operations app for:
+- weekly meal planning
+- recipe library + imports
+- merged grocery lists with quantity rollups
+- chores and household task tracking
+- personal nutrition dashboards
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
-
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Local Development
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Landing page:
+- `http://127.0.0.1:4173/`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+App dashboard:
+- `http://127.0.0.1:4173/app`
 
-**Use GitHub Codespaces**
+## Auth + Billing Setup (Supabase + Stripe)
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Required Supabase Edge Function secrets:
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PRICE_ID`
+- `STRIPE_WEBHOOK_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-## What technologies are used for this project?
+Apply DB migration:
 
-This project is built with:
+```sh
+supabase db push
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Deploy Edge Functions:
 
-## How can I deploy this project?
+```sh
+supabase functions deploy create-checkout-session
+supabase functions deploy create-portal-session
+supabase functions deploy stripe-webhook
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Set function secrets:
 
-## Can I connect a custom domain to my Lovable project?
+```sh
+supabase secrets set \
+  STRIPE_SECRET_KEY=sk_live_or_test_... \
+  STRIPE_PRICE_ID=price_... \
+  STRIPE_WEBHOOK_SECRET=whsec_... \
+  SUPABASE_SERVICE_ROLE_KEY=...
+```
 
-Yes, you can!
+Create Stripe webhook endpoint for:
+- `POST https://<your-project-ref>.supabase.co/functions/v1/stripe-webhook`
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Listen to events:
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+App flow:
+- `/signin` for account creation/login
+- `/billing` for checkout and billing portal
+- subscribed users can access `/app`, `/meals`, `/recipes`, `/grocery`, `/chores`, `/tasks`, `/me`, `/wife`
+
+## Build
+
+```sh
+npm run build
+```

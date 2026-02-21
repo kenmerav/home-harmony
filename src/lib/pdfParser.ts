@@ -1,6 +1,5 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 // Vite will bundle the worker and give us a URL string.
-// eslint-disable-next-line import/no-unresolved
 import workerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 /**

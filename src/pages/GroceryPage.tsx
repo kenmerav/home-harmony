@@ -8,6 +8,7 @@ import { Copy, ExternalLink, ShoppingCart, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { fetchMealsForWeek, DbPlannedMeal } from '@/lib/api/meals';
+import { getMealMultipliers } from '@/lib/mealPrefs';
 
 interface GroceryItem {
   id: string;
@@ -16,6 +17,35 @@ interface GroceryItem {
   category: GroceryCategory;
   isChecked: boolean;
   sourceRecipes: string[];
+}
+
+interface ParsedIngredient {
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+}
+
+function splitCompositeIngredients(raw: string): string[] {
+  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const nested: string[] = [];
+  const canSplitCommas = !/[()]/.test(text) && !/\be\.g\./i.test(text);
+  const commaParts = canSplitCommas ? text.split(',').map((part) => part.trim()).filter(Boolean) : [text];
+  const simpleCommaList = commaParts.length > 1 && commaParts.length <= 3
+    && commaParts.every((part) => part.split(/\s+/).length <= 4);
+  if (simpleCommaList) {
+    for (const part of commaParts) nested.push(...splitCompositeIngredients(part));
+    return nested;
+  }
+
+  const quantityMatch = text.match(/\s(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+)\s+/);
+  if (quantityMatch && quantityMatch.index !== undefined && quantityMatch.index > 2) {
+    const left = text.slice(0, quantityMatch.index).trim();
+    const right = text.slice(quantityMatch.index + 1).trim();
+    if (left && right) return [left, right];
+  }
+
+  return [text];
 }
 
 const categoryOrder: GroceryCategory[] = ['produce', 'meat', 'dairy', 'pantry', 'other'];
@@ -51,37 +81,199 @@ function categorizeIngredient(name: string): GroceryCategory {
   return 'other';
 }
 
-function buildGroceryList(meals: DbPlannedMeal[]): GroceryItem[] {
-  const itemMap = new Map<string, GroceryItem>();
+const fractionMap: Record<string, string> = {
+  '¼': ' 1/4 ',
+  '½': ' 1/2 ',
+  '¾': ' 3/4 ',
+  '⅓': ' 1/3 ',
+  '⅔': ' 2/3 ',
+  '⅛': ' 1/8 ',
+  '⅜': ' 3/8 ',
+  '⅝': ' 5/8 ',
+  '⅞': ' 7/8 ',
+};
+
+const unitAliases: Record<string, string> = {
+  cup: 'cup',
+  cups: 'cup',
+  tbsp: 'tbsp',
+  tablespoon: 'tbsp',
+  tablespoons: 'tbsp',
+  tsp: 'tsp',
+  teaspoon: 'tsp',
+  teaspoons: 'tsp',
+  oz: 'oz',
+  ounce: 'oz',
+  ounces: 'oz',
+  lb: 'lb',
+  lbs: 'lb',
+  pound: 'lb',
+  pounds: 'lb',
+  g: 'g',
+  gram: 'g',
+  grams: 'g',
+  kg: 'kg',
+  ml: 'ml',
+  l: 'l',
+  clove: 'clove',
+  cloves: 'clove',
+  can: 'can',
+  cans: 'can',
+  package: 'package',
+  packages: 'package',
+  packet: 'packet',
+  packets: 'packet',
+  slice: 'slice',
+  slices: 'slice',
+  bunch: 'bunch',
+  bunches: 'bunch',
+};
+
+const displayUnit = (unit: string, amount: number): string => {
+  if (unit === 'tbsp' || unit === 'tsp' || unit === 'oz' || unit === 'lb' || unit === 'g' || unit === 'kg' || unit === 'ml' || unit === 'l') {
+    return unit;
+  }
+  if (Math.abs(amount - 1) < 0.001) return unit;
+  if (unit.endsWith('ch')) return `${unit}es`;
+  return `${unit}s`;
+};
+
+const parseFraction = (token: string): number | null => {
+  if (!token) return null;
+  if (token.includes('/')) {
+    const [a, b] = token.split('/').map(Number);
+    if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) return a / b;
+    return null;
+  }
+  const n = Number(token);
+  return Number.isFinite(n) ? n : null;
+};
+
+function parseIngredient(raw: string): ParsedIngredient {
+  let text = raw;
+  for (const [char, replacement] of Object.entries(fractionMap)) {
+    text = text.replaceAll(char, replacement);
+  }
+  text = text.replace(/\s+/g, ' ').trim();
+  text = text.replace(/^[-•\u2022]+/, '').trim();
+
+  const match = text.match(/^(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+)\s*([\p{L}%]+)?\s*(.*)$/u);
+  if (!match) return { name: text, quantity: null, unit: null };
+
+  const quantityToken = match[1];
+  const maybeUnit = (match[2] || '').toLowerCase();
+  const rest = (match[3] || '').replace(/^of\s+/i, '').trim();
+
+  let quantity: number | null = null;
+  if (quantityToken.includes(' ')) {
+    const [whole, frac] = quantityToken.split(' ');
+    const wholeNum = parseFraction(whole);
+    const fracNum = parseFraction(frac);
+    if (wholeNum !== null && fracNum !== null) quantity = wholeNum + fracNum;
+  } else {
+    quantity = parseFraction(quantityToken);
+  }
+
+  if (quantity === null) return { name: text, quantity: null, unit: null };
+
+  const unit = unitAliases[maybeUnit] || null;
+  const name = rest || text;
+  if (!unit) {
+    const hasPercentDescriptor = maybeUnit.includes('%') || rest.startsWith('%');
+    if (hasPercentDescriptor) {
+      const pct = `${quantityToken}${maybeUnit}`.replace(/\s+/g, '');
+      const pctRest = rest.replace(/^%+\s*/, '').trim();
+      return { name: `${pct} ${pctRest}`.trim(), quantity: null, unit: null };
+    }
+    const expandedName = [maybeUnit || '', rest || ''].join(' ').trim() || name;
+    return { name: expandedName, quantity, unit: 'item' };
+  }
+  return { name, quantity, unit };
+}
+
+function shouldSkipIngredientName(name: string): boolean {
+  const lower = name.toLowerCase().trim();
+  if (!lower) return true;
+  if (lower === '%' || lower === 'cont') return true;
+  if (/back to table of contents?/.test(lower)) return true;
+  if (/\btable of cont/.test(lower)) return true;
+  if (/\(e\.g\.$/.test(lower)) return true;
+  if (/(^|\\s)cont$/.test(lower)) return true;
+  if (['red', 'green', 'yellow', 'orange'].includes(lower)) return true;
+  return false;
+}
+
+function normalizeIngredientName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/%/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatQuantity(qtyByUnit: Map<string, number>, countNoQty: number): string {
+  const parts: string[] = [];
+  for (const [unit, amount] of qtyByUnit.entries()) {
+    const rounded = Math.round(amount * 100) / 100;
+    parts.push(`${rounded} ${displayUnit(unit, rounded)}`);
+  }
+  if (countNoQty > 0) {
+    parts.push(`${countNoQty}x`);
+  }
+  return parts.join(' + ') || '1x';
+}
+
+function buildGroceryList(meals: DbPlannedMeal[], multipliers: Record<string, number>): GroceryItem[] {
+  const itemMap = new Map<string, GroceryItem & { qtyByUnit: Map<string, number>; countNoQty: number }>();
   
   for (const meal of meals) {
     if (meal.is_skipped) continue;
-    const recipe = meal.recipes as any;
+    const recipe = meal.recipes;
     if (!recipe?.ingredients) continue;
+    const mealMultiplier = multipliers[meal.id] === 2 ? 2 : 1;
     
     for (const ingredient of recipe.ingredients as string[]) {
-      const key = ingredient.toLowerCase().trim();
-      if (!key) continue;
-      
-      if (itemMap.has(key)) {
-        const existing = itemMap.get(key)!;
-        if (!existing.sourceRecipes.includes(recipe.name)) {
-          existing.sourceRecipes.push(recipe.name);
+      for (const split of splitCompositeIngredients(ingredient)) {
+        const parsed = parseIngredient(split);
+        if (shouldSkipIngredientName(parsed.name)) continue;
+        const key = normalizeIngredientName(parsed.name);
+        if (!key || key.length < 2) continue;
+        
+        if (itemMap.has(key)) {
+          const existing = itemMap.get(key)!;
+          if (!existing.sourceRecipes.includes(recipe.name)) {
+            existing.sourceRecipes.push(mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name);
+          }
+          if (parsed.quantity !== null && parsed.unit) {
+            existing.qtyByUnit.set(parsed.unit, (existing.qtyByUnit.get(parsed.unit) || 0) + (parsed.quantity * mealMultiplier));
+          } else {
+            existing.countNoQty += mealMultiplier;
+          }
+        } else {
+          itemMap.set(key, {
+            id: `grocery-${itemMap.size}`,
+            name: parsed.name,
+            quantity: '',
+            category: categorizeIngredient(parsed.name),
+            isChecked: false,
+            sourceRecipes: [mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name],
+            qtyByUnit: new Map(parsed.quantity !== null && parsed.unit ? [[parsed.unit, parsed.quantity * mealMultiplier]] : []),
+            countNoQty: parsed.quantity !== null && parsed.unit ? 0 : mealMultiplier,
+          });
         }
-      } else {
-        itemMap.set(key, {
-          id: `grocery-${itemMap.size}`,
-          name: ingredient,
-          quantity: '1',
-          category: categorizeIngredient(ingredient),
-          isChecked: false,
-          sourceRecipes: [recipe.name],
-        });
       }
     }
   }
   
-  return Array.from(itemMap.values());
+  return Array.from(itemMap.values()).map((item) => ({
+    id: item.id,
+    name: item.name,
+    quantity: formatQuantity(item.qtyByUnit, item.countNoQty),
+    category: item.category,
+    isChecked: item.isChecked,
+    sourceRecipes: item.sourceRecipes,
+  }));
 }
 
 export default function GroceryPage() {
@@ -97,7 +289,7 @@ export default function GroceryPage() {
     try {
       setLoading(true);
       const meals = await fetchMealsForWeek(0);
-      setItems(buildGroceryList(meals));
+      setItems(buildGroceryList(meals, getMealMultipliers()));
     } catch (err) {
       console.error('Failed to load grocery list:', err);
     } finally {
@@ -125,7 +317,7 @@ export default function GroceryPage() {
   const copyList = () => {
     const uncheckedItems = items
       .filter(i => !i.isChecked)
-      .map(i => `${i.name}`)
+      .map(i => `${i.name} (${i.quantity})`)
       .join('\n');
     
     navigator.clipboard.writeText(uncheckedItems);
@@ -197,7 +389,7 @@ export default function GroceryPage() {
                         "font-medium text-sm transition-gentle",
                         item.isChecked && "line-through text-muted-foreground"
                       )}>
-                        {item.name}
+                        {item.name} <span className="text-muted-foreground">({item.quantity})</span>
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {item.sourceRecipes.join(', ')}

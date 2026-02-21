@@ -3,6 +3,10 @@ export interface Recipe {
   id: string;
   name: string;
   servings: number;
+  estimatedCookMinutes?: number;
+  imageUrl?: string;
+  isFavorite?: boolean;
+  isKidFriendly?: boolean;
   ingredients: string[];
   ingredientsRaw: string;
   instructions: string;

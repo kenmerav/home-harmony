@@ -98,11 +98,17 @@ function safeParseRecipesJson(maybeJson: string | undefined): unknown[] | null {
   if (!maybeJson) return null;
   const trimmed = maybeJson.trim();
   if (!trimmed) return null;
+  const getRecipes = (parsed: unknown): unknown[] | null => {
+    if (!parsed || typeof parsed !== "object") return null;
+    const recipes = (parsed as { recipes?: unknown }).recipes;
+    return Array.isArray(recipes) ? recipes : null;
+  };
 
   // Try direct parse first
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && Array.isArray((parsed as any).recipes)) return (parsed as any).recipes;
+    const recipes = getRecipes(parsed);
+    if (recipes) return recipes;
   } catch {
     // ignore
   }
@@ -114,7 +120,8 @@ function safeParseRecipesJson(maybeJson: string | undefined): unknown[] | null {
     const slice = trimmed.slice(firstBrace, lastBrace + 1);
     try {
       const parsed = JSON.parse(slice);
-      if (parsed && Array.isArray((parsed as any).recipes)) return (parsed as any).recipes;
+      const recipes = getRecipes(parsed);
+      if (recipes) return recipes;
     } catch {
       // ignore
     }
@@ -128,15 +135,20 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function normalizeRecipe(raw: any): ExtractedRecipe | null {
+function normalizeRecipe(raw: unknown): ExtractedRecipe | null {
   if (!raw || typeof raw !== "object") return null;
+  const recipe = raw as Record<string, unknown>;
 
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const name = typeof recipe.name === "string" ? recipe.name.trim() : "";
   if (!name) return null;
 
-  const servings = toNumber(raw.servings, 4) || 4;
+  const servings = toNumber(recipe.servings, 4) || 4;
 
-  const macrosSrc = raw.macrosPerServing ?? raw.macros ?? raw.nutrition ?? {};
+  const macrosSrcValue = recipe.macrosPerServing ?? recipe.macros ?? recipe.nutrition ?? {};
+  const macrosSrc =
+    typeof macrosSrcValue === "object" && macrosSrcValue !== null
+      ? (macrosSrcValue as Record<string, unknown>)
+      : {};
   const macrosPerServing = {
     calories: toNumber(macrosSrc.calories, 0),
     protein_g: toNumber(macrosSrc.protein_g, 0),
@@ -147,30 +159,30 @@ function normalizeRecipe(raw: any): ExtractedRecipe | null {
       : {}),
   };
 
-  const ingredients = Array.isArray(raw.ingredients)
-    ? raw.ingredients
+  const ingredients = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients
         .filter((x: unknown) => typeof x === "string")
         .map((s: string) => s.trim())
         .filter(Boolean)
     : [];
 
   const ingredientsRaw =
-    typeof raw.ingredientsRaw === "string"
-      ? raw.ingredientsRaw
-      : typeof raw.ingredients_text === "string"
-      ? raw.ingredients_text
+    typeof recipe.ingredientsRaw === "string"
+      ? recipe.ingredientsRaw
+      : typeof recipe.ingredients_text === "string"
+      ? recipe.ingredients_text
       : ingredients.join("\n");
 
-  const instructions = Array.isArray(raw.instructions)
-    ? raw.instructions
+  const instructions = Array.isArray(recipe.instructions)
+    ? recipe.instructions
         .filter((x: unknown) => typeof x === "string")
         .map((s: string) => s.trim())
         .filter(Boolean)
         .join("\n")
-    : typeof raw.instructions === "string"
-    ? raw.instructions
-    : typeof raw.directions === "string"
-    ? raw.directions
+    : typeof recipe.instructions === "string"
+    ? recipe.instructions
+    : typeof recipe.directions === "string"
+    ? recipe.directions
     : "";
 
   return {

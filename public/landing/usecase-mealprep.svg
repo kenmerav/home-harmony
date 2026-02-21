@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600">
+  <rect width="900" height="600" fill="#eef4f0"/>
+  <rect x="70" y="70" width="760" height="460" rx="32" fill="#ffffff" stroke="#d7e4db" stroke-width="4"/>
+  <rect x="120" y="120" width="660" height="70" rx="14" fill="#f2f7f4"/>
+  <rect x="120" y="220" width="200" height="260" rx="18" fill="#f7faf8"/>
+  <rect x="350" y="220" width="200" height="260" rx="18" fill="#f7faf8"/>
+  <rect x="580" y="220" width="200" height="260" rx="18" fill="#f7faf8"/>
+  <circle cx="165" cy="155" r="12" fill="#3b8f61"/>
+  <text x="195" y="164" font-size="32" font-family="Arial, sans-serif" fill="#2f3a32">Meal Prep Week</text>
+  <text x="145" y="280" font-size="22" font-family="Arial, sans-serif" fill="#3d4e44">Monday</text>
+  <text x="145" y="320" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">2x Chicken Bowls</text>
+  <text x="145" y="360" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">Macros set</text>
+  <text x="375" y="280" font-size="22" font-family="Arial, sans-serif" fill="#3d4e44">Wednesday</text>
+  <text x="375" y="320" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">Grocery auto-rollup</text>
+  <text x="375" y="360" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">No duplicate buying</text>
+  <text x="605" y="280" font-size="22" font-family="Arial, sans-serif" fill="#3d4e44">Friday</text>
+  <text x="605" y="320" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">Quick-time meals</text>
+  <text x="605" y="360" font-size="20" font-family="Arial, sans-serif" fill="#3d4e44">Family-friendly picks</text>
+</svg>

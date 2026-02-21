@@ -6,7 +6,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Anchor, Calendar } from 'lucide-react';
+import { Anchor, Calendar, Clock3 } from 'lucide-react';
+import { formatCookTime } from '@/lib/recipeTime';
+import { normalizeRecipeInstructions } from '@/lib/recipeText';
 
 const dayLabels: Record<string, string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
@@ -21,6 +23,7 @@ interface ViewRecipeDialogProps {
 
 export function ViewRecipeDialog({ recipe, open, onOpenChange }: ViewRecipeDialogProps) {
   if (!recipe) return null;
+  const formattedInstructions = normalizeRecipeInstructions(recipe.instructions);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -33,9 +36,20 @@ export function ViewRecipeDialog({ recipe, open, onOpenChange }: ViewRecipeDialo
         </DialogHeader>
 
         <div className="space-y-5">
+          {recipe.imageUrl && (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <img src={recipe.imageUrl} alt={recipe.name} className="w-full h-auto object-cover" />
+            </div>
+          )}
           {/* Meta row */}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge variant="secondary">{recipe.servings} servings</Badge>
+            {formatCookTime(recipe.estimatedCookMinutes) && (
+              <Badge variant="secondary" className="flex items-center gap-1">
+                <Clock3 className="w-3 h-3" />
+                {formatCookTime(recipe.estimatedCookMinutes)}
+              </Badge>
+            )}
             <Badge variant="outline">{recipe.mealType}</Badge>
             {recipe.defaultDay && (
               <Badge variant="outline" className="flex items-center gap-1">
@@ -69,14 +83,12 @@ export function ViewRecipeDialog({ recipe, open, onOpenChange }: ViewRecipeDialo
           )}
 
           {/* Instructions */}
-          {recipe.instructions && (
-            <section>
-              <h3 className="font-semibold mb-2 text-sm text-muted-foreground uppercase tracking-wide">Instructions</h3>
-              <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                {recipe.instructions}
-              </div>
-            </section>
-          )}
+          <section>
+            <h3 className="font-semibold mb-2 text-sm text-muted-foreground uppercase tracking-wide">Instructions</h3>
+            <div className="text-sm whitespace-pre-wrap leading-relaxed">
+              {formattedInstructions || 'No instructions available for this recipe yet.'}
+            </div>
+          </section>
         </div>
       </DialogContent>
     </Dialog>

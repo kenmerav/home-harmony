@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          created_at: string
+          dietary_preferences: string[]
+          email: string | null
+          family_size: number | null
+          full_name: string | null
+          goals: string | null
+          household_id: string | null
+          household_name: string | null
+          id: string
+          phone: string | null
+          timezone: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dietary_preferences?: string[]
+          email?: string | null
+          family_size?: number | null
+          full_name?: string | null
+          goals?: string | null
+          household_id?: string | null
+          household_name?: string | null
+          id: string
+          phone?: string | null
+          timezone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dietary_preferences?: string[]
+          email?: string | null
+          family_size?: number | null
+          full_name?: string | null
+          goals?: string | null
+          household_id?: string | null
+          household_name?: string | null
+          id?: string
+          phone?: string | null
+          timezone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       planned_meals: {
         Row: {
           created_at: string
@@ -106,6 +151,45 @@ export type Database = {
           protein_g?: number
           servings?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          id: string
+          price_id: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          trial_ends_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          id?: string
+          price_id?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          id?: string
+          price_id?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Home, 
   CalendarDays, 
@@ -7,22 +7,27 @@ import {
   ShoppingCart, 
   ListChecks, 
   ClipboardList,
+  UserRoundPlus,
+  LogOut,
   User,
   Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
   children: ReactNode;
 }
 
 const navItems = [
-  { to: '/', icon: Home, label: 'Today' },
+  { to: '/app', icon: Home, label: 'Today' },
   { to: '/meals', icon: CalendarDays, label: 'Meals' },
   { to: '/recipes', icon: BookOpen, label: 'Recipes' },
   { to: '/grocery', icon: ShoppingCart, label: 'Grocery' },
   { to: '/chores', icon: ListChecks, label: 'Chores' },
   { to: '/tasks', icon: ClipboardList, label: 'Tasks' },
+  { to: '/family', icon: UserRoundPlus, label: 'Family' },
 ];
 
 const profileItems = [
@@ -32,12 +37,25 @@ const profileItems = [
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/signin', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
       <main className="pb-20 md:pb-6 md:pl-64">
         <div className="max-w-4xl mx-auto p-4 md:p-6">
+          <div className="mb-4 flex justify-end">
+            <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign out
+            </Button>
+          </div>
           {children}
         </div>
       </main>
@@ -100,15 +118,15 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border safe-area-inset-bottom">
-        <div className="flex items-center justify-around px-2 py-2">
-          {navItems.slice(0, 5).map((item) => {
+        <div className="flex items-center gap-1 overflow-x-auto px-2 py-2">
+          {navItems.map((item) => {
             const isActive = location.pathname === item.to;
             return (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg transition-gentle min-w-[64px]",
+                  "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg transition-gentle min-w-[64px] shrink-0",
                   isActive 
                     ? "text-primary" 
                     : "text-muted-foreground"

@@ -3,8 +3,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -19,10 +21,18 @@ import {
   fetchMealsForWeek,
   generateMeals,
   swapMeal,
+  updateMealRecipe,
   toggleMealLock,
   toggleMealSkip,
   DbPlannedMeal,
+  MealGenerationOptions,
 } from '@/lib/api/meals';
+import { normalizeRecipeInstructions } from '@/lib/recipeText';
+import { getRecipeImageUrl } from '@/data/recipeImages';
+import { estimateCookMinutes } from '@/lib/recipeTime';
+import { DbRecipe, fetchRecipes } from '@/lib/api/recipes';
+import { getFavoriteIds, getKidFriendlyOverrides, getMealMultiplier, getPlanRules, setMealMultiplier, setPlanRules } from '@/lib/mealPrefs';
+import { inferKidFriendly } from '@/lib/kidFriendly';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -36,6 +46,38 @@ const dayFullLabels: Record<DayOfWeek, string> = {
   friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+};
+
+const normalizeText = (s: string): string =>
+  s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[’'`]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+function scoreRecipeForRequest(recipe: DbRecipe, request: string): number {
+  const terms = normalizeText(request).split(' ').filter((t) => t.length > 1);
+  if (terms.length === 0) return 0;
+  const haystack = normalizeText(
+    `${recipe.name} ${(recipe.ingredients || []).join(' ')} ${recipe.instructions || ''}`,
+  );
+  let score = 0;
+  for (const term of terms) {
+    if (haystack.includes(term)) score += recipe.name.toLowerCase().includes(term) ? 2 : 1;
+  }
+  return score;
+}
+
+interface PantryMatch {
+  recipe: DbRecipe;
+  matched: string[];
+  missing: string[];
+}
+
 export default function MealsPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [meals, setMeals] = useState<DbPlannedMeal[]>([]);
@@ -43,12 +85,34 @@ export default function MealsPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [selectiveDialogOpen, setSelectiveDialogOpen] = useState(false);
   const [selectedDays, setSelectedDays] = useState<Set<DayOfWeek>>(new Set());
+  const [selectedMeal, setSelectedMeal] = useState<DbPlannedMeal | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [planRules, setPlanRulesState] = useState<MealGenerationOptions>({
+    preferFavorites: true,
+    preferKidFriendly: false,
+    maxCookMinutes: null,
+  });
+  const [swapDialogMeal, setSwapDialogMeal] = useState<DbPlannedMeal | null>(null);
+  const [swapMode, setSwapMode] = useState<'random' | 'choose' | 'request'>('random');
+  const [allRecipes, setAllRecipes] = useState<DbRecipe[]>([]);
+  const [chooseRecipeQuery, setChooseRecipeQuery] = useState('');
+  const [selectedRecipeId, setSelectedRecipeId] = useState('');
+  const [swapRequest, setSwapRequest] = useState('');
+  const [requestMaxMinutes, setRequestMaxMinutes] = useState('');
+  const [pantryOpen, setPantryOpen] = useState(false);
+  const [pantryInput, setPantryInput] = useState('');
+  const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
+  const favoriteIds = getFavoriteIds();
+  const kidFriendlyOverrides = getKidFriendlyOverrides();
   const { toast } = useToast();
+  const isKidFriendlyRecipe = (recipe: DbRecipe) =>
+    kidFriendlyOverrides[recipe.id] ?? inferKidFriendly(recipe);
 
   const weekStart = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
   const weekLabel = format(weekStart, 'MMM d') + ' – ' + format(addDays(weekStart, 6), 'MMM d');
 
   useEffect(() => {
+    setPlanRulesState(getPlanRules());
     loadMeals();
   }, [weekOffset]);
 
@@ -64,14 +128,36 @@ export default function MealsPage() {
     }
   };
 
+  const ensureRecipesLoaded = async () => {
+    const recipes = await fetchRecipes();
+    setAllRecipes(recipes);
+    return recipes;
+  };
+
+  const savePlanRules = () => {
+    const maxCookMinutes =
+      typeof planRules.maxCookMinutes === 'number' && planRules.maxCookMinutes > 0
+        ? Math.round(planRules.maxCookMinutes)
+        : null;
+    const next = {
+      preferFavorites: !!planRules.preferFavorites,
+      preferKidFriendly: !!planRules.preferKidFriendly,
+      maxCookMinutes,
+    };
+    setPlanRulesState(next);
+    setPlanRules(next);
+    setRulesOpen(false);
+    toast({ title: 'Planner rules saved' });
+  };
+
   const handleRegenerate = async (daysToRegen?: DayOfWeek[]) => {
     setRegenerating(true);
     try {
-      const data = await generateMeals(weekOffset, daysToRegen);
+      const data = await generateMeals(weekOffset, daysToRegen, planRules);
       setMeals(data);
       toast({ title: 'Meals generated!', description: `${data.length} meals planned for the week` });
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message || 'Failed to generate meals', variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Error', description: getErrorMessage(error, 'Failed to generate meals'), variant: 'destructive' });
     } finally {
       setRegenerating(false);
       setSelectiveDialogOpen(false);
@@ -89,11 +175,109 @@ export default function MealsPage() {
     }
   };
 
+  const openSwapDialog = async (meal: DbPlannedMeal) => {
+    setSwapDialogMeal(meal);
+    setSwapMode('random');
+    setChooseRecipeQuery('');
+    setSelectedRecipeId('');
+    setSwapRequest('');
+    setRequestMaxMinutes('');
+    try {
+      await ensureRecipesLoaded();
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load recipes', variant: 'destructive' });
+    }
+  };
+
+  const applySwap = async () => {
+    if (!swapDialogMeal) return;
+    try {
+      if (swapMode === 'random') {
+        await handleSwap(swapDialogMeal);
+      } else if (swapMode === 'choose') {
+        const recipeOptions = allRecipes
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        const exactMatch = recipeOptions.find(
+          (r) => r.name.toLowerCase().trim() === chooseRecipeQuery.toLowerCase().trim(),
+        );
+        const resolvedRecipeId = selectedRecipeId || exactMatch?.id || '';
+
+        if (!resolvedRecipeId) {
+          toast({ title: 'Type or pick a recipe first', variant: 'destructive' });
+          return;
+        }
+        const data = await updateMealRecipe(swapDialogMeal.id, resolvedRecipeId, swapDialogMeal.week_of);
+        setMeals(data);
+        toast({ title: 'Meal updated' });
+      } else {
+        const request = swapRequest.trim();
+        if (!request) {
+          toast({ title: 'Enter a request first', variant: 'destructive' });
+          return;
+        }
+        const maxMinutes = Number.parseInt(requestMaxMinutes, 10);
+        const candidates = allRecipes
+          .filter((r) => r.id !== swapDialogMeal.recipe_id)
+          .filter((r) => !Number.isFinite(maxMinutes) || maxMinutes <= 0 || (estimateCookMinutes(r.instructions) ?? 9999) <= maxMinutes)
+          .map((r) => ({ recipe: r, score: scoreRecipeForRequest(r, request) }))
+          .filter((x) => x.score > 0)
+          .sort((a, b) => b.score - a.score);
+        if (candidates.length === 0) {
+          toast({ title: 'No matches', description: 'Try a broader request.', variant: 'destructive' });
+          return;
+        }
+        const data = await updateMealRecipe(swapDialogMeal.id, candidates[0].recipe.id, swapDialogMeal.week_of);
+        setMeals(data);
+        toast({ title: 'Meal swapped', description: `Matched: ${candidates[0].recipe.name}` });
+      }
+      setSwapDialogMeal(null);
+    } catch (error: unknown) {
+      toast({ title: 'Error', description: getErrorMessage(error, 'Failed to swap meal'), variant: 'destructive' });
+    }
+  };
+
+  const toggleDoubleMeal = (mealId: string) => {
+    const current = getMealMultiplier(mealId);
+    const next = current === 2 ? 1 : 2;
+    setMealMultiplier(mealId, next);
+    setMeals((prev) => [...prev]);
+    toast({ title: next === 2 ? 'Recipe doubled for grocery list' : 'Recipe set to normal size' });
+  };
+
+  const runPantryMatcher = async () => {
+    try {
+      const recipes = await ensureRecipesLoaded();
+      const pantryTokens = pantryInput
+        .split(/[\n,]/)
+        .map((x) => normalizeText(x))
+        .filter(Boolean);
+      if (pantryTokens.length === 0) {
+        setPantryMatches([]);
+        return;
+      }
+      const matches: PantryMatch[] = recipes
+        .map((r) => {
+          const ingredients = (r.ingredients || []).map((i) => normalizeText(i));
+          const matched = pantryTokens.filter((p) => ingredients.some((ing) => ing.includes(p) || p.includes(ing)));
+          const missing = ingredients.filter((ing) => !pantryTokens.some((p) => ing.includes(p) || p.includes(ing)));
+          return { recipe: r, matched, missing };
+        })
+        .filter((m) => m.matched.length > 0)
+        .sort((a, b) => (b.matched.length - b.missing.length) - (a.matched.length - a.missing.length))
+        .slice(0, 12);
+      setPantryMatches(matches);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to run pantry matching', variant: 'destructive' });
+    }
+  };
+
   const handleToggleLock = async (meal: DbPlannedMeal) => {
     const newVal = !meal.is_locked;
     setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, is_locked: newVal } : m));
     try {
-      await toggleMealLock(meal.id, newVal);
+      await toggleMealLock(meal.id, newVal, meal.week_of);
     } catch {
       setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, is_locked: !newVal } : m));
     }
@@ -103,7 +287,7 @@ export default function MealsPage() {
     const newVal = !meal.is_skipped;
     setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, is_skipped: newVal } : m));
     try {
-      await toggleMealSkip(meal.id, newVal);
+      await toggleMealSkip(meal.id, newVal, meal.week_of);
     } catch {
       setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, is_skipped: !newVal } : m));
     }
@@ -134,6 +318,13 @@ export default function MealsPage() {
         subtitle="Dinner plan for the week"
         action={
           <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setPantryOpen(true)}>
+              What Can I Make?
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRulesOpen(true)}>
+              <Settings2 className="w-4 h-4 mr-2" />
+              Rules
+            </Button>
             <Button size="sm" variant="outline" onClick={openSelectiveRegenerate} disabled={regenerating}>
               <Shuffle className="w-4 h-4 mr-2" />
               Choose
@@ -178,7 +369,7 @@ export default function MealsPage() {
             const meal = getMealForDay(day);
             const date = format(addDays(weekStart, index), 'd');
             const isToday = format(addDays(weekStart, index), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-            const recipe = meal?.recipes as any;
+            const recipe = meal?.recipes;
 
             return (
               <div
@@ -189,7 +380,12 @@ export default function MealsPage() {
                   meal?.is_skipped && "opacity-60"
                 )}
               >
-                <div className="flex items-start gap-4">
+                <div
+                  className={cn("flex items-start gap-4", meal?.recipes && !meal?.is_skipped && "cursor-pointer")}
+                  onClick={() => {
+                    if (meal?.recipes && !meal.is_skipped) setSelectedMeal(meal);
+                  }}
+                >
                   <div className={cn("w-12 text-center flex-shrink-0", isToday && "text-primary")}>
                     <p className="text-xs font-medium uppercase text-muted-foreground">{dayLabels[day]}</p>
                     <p className={cn("text-2xl font-display font-semibold", isToday ? "text-primary" : "text-foreground")}>
@@ -205,6 +401,24 @@ export default function MealsPage() {
                           <span>{recipe.calories} cal</span>
                           <span>•</span>
                           <span>{recipe.protein_g}g protein</span>
+                          {estimateCookMinutes(recipe.instructions) && (
+                            <>
+                              <span>•</span>
+                              <span>{estimateCookMinutes(recipe.instructions)} min</span>
+                            </>
+                          )}
+                          {favoriteIds.has(recipe.id) && (
+                            <>
+                              <span>•</span>
+                              <span className="text-primary">Favorite</span>
+                            </>
+                          )}
+                          {isKidFriendlyRecipe(recipe) && (
+                            <>
+                              <span>•</span>
+                              <span className="text-accent">Kid Friendly</span>
+                            </>
+                          )}
                           {recipe.is_anchored && (
                             <>
                               <span>•</span>
@@ -227,13 +441,50 @@ export default function MealsPage() {
 
                   {meal && (
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleSwap(meal)} title="Swap meal">
-                        <Shuffle className="w-4 h-4 text-muted-foreground" />
+                      <Button
+                        variant={getMealMultiplier(meal.id) === 2 ? 'default' : 'ghost'}
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDoubleMeal(meal.id);
+                        }}
+                        title="Double recipe for grocery list"
+                      >
+                        <Scale className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleLock(meal)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSwapDialog(meal);
+                        }}
+                        title="Swap meal"
+                      >
+                        <Wand2 className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleLock(meal);
+                        }}
+                      >
                         {meal.is_locked ? <Lock className="w-4 h-4 text-primary" /> : <Unlock className="w-4 h-4 text-muted-foreground" />}
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleSkip(meal)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSkip(meal);
+                        }}
+                      >
                         <SkipForward className={cn("w-4 h-4", meal.is_skipped ? "text-destructive" : "text-muted-foreground")} />
                       </Button>
                     </div>
@@ -258,6 +509,10 @@ export default function MealsPage() {
         <div className="flex items-center gap-1.5">
           <SkipForward className="w-3.5 h-3.5" />
           <span>Skipped</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Scale className="w-3.5 h-3.5" />
+          <span>2x Grocery</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-primary" />
@@ -292,9 +547,9 @@ export default function MealsPage() {
                   />
                   <div className="flex-1">
                     <p className="font-medium text-sm">{dayFullLabels[day]}</p>
-                    {meal && (meal.recipes as any)?.name && (
+                    {meal?.recipes?.name && (
                       <p className="text-xs text-muted-foreground">
-                        {(meal.recipes as any).name}
+                        {meal.recipes.name}
                         {isLocked && ' 🔒'}
                       </p>
                     )}
@@ -313,6 +568,222 @@ export default function MealsPage() {
               Regenerate {selectedDays.size} day{selectedDays.size !== 1 ? 's' : ''}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Planner Rules */}
+      <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Planner Rules</DialogTitle>
+            <DialogDescription>Controls how meals are generated.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="flex items-center gap-3">
+              <Checkbox
+                checked={!!planRules.preferFavorites}
+                onCheckedChange={(v) => setPlanRulesState((p) => ({ ...p, preferFavorites: !!v }))}
+              />
+              <span className="text-sm">Favorited meals are chosen more often</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <Checkbox
+                checked={!!planRules.preferKidFriendly}
+                onCheckedChange={(v) => setPlanRulesState((p) => ({ ...p, preferKidFriendly: !!v }))}
+              />
+              <span className="text-sm">Prefer kid-friendly recipes when generating</span>
+            </label>
+            <div>
+              <p className="text-sm mb-1">Choose meals under this time (minutes)</p>
+              <Input
+                type="number"
+                min={0}
+                value={planRules.maxCookMinutes ?? ''}
+                onChange={(e) =>
+                  setPlanRulesState((p) => ({
+                    ...p,
+                    maxCookMinutes: e.target.value ? Number.parseInt(e.target.value, 10) : null,
+                  }))
+                }
+                placeholder="No max"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRulesOpen(false)}>Cancel</Button>
+              <Button onClick={savePlanRules}>Save Rules</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Swap Meal Dialog */}
+      <Dialog open={!!swapDialogMeal} onOpenChange={(open) => !open && setSwapDialogMeal(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Swap Meal</DialogTitle>
+            <DialogDescription>
+              {swapDialogMeal ? `Current: ${swapDialogMeal.recipes?.name || 'Unknown meal'}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button variant={swapMode === 'random' ? 'default' : 'outline'} onClick={() => setSwapMode('random')}>Random</Button>
+              <Button variant={swapMode === 'choose' ? 'default' : 'outline'} onClick={() => setSwapMode('choose')}>Choose Recipe</Button>
+              <Button variant={swapMode === 'request' ? 'default' : 'outline'} onClick={() => setSwapMode('request')}>Request</Button>
+            </div>
+
+            {swapMode === 'choose' && (
+              <div className="space-y-2">
+                <p className="text-sm mb-1">Type a recipe title or pick one</p>
+                <Input
+                  value={chooseRecipeQuery}
+                  onChange={(e) => setChooseRecipeQuery(e.target.value)}
+                  placeholder="Search recipe title..."
+                />
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedRecipeId}
+                  onChange={(e) => setSelectedRecipeId(e.target.value)}
+                >
+                  <option value="">Select recipe...</option>
+                  {allRecipes
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
+            {swapMode === 'request' && (
+              <div className="space-y-2">
+                <p className="text-sm">Describe what you want (ex: high protein chicken bowl)</p>
+                <Textarea
+                  rows={3}
+                  value={swapRequest}
+                  onChange={(e) => setSwapRequest(e.target.value)}
+                  placeholder="high protein, quick, chicken..."
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  value={requestMaxMinutes}
+                  onChange={(e) => setRequestMaxMinutes(e.target.value)}
+                  placeholder="Optional max minutes"
+                />
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSwapDialogMeal(null)}>Cancel</Button>
+              <Button onClick={applySwap}>Apply Swap</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pantry Matcher */}
+      <Dialog open={pantryOpen} onOpenChange={setPantryOpen}>
+        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display">Have X Ingredients, What Can I Make?</DialogTitle>
+            <DialogDescription>Enter ingredients you have. We'll suggest best matches.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              rows={4}
+              value={pantryInput}
+              onChange={(e) => setPantryInput(e.target.value)}
+              placeholder="chicken, rice, onion, garlic, greek yogurt..."
+            />
+            <div className="flex justify-end">
+              <Button onClick={runPantryMatcher}>Find Meals</Button>
+            </div>
+            {pantryMatches.length > 0 && (
+              <div className="space-y-2">
+                {pantryMatches.map((m) => (
+                  <div key={m.recipe.id} className="rounded-lg border border-border p-3">
+                    <p className="font-medium">{m.recipe.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Match: {m.matched.length} • Missing: {m.missing.length}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Missing sample: {m.missing.slice(0, 3).join(', ') || 'None'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Meal Details */}
+      <Dialog open={!!selectedMeal} onOpenChange={(open) => !open && setSelectedMeal(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              {selectedMeal?.recipes?.name || 'Recipe'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedMeal ? dayFullLabels[selectedMeal.day as DayOfWeek] : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedMeal?.recipes && (
+            <div className="space-y-5">
+              {getRecipeImageUrl(selectedMeal.recipes.name) && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <img
+                    src={getRecipeImageUrl(selectedMeal.recipes.name)}
+                    alt={selectedMeal.recipes.name}
+                    className="w-full h-auto object-cover"
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Calories</p>
+                  <p className="font-semibold text-sm">{Math.round(selectedMeal.recipes.calories)}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Protein</p>
+                  <p className="font-semibold text-sm">{Math.round(selectedMeal.recipes.protein_g)}g</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Carbs</p>
+                  <p className="font-semibold text-sm">{Math.round(selectedMeal.recipes.carbs_g)}g</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Fat</p>
+                  <p className="font-semibold text-sm">{Math.round(selectedMeal.recipes.fat_g)}g</p>
+                </div>
+              </div>
+
+              {selectedMeal.recipes.ingredients?.length > 0 && (
+                <section>
+                  <h3 className="font-semibold mb-2 text-sm text-muted-foreground uppercase tracking-wide">Ingredients</h3>
+                  <ul className="space-y-1">
+                    {selectedMeal.recipes.ingredients.map((ing, i) => (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <span className="text-primary mt-1.5 w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                        {ing}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              <section>
+                <h3 className="font-semibold mb-2 text-sm text-muted-foreground uppercase tracking-wide">Instructions</h3>
+                <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                  {normalizeRecipeInstructions(selectedMeal.recipes.instructions) || 'No instructions available for this recipe yet.'}
+                </div>
+              </section>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>

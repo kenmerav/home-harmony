@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { updateRecipe, deleteRecipe, DbRecipe } from '@/lib/api/recipes';
 import { Trash2 } from 'lucide-react';
+import { normalizeRecipeIngredients } from '@/lib/recipeText';
 
 interface EditRecipeDialogProps {
   recipe: Recipe | null;
@@ -46,7 +47,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
       setProtein(recipe.macrosPerServing.protein_g);
       setCarbs(recipe.macrosPerServing.carbs_g);
       setFat(recipe.macrosPerServing.fat_g);
-      setIngredientsText(recipe.ingredients.join('\n'));
+      setIngredientsText(normalizeRecipeIngredients(recipe.ingredients).join('\n'));
       setInstructions(recipe.instructions || '');
     }
   }, [recipe]);
@@ -56,7 +57,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const ingredients = ingredientsText.split('\n').map(s => s.trim()).filter(Boolean);
+      const ingredients = normalizeRecipeIngredients(ingredientsText.split('\n'));
       const updated = await updateRecipe(recipe.id, {
         name,
         servings,

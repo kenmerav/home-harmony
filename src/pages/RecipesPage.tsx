@@ -18,6 +18,11 @@ import { useToast } from '@/hooks/use-toast';
 import { parseRecipesFromPdf, parseRecipesFromJson, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
 import { EditRecipeDialog } from '@/components/recipes/EditRecipeDialog';
+import { estimateCookMinutes, formatCookTime } from '@/lib/recipeTime';
+import { normalizeRecipeInstructions } from '@/lib/recipeText';
+import { getRecipeImageUrl } from '@/data/recipeImages';
+import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } from '@/lib/mealPrefs';
+import { inferKidFriendly } from '@/lib/kidFriendly';
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -30,14 +35,25 @@ const dayLabels: Record<DayOfWeek, string> = {
 };
 
 // Convert DB recipe to display format
-function dbRecipeToDisplayRecipe(dbRecipe: DbRecipe): Recipe {
+function dbRecipeToDisplayRecipe(
+  dbRecipe: DbRecipe,
+  favoriteIds: Set<string>,
+  kidFriendlyOverrides: Record<string, boolean>,
+): Recipe {
+  const inferredKidFriendly = inferKidFriendly(dbRecipe);
+  const isKidFriendly = kidFriendlyOverrides[dbRecipe.id] ?? inferredKidFriendly;
+
   return {
     id: dbRecipe.id,
     name: dbRecipe.name,
     servings: dbRecipe.servings,
+    estimatedCookMinutes: estimateCookMinutes(dbRecipe.instructions),
+    imageUrl: getRecipeImageUrl(dbRecipe.name),
+    isFavorite: favoriteIds.has(dbRecipe.id),
+    isKidFriendly,
     ingredients: dbRecipe.ingredients,
     ingredientsRaw: dbRecipe.ingredients_raw || '',
-    instructions: dbRecipe.instructions || '',
+    instructions: normalizeRecipeInstructions(dbRecipe.instructions || ''),
     macrosPerServing: {
       calories: dbRecipe.calories,
       protein_g: dbRecipe.protein_g,
@@ -53,6 +69,8 @@ function dbRecipeToDisplayRecipe(dbRecipe: DbRecipe): Recipe {
 
 export default function RecipesPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -65,17 +83,25 @@ export default function RecipesPage() {
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [kidFriendlyOverrides, setKidFriendlyOverrides] = useState<Record<string, boolean>>({});
 
   // Load recipes from database on mount
   useEffect(() => {
+    setFavoriteIds(getFavoriteIds());
+    setKidFriendlyOverrides(getKidFriendlyOverrides());
     loadRecipes();
   }, []);
 
   const loadRecipes = async () => {
     try {
       setIsLoading(true);
+      const nextFavorites = getFavoriteIds();
+      const nextKidFriendlyOverrides = getKidFriendlyOverrides();
+      setFavoriteIds(nextFavorites);
+      setKidFriendlyOverrides(nextKidFriendlyOverrides);
       const dbRecipes = await fetchRecipes();
-      setRecipes(dbRecipes.map(dbRecipeToDisplayRecipe));
+      setRecipes(dbRecipes.map((r) => dbRecipeToDisplayRecipe(r, nextFavorites, nextKidFriendlyOverrides)));
     } catch (error) {
       console.error('Failed to load recipes:', error);
       toast({
@@ -88,9 +114,36 @@ export default function RecipesPage() {
     }
   };
 
-  const filteredRecipes = recipes.filter(recipe =>
-    recipe.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const refreshRecipeTags = () => {
+    const nextFavorites = getFavoriteIds();
+    const nextKidFriendlyOverrides = getKidFriendlyOverrides();
+    setFavoriteIds(nextFavorites);
+    setKidFriendlyOverrides(nextKidFriendlyOverrides);
+    setRecipes((prev) =>
+      prev.map((r) => ({
+        ...r,
+        isFavorite: nextFavorites.has(r.id),
+        isKidFriendly: nextKidFriendlyOverrides[r.id] ?? r.isKidFriendly ?? false,
+      })),
+    );
+  };
+
+  const toggleFavorite = (recipe: Recipe) => {
+    setFavorite(recipe.id, !recipe.isFavorite);
+    refreshRecipeTags();
+  };
+
+  const toggleKidFriendly = (recipe: Recipe) => {
+    setKidFriendly(recipe.id, !recipe.isKidFriendly);
+    refreshRecipeTags();
+  };
+
+  const filteredRecipes = recipes.filter(recipe => {
+    const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFavorite = !favoritesOnly || !!recipe.isFavorite;
+    const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
+    return matchesSearch && matchesFavorite && matchesKidFriendly;
+  });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -288,6 +341,23 @@ export default function RecipesPage() {
         />
       </div>
 
+      <div className="mb-6 flex flex-wrap gap-2">
+        <Button
+          variant={favoritesOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setFavoritesOnly((v) => !v)}
+        >
+          {favoritesOnly ? 'Showing Favorites' : 'Favorites Only'}
+        </Button>
+        <Button
+          variant={kidFriendlyOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setKidFriendlyOnly((v) => !v)}
+        >
+          {kidFriendlyOnly ? 'Showing Kid Friendly' : 'Kid Friendly Only'}
+        </Button>
+      </div>
+
       {/* Recipe Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
         {filteredRecipes.map(recipe => (
@@ -296,6 +366,8 @@ export default function RecipesPage() {
             recipe={recipe}
             onView={() => setViewingRecipe(recipe)}
             onEdit={() => setEditingRecipe(recipe)}
+            onToggleFavorite={() => toggleFavorite(recipe)}
+            onToggleKidFriendly={() => toggleKidFriendly(recipe)}
           />
         ))}
       </div>
@@ -387,6 +459,9 @@ export default function RecipesPage() {
                         <h4 className="font-medium">{recipe.name}</h4>
                         <p className="text-sm text-muted-foreground">
                           {recipe.servings} servings
+                          {formatCookTime(estimateCookMinutes(recipe.instructions)) && (
+                            <> • {formatCookTime(estimateCookMinutes(recipe.instructions))}</>
+                          )}
                         </p>
                         <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                           <span>{recipe.macrosPerServing?.calories} cal</span>
@@ -435,7 +510,7 @@ export default function RecipesPage() {
         open={!!editingRecipe}
         onOpenChange={(open) => !open && setEditingRecipe(null)}
         onSaved={(updated) => {
-          setRecipes(prev => prev.map(r => r.id === updated.id ? dbRecipeToDisplayRecipe(updated) : r));
+          setRecipes(prev => prev.map(r => r.id === updated.id ? dbRecipeToDisplayRecipe(updated, favoriteIds, kidFriendlyOverrides) : r));
         }}
         onDeleted={(id) => {
           setRecipes(prev => prev.filter(r => r.id !== id));
@@ -445,9 +520,31 @@ export default function RecipesPage() {
   );
 }
 
-function RecipeCard({ recipe, onView, onEdit }: { recipe: Recipe; onView: () => void; onEdit: () => void }) {
+function RecipeCard({
+  recipe,
+  onView,
+  onEdit,
+  onToggleFavorite,
+  onToggleKidFriendly,
+}: {
+  recipe: Recipe;
+  onView: () => void;
+  onEdit: () => void;
+  onToggleFavorite: () => void;
+  onToggleKidFriendly: () => void;
+}) {
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden card-hover">
+      {recipe.imageUrl && (
+        <div className="h-36 w-full bg-muted/40 overflow-hidden border-b border-border">
+          <img
+            src={recipe.imageUrl}
+            alt={recipe.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        </div>
+      )}
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-start justify-between">
@@ -457,11 +554,23 @@ function RecipeCard({ recipe, onView, onEdit }: { recipe: Recipe; onView: () => 
             </h3>
             <p className="text-sm text-muted-foreground mt-0.5">
               {recipe.servings} servings
+              {formatCookTime(recipe.estimatedCookMinutes) && (
+                <> • {formatCookTime(recipe.estimatedCookMinutes)}</>
+              )}
             </p>
           </div>
           {recipe.isAnchored && (
             <Anchor className="w-4 h-4 text-primary flex-shrink-0 mt-1" />
           )}
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button variant={recipe.isFavorite ? 'default' : 'outline'} size="sm" onClick={onToggleFavorite}>
+            {recipe.isFavorite ? 'Favorite' : 'Mark Favorite'}
+          </Button>
+          <Button variant={recipe.isKidFriendly ? 'default' : 'outline'} size="sm" onClick={onToggleKidFriendly}>
+            {recipe.isKidFriendly ? 'Kid Friendly' : 'Mark Kid Friendly'}
+          </Button>
         </div>
         
         {recipe.defaultDay && (

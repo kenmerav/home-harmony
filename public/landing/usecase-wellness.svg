@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600">
+  <rect width="900" height="600" fill="#f6efe9"/>
+  <rect x="80" y="70" width="740" height="460" rx="32" fill="#ffffff" stroke="#e8d8cc" stroke-width="4"/>
+  <rect x="130" y="130" width="640" height="90" rx="16" fill="#fbf4ef"/>
+  <rect x="130" y="245" width="640" height="240" rx="20" fill="#fffaf7"/>
+  <circle cx="175" cy="175" r="12" fill="#d18b6a"/>
+  <text x="205" y="184" font-size="34" font-family="Arial, sans-serif" fill="#41362f">Wellness + Lifestyle</text>
+  <text x="165" y="305" font-size="24" font-family="Arial, sans-serif" fill="#5f4f44">• Personal macro dashboards</text>
+  <text x="165" y="345" font-size="24" font-family="Arial, sans-serif" fill="#5f4f44">• Daily intake tracking</text>
+  <text x="165" y="385" font-size="24" font-family="Arial, sans-serif" fill="#5f4f44">• Coming soon: sleep + alcohol + cycle tracking</text>
+  <text x="165" y="425" font-size="24" font-family="Arial, sans-serif" fill="#5f4f44">• Coming soon: workout builder + logging</text>
+</svg>
