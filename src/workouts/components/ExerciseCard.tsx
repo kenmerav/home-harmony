@@ -131,29 +131,33 @@ export function ExerciseCard({
       {/* Sets */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-2">
-          {/* Header row */}
-          <div className="grid grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 text-xs text-muted-foreground font-medium px-2">
-            <span>SET</span>
-            <span className="text-center">PREV</span>
-            <span className="text-center">{weightUnit.toUpperCase()}</span>
-            <span className="text-center">REPS</span>
-            <span></span>
-          </div>
+          <div className="overflow-x-auto pb-1">
+            <div className="min-w-[300px] space-y-2">
+              {/* Header row */}
+              <div className="grid grid-cols-[32px_72px_72px_72px_32px] sm:grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 text-xs text-muted-foreground font-medium px-2">
+                <span>SET</span>
+                <span className="text-center">PREV</span>
+                <span className="text-center">{weightUnit.toUpperCase()}</span>
+                <span className="text-center">REPS</span>
+                <span></span>
+              </div>
 
-          {/* Set rows */}
-          {exercise.sets.map((set, index) => (
-            <SetRow
-              key={set.id}
-              set={set}
-              setNumber={index + 1}
-              previousWeight={previousData?.weight}
-              previousReps={previousData?.reps}
-              onUpdate={(updates) => onUpdateSet(set.id, updates)}
-              onComplete={() => onCompleteSet(set.id)}
-              onDelete={() => onDeleteSet(set.id)}
-              weightUnit={weightUnit}
-            />
-          ))}
+              {/* Set rows */}
+              {exercise.sets.map((set, index) => (
+                <SetRow
+                  key={set.id}
+                  set={set}
+                  setNumber={index + 1}
+                  previousWeight={previousData?.weight}
+                  previousReps={previousData?.reps}
+                  onUpdate={(updates) => onUpdateSet(set.id, updates)}
+                  onComplete={() => onCompleteSet(set.id)}
+                  onDelete={() => onDeleteSet(set.id)}
+                  weightUnit={weightUnit}
+                />
+              ))}
+            </div>
+          </div>
 
           {/* Add set button */}
           <Button

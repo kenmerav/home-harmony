@@ -47,7 +47,7 @@ export function SetRow({
 
   return (
     <div className={cn(
-      "grid grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 items-center p-2 rounded-lg transition-colors",
+      "grid grid-cols-[32px_72px_72px_72px_32px] sm:grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 items-center p-2 rounded-lg transition-colors min-w-[300px]",
       set.isCompleted ? "bg-success/10" : "bg-muted/30",
       isEditing && "bg-secondary"
     )}>
