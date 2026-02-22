@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Pantry meals illustration">
+  <defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fef3c7"/><stop offset="1" stop-color="#fefce8"/></linearGradient></defs>
+  <rect width="1600" height="900" fill="url(#g3)"/>
+  <rect x="120" y="120" width="1360" height="660" rx="24" fill="#fff" stroke="#fde68a"/>
+  <text x="190" y="200" font-family="Georgia, serif" font-size="52" fill="#422006">Pantry to Meal Map</text>
+  <g font-family="Arial, sans-serif" font-size="31" fill="#713f12">
+    <text x="200" y="290">Chicken + Rice + Onion -> Bowls, Fried Rice, Soup</text>
+    <text x="200" y="360">Ground Beef + Pasta -> Chili Mac, Pasta Bake</text>
+    <text x="200" y="430">Eggs + Potatoes -> Hash, Breakfast Bake</text>
+  </g>
+</svg>

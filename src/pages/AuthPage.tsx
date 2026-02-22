@@ -17,17 +17,23 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const search = new URLSearchParams(location.search);
+  const onboardingIntent = search.get('onboarding') === '1';
 
-  const from = (location.state as { from?: string } | null)?.from || '/billing';
+  const from = (location.state as { from?: string } | null)?.from || (onboardingIntent ? '/onboarding?force=1' : '/billing');
 
   useEffect(() => {
     if (!user) return;
+    if (onboardingIntent) {
+      navigate('/onboarding?force=1', { replace: true });
+      return;
+    }
     if (!isProfileComplete) {
       navigate('/onboarding', { replace: true });
       return;
     }
     navigate(isSubscribed ? '/app' : '/billing', { replace: true });
-  }, [isProfileComplete, isSubscribed, navigate, user]);
+  }, [isProfileComplete, isSubscribed, navigate, onboardingIntent, user]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Meal planning board illustration">
+  <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9f7e8"/><stop offset="1" stop-color="#f9fafb"/></linearGradient></defs>
+  <rect width="1600" height="900" fill="url(#g1)"/>
+  <rect x="130" y="120" width="1340" height="660" rx="24" fill="#ffffff" stroke="#d1d5db"/>
+  <text x="180" y="190" font-family="Georgia, serif" font-size="52" fill="#111827">Weekly Meal Plan</text>
+  <g font-family="Arial, sans-serif" font-size="30" fill="#374151">
+    <text x="190" y="270">Mon - High Protein Bowl</text>
+    <text x="190" y="340">Tue - Slow Cooker Night</text>
+    <text x="190" y="410">Wed - 30 Min Skillet</text>
+    <text x="190" y="480">Thu - Family Pasta</text>
+    <text x="190" y="550">Fri - Leftovers + Reset</text>
+  </g>
+</svg>

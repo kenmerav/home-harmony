@@ -5,9 +5,11 @@ import {
   CalendarDays, 
   BookOpen, 
   ShoppingCart, 
+  Dumbbell,
   ListChecks, 
   ClipboardList,
   UserRoundPlus,
+  Settings,
   LogOut,
   User,
   Users
@@ -25,9 +27,11 @@ const navItems = [
   { to: '/meals', icon: CalendarDays, label: 'Meals' },
   { to: '/recipes', icon: BookOpen, label: 'Recipes' },
   { to: '/grocery', icon: ShoppingCart, label: 'Grocery' },
+  { to: '/workouts', icon: Dumbbell, label: 'Workouts' },
   { to: '/chores', icon: ListChecks, label: 'Chores' },
   { to: '/tasks', icon: ClipboardList, label: 'Tasks' },
   { to: '/family', icon: UserRoundPlus, label: 'Family' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 const profileItems = [

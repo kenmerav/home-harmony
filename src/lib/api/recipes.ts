@@ -28,6 +28,15 @@ interface ParseCookbookResponse {
 // Maximum text characters to send in a single request
 const MAX_CHUNK_CHARS = 400000;
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read image'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResponse> {
   try {
     const fileSizeMB = file.size / (1024 * 1024);
@@ -70,6 +79,43 @@ export async function parseRecipesFromPdf(file: File): Promise<ParseCookbookResp
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    };
+  }
+}
+
+export async function parseRecipesFromImage(file: File): Promise<ParseCookbookResponse> {
+  try {
+    if (!file.type.startsWith('image/')) {
+      return { success: false, error: 'Please upload an image file.' };
+    }
+
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > 12) {
+      return { success: false, error: 'Image is too large. Use an image under 12MB.' };
+    }
+
+    const imageDataUrl = await fileToDataUrl(file);
+    const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
+      body: {
+        fileName: file.name,
+        imageDataUrl,
+      },
+    });
+
+    if (error) {
+      console.error('Edge function error (parse-recipe-photo):', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to process recipe image',
+      };
+    }
+
+    return data as ParseCookbookResponse;
+  } catch (error) {
+    console.error('Error parsing recipe photo:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }

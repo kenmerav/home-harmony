@@ -26,6 +26,7 @@ export interface MealGenerationOptions {
   preferFavorites?: boolean;
   preferKidFriendly?: boolean;
   maxCookMinutes?: number | null;
+  dayLocks?: Partial<Record<DayOfWeek, string>>;
 }
 
 function weightedPick<T extends { id: string }>(
@@ -91,6 +92,7 @@ export async function generateMeals(
   if (isDemoModeEnabled()) {
     const weekOfDemo = getWeekOf(weekOffset);
     const targetDays = daysToRegenerate || DAYS;
+    const dayLocks = options?.dayLocks ?? {};
     const existing = getDemoMeals(weekOffset);
     const recipes = getDemoRecipes();
     const byDay = new Map(existing.map((m) => [m.day, m]));
@@ -99,7 +101,30 @@ export async function generateMeals(
     for (const day of targetDays) {
       const meal = byDay.get(day);
       if (meal?.is_locked) continue;
-      const candidate = recipes.find((r) => !used.has(r.id)) || recipes[Math.floor(Math.random() * recipes.length)];
+      const forcedRecipeId = dayLocks[day];
+      const forcedRecipe = forcedRecipeId ? recipes.find((r) => r.id === forcedRecipeId) : null;
+      if (forcedRecipe) {
+        used.add(forcedRecipe.id);
+        mutable.push({
+          id: meal?.id || `demo-m-${weekOfDemo}-${day}`,
+          recipe_id: forcedRecipe.id,
+          day,
+          week_of: weekOfDemo,
+          is_locked: false,
+          is_skipped: false,
+          created_at: meal?.created_at || new Date().toISOString(),
+        });
+        continue;
+      }
+      const uniqueAlternatives = recipes.filter((r) => !used.has(r.id) && r.id !== meal?.recipe_id);
+      const anyAlternatives = recipes.filter((r) => r.id !== meal?.recipe_id);
+      const pool =
+        uniqueAlternatives.length > 0
+          ? uniqueAlternatives
+          : anyAlternatives.length > 0
+          ? anyAlternatives
+          : recipes;
+      const candidate = pool[Math.floor(Math.random() * pool.length)];
       if (!candidate) continue;
       used.add(candidate.id);
       mutable.push({
@@ -123,6 +148,7 @@ export async function generateMeals(
   const preferKidFriendly = options?.preferKidFriendly ?? false;
   const preferFavorites = options?.preferFavorites ?? true;
   const maxCookMinutes = options?.maxCookMinutes ?? null;
+  const dayLocks = options?.dayLocks ?? {};
 
   // Fetch all recipes
   const { data: allRecipes, error: recipeErr } = await supabase
@@ -150,6 +176,7 @@ export async function generateMeals(
     .eq('week_of', weekOf);
 
   const existingMeals = existing || [];
+  const previousRecipeByDay = new Map(existingMeals.map((m) => [m.day, m.recipe_id]));
   
   // Delete unlocked meals for target days
   const mealsToDelete = existingMeals.filter(
@@ -180,6 +207,19 @@ export async function generateMeals(
   const newMeals: { recipe_id: string; day: string; week_of: string }[] = [];
   const usedRecipeIds = new Set(lockedRecipeIds);
 
+  // Apply recurring day locks first (example: tacos every Tuesday).
+  for (const day of daysNeedingMeals.slice()) {
+    const recipeId = dayLocks[day];
+    if (!recipeId) continue;
+
+    const forcedRecipe = allRecipes.find((r) => r.id === recipeId);
+    if (!forcedRecipe) continue;
+
+    newMeals.push({ recipe_id: forcedRecipe.id, day, week_of: weekOf });
+    usedRecipeIds.add(forcedRecipe.id);
+    daysNeedingMeals.splice(daysNeedingMeals.indexOf(day), 1);
+  }
+
   // Place anchored recipes first
   for (const recipe of anchored) {
     if (daysNeedingMeals.includes(recipe.default_day as DayOfWeek)) {
@@ -191,8 +231,12 @@ export async function generateMeals(
 
   // Fill remaining days with weighted picks; favorites can be prioritized.
   for (const day of daysNeedingMeals) {
+    const previousRecipeId = previousRecipeByDay.get(day);
+    const preferredPool = flexible.filter((r) => r.id !== previousRecipeId);
+    const flexiblePool = preferredPool.length > 0 ? preferredPool : flexible;
+
     let recipe = weightedPick(
-      flexible,
+      flexiblePool,
       usedRecipeIds,
       favoriteIds,
       kidFriendlyIds,
@@ -200,9 +244,11 @@ export async function generateMeals(
       preferKidFriendly,
     );
     if (!recipe) {
+      const allPreferred = allRecipesFiltered.filter((r) => r.id !== previousRecipeId);
+      const allPool = allPreferred.length > 0 ? allPreferred : allRecipesFiltered;
       // If we run out of unique options, allow reuse from full filtered pool.
       recipe = weightedPick(
-        allRecipesFiltered,
+        allPool,
         new Set<string>(),
         favoriteIds,
         kidFriendlyIds,

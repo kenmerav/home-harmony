@@ -1,0 +1,23 @@
+<svg width="1200" height="700" viewBox="0 0 1200 700" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="taskbg" x1="0" y1="0" x2="1200" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11454F"/>
+      <stop offset="1" stop-color="#2A7D87"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="700" fill="url(#taskbg)"/>
+  <rect x="150" y="110" width="900" height="480" rx="26" fill="#F2F8F9"/>
+  <rect x="200" y="165" width="800" height="60" rx="14" fill="#D7E7EA"/>
+  <rect x="200" y="255" width="360" height="290" rx="16" fill="#FFFFFF"/>
+  <rect x="640" y="255" width="360" height="290" rx="16" fill="#FFFFFF"/>
+  <rect x="235" y="292" width="240" height="18" rx="8" fill="#C8D7DA"/>
+  <rect x="235" y="332" width="210" height="18" rx="8" fill="#C8D7DA"/>
+  <rect x="235" y="372" width="260" height="18" rx="8" fill="#C8D7DA"/>
+  <rect x="675" y="292" width="240" height="18" rx="8" fill="#C8D7DA"/>
+  <rect x="675" y="332" width="210" height="18" rx="8" fill="#C8D7DA"/>
+  <circle cx="220" cy="301" r="8" fill="#2A7D87"/>
+  <circle cx="220" cy="341" r="8" fill="#2A7D87"/>
+  <circle cx="220" cy="381" r="8" fill="#2A7D87"/>
+  <circle cx="660" cy="301" r="8" fill="#2A7D87"/>
+  <circle cx="660" cy="341" r="8" fill="#2A7D87"/>
+</svg>

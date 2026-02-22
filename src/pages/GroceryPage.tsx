@@ -4,11 +4,35 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GroceryCategory } from '@/types';
-import { Copy, ExternalLink, ShoppingCart, Check } from 'lucide-react';
+import { Copy, ExternalLink, ShoppingCart, Check, Settings2, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { fetchMealsForWeek, DbPlannedMeal } from '@/lib/api/meals';
 import { getMealMultipliers } from '@/lib/mealPrefs';
+import {
+  GROCERY_STORES,
+  GroceryOrderReminderSettings,
+  buildStoreSearchUrl,
+  getItemStoreOverrides,
+  getLastOrderCompletedAt,
+  getOrderReminderSettings,
+  getPreferredGroceryStoreId,
+  getStoreIdForItem,
+  isGroceryOrderReminderDue,
+  markGroceryOrderCompleted,
+  setOrderReminderSettings,
+  setPreferredGroceryStoreId,
+  setStoreIdForItem,
+  toIngredientKey,
+} from '@/lib/groceryPrefs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 interface GroceryItem {
   id: string;
@@ -26,7 +50,9 @@ interface ParsedIngredient {
 }
 
 function splitCompositeIngredients(raw: string): string[] {
-  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  let text = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  text = text.replace(/^[A-Za-z][A-Za-z\s&/+-]{1,40}:\s*/g, '').trim();
   if (!text) return [];
   const nested: string[] = [];
   const canSplitCommas = !/[()]/.test(text) && !/\be\.g\./i.test(text);
@@ -42,7 +68,7 @@ function splitCompositeIngredients(raw: string): string[] {
   if (quantityMatch && quantityMatch.index !== undefined && quantityMatch.index > 2) {
     const left = text.slice(0, quantityMatch.index).trim();
     const right = text.slice(quantityMatch.index + 1).trim();
-    if (left && right) return [left, right];
+    if (left && right) return [...splitCompositeIngredients(left), ...splitCompositeIngredients(right)];
   }
 
   return [text];
@@ -99,9 +125,13 @@ const unitAliases: Record<string, string> = {
   tbsp: 'tbsp',
   tablespoon: 'tbsp',
   tablespoons: 'tbsp',
+  tblspn: 'tbsp',
+  tblspns: 'tbsp',
   tsp: 'tsp',
   teaspoon: 'tsp',
   teaspoons: 'tsp',
+  tspn: 'tsp',
+  tspns: 'tsp',
   oz: 'oz',
   ounce: 'oz',
   ounces: 'oz',
@@ -191,20 +221,51 @@ function parseIngredient(raw: string): ParsedIngredient {
   return { name, quantity, unit };
 }
 
+function cleanIngredientName(raw: string): string {
+  let name = String(raw || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!name) return '';
+
+  name = name
+    .replace(/\bback to table of contents?\b.*$/i, '')
+    .replace(/\(e\.g\.[^)]*\)?/gi, '')
+    .replace(/\b(as needed|if needed|to taste|for garnish|optional|dry weight)\b.*$/i, '')
+    .replace(/\s+\(\s*$/, '')
+    .replace(/\s+-\s*$/, '')
+    .replace(/^%+\s*/, '')
+    .replace(/\bcont\.?$/i, '')
+    .replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (/^\d*%?\s*plain greek$/i.test(name) || /^\d*%?\s*greek$/i.test(name)) {
+    return 'Greek yogurt';
+  }
+  if (/^%+\s*milk$/i.test(name)) {
+    return 'Milk';
+  }
+
+  return name;
+}
+
 function shouldSkipIngredientName(name: string): boolean {
-  const lower = name.toLowerCase().trim();
+  const lower = cleanIngredientName(name).toLowerCase().trim();
   if (!lower) return true;
   if (lower === '%' || lower === 'cont') return true;
+  if (/^[a-z][a-z\s&/+-]{1,40}:\s*[a-z\s&/+-]*:?$/i.test(lower)) return true;
   if (/back to table of contents?/.test(lower)) return true;
   if (/\btable of cont/.test(lower)) return true;
   if (/\(e\.g\.$/.test(lower)) return true;
-  if (/(^|\\s)cont$/.test(lower)) return true;
-  if (['red', 'green', 'yellow', 'orange'].includes(lower)) return true;
+  if (/(^|\s)cont$/.test(lower)) return true;
+  if (['red', 'green', 'yellow', 'orange', 'ground', 'plain'].includes(lower)) return true;
+  if (/^(small|medium|large)$/.test(lower)) return true;
   return false;
 }
 
 function normalizeIngredientName(name: string): string {
-  return name
+  return cleanIngredientName(name)
     .toLowerCase()
     .replace(/%/g, '')
     .replace(/[^\w\s]/g, ' ')
@@ -236,8 +297,9 @@ function buildGroceryList(meals: DbPlannedMeal[], multipliers: Record<string, nu
     for (const ingredient of recipe.ingredients as string[]) {
       for (const split of splitCompositeIngredients(ingredient)) {
         const parsed = parseIngredient(split);
-        if (shouldSkipIngredientName(parsed.name)) continue;
-        const key = normalizeIngredientName(parsed.name);
+        const cleanedName = cleanIngredientName(parsed.name);
+        if (shouldSkipIngredientName(cleanedName)) continue;
+        const key = normalizeIngredientName(cleanedName);
         if (!key || key.length < 2) continue;
         
         if (itemMap.has(key)) {
@@ -253,9 +315,9 @@ function buildGroceryList(meals: DbPlannedMeal[], multipliers: Record<string, nu
         } else {
           itemMap.set(key, {
             id: `grocery-${itemMap.size}`,
-            name: parsed.name,
+            name: cleanedName,
             quantity: '',
-            category: categorizeIngredient(parsed.name),
+            category: categorizeIngredient(cleanedName),
             isChecked: false,
             sourceRecipes: [mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name],
             qtyByUnit: new Map(parsed.quantity !== null && parsed.unit ? [[parsed.unit, parsed.quantity * mealMultiplier]] : []),
@@ -279,10 +341,30 @@ function buildGroceryList(meals: DbPlannedMeal[], multipliers: Record<string, nu
 export default function GroceryPage() {
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [preferredStoreId, setPreferredStoreIdState] = useState('walmart');
+  const [itemStoreOverrides, setItemStoreOverrides] = useState<Record<string, string>>({});
+  const [orderReminder, setOrderReminder] = useState<GroceryOrderReminderSettings>({
+    enabled: false,
+    day: 'saturday',
+    time: '10:00',
+  });
+  const [lastOrderCompletedAt, setLastOrderCompletedAt] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
+    setPreferredStoreIdState(getPreferredGroceryStoreId());
+    setItemStoreOverrides(getItemStoreOverrides());
+    setOrderReminder(getOrderReminderSettings());
+    setLastOrderCompletedAt(getLastOrderCompletedAt());
     loadGroceryList();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLastOrderCompletedAt(getLastOrderCompletedAt());
+    }, 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const loadGroceryList = async () => {
@@ -327,10 +409,35 @@ export default function GroceryPage() {
     });
   };
 
-  const openWalmartSearch = (itemName: string) => {
-    const query = encodeURIComponent(itemName);
-    window.open(`https://www.walmart.com/search?q=${query}`, '_blank');
+  const openStoreSearch = (itemName: string) => {
+    const storeId = getStoreIdForItem(itemName);
+    window.open(buildStoreSearchUrl(storeId, itemName), '_blank');
   };
+
+  const handleStoreOverrideChange = (itemName: string, storeId: string) => {
+    if (storeId === preferredStoreId) {
+      setStoreIdForItem(itemName, null);
+    } else {
+      setStoreIdForItem(itemName, storeId);
+    }
+    setItemStoreOverrides(getItemStoreOverrides());
+  };
+
+  const saveGroceryPrefs = () => {
+    setPreferredGroceryStoreId(preferredStoreId);
+    setOrderReminderSettings(orderReminder);
+    setPrefsOpen(false);
+    toast({ title: 'Grocery settings saved' });
+  };
+
+  const markOrderDone = () => {
+    const now = new Date().toISOString();
+    markGroceryOrderCompleted(now);
+    setLastOrderCompletedAt(now);
+    toast({ title: 'Order marked complete', description: 'Reminder will wait until next scheduled window.' });
+  };
+
+  const reminderDue = isGroceryOrderReminderDue();
 
   return (
     <AppLayout>
@@ -338,10 +445,16 @@ export default function GroceryPage() {
         title="Grocery List" 
         subtitle={loading ? 'Loading...' : `${checkedCount} of ${totalCount} items checked`}
         action={
-          <Button onClick={copyList} variant="outline" size="sm" disabled={totalCount === 0}>
-            <Copy className="w-4 h-4 mr-2" />
-            Copy List
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setPrefsOpen(true)} variant="outline" size="sm">
+              <Settings2 className="w-4 h-4 mr-2" />
+              Preferences
+            </Button>
+            <Button onClick={copyList} variant="outline" size="sm" disabled={totalCount === 0}>
+              <Copy className="w-4 h-4 mr-2" />
+              Copy List
+            </Button>
+          </div>
         }
       />
 
@@ -353,6 +466,25 @@ export default function GroceryPage() {
               className="h-full bg-primary rounded-full transition-all duration-300"
               style={{ width: `${(checkedCount / totalCount) * 100}%` }}
             />
+          </div>
+        </div>
+      )}
+
+      {reminderDue && (
+        <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Bell className="w-4 h-4 mt-0.5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Grocery order reminder</p>
+                <p className="text-xs text-muted-foreground">
+                  Your scheduled order window is due. Mark complete once you finish checkout.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" onClick={markOrderDone}>
+              Mark Complete
+            </Button>
           </div>
         </div>
       )}
@@ -395,11 +527,26 @@ export default function GroceryPage() {
                         {item.sourceRecipes.join(', ')}
                       </p>
                     </div>
+                    <select
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                      value={
+                        itemStoreOverrides[toIngredientKey(item.name)] ||
+                        preferredStoreId
+                      }
+                      onChange={(e) => handleStoreOverrideChange(item.name, e.target.value)}
+                      title="Store for this item"
+                    >
+                      {GROCERY_STORES.map((store) => (
+                        <option key={store.id} value={store.id}>
+                          {store.label}
+                        </option>
+                      ))}
+                    </select>
                     <Button 
                       variant="ghost" 
                       size="icon"
                       className="h-8 w-8 flex-shrink-0"
-                      onClick={() => openWalmartSearch(item.name)}
+                      onClick={() => openStoreSearch(item.name)}
                     >
                       <ExternalLink className="w-4 h-4 text-muted-foreground" />
                     </Button>
@@ -430,6 +577,91 @@ export default function GroceryPage() {
           <p className="text-muted-foreground">Your shopping is complete</p>
         </div>
       )}
+
+      <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Grocery Preferences</DialogTitle>
+            <DialogDescription>
+              Set your default store and reminder time for placing grocery orders.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Preferred grocery store</p>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={preferredStoreId}
+                onChange={(e) => setPreferredStoreIdState(e.target.value)}
+              >
+                {GROCERY_STORES.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={orderReminder.enabled}
+                onCheckedChange={(checked) =>
+                  setOrderReminder((prev) => ({ ...prev, enabled: !!checked }))
+                }
+              />
+              <span className="text-sm">Enable weekly grocery order reminder</span>
+            </label>
+
+            {orderReminder.enabled && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Day</p>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={orderReminder.day}
+                    onChange={(e) =>
+                      setOrderReminder((prev) => ({
+                        ...prev,
+                        day: e.target.value as GroceryOrderReminderSettings['day'],
+                      }))
+                    }
+                  >
+                    <option value="monday">Monday</option>
+                    <option value="tuesday">Tuesday</option>
+                    <option value="wednesday">Wednesday</option>
+                    <option value="thursday">Thursday</option>
+                    <option value="friday">Friday</option>
+                    <option value="saturday">Saturday</option>
+                    <option value="sunday">Sunday</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Time</p>
+                  <Input
+                    type="time"
+                    value={orderReminder.time}
+                    onChange={(e) =>
+                      setOrderReminder((prev) => ({ ...prev, time: e.target.value || '10:00' }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Last marked complete: {lastOrderCompletedAt ? new Date(lastOrderCompletedAt).toLocaleString() : 'Never'}
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPrefsOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveGroceryPrefs}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

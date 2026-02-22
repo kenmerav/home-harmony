@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type ChunkInfo = { current: number; total: number };
 
@@ -201,6 +202,27 @@ serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonOk({ success: false, error: "Unauthorized" });
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error("Supabase auth env vars are not configured");
+      return jsonOk({ success: false, error: "Server auth is not configured" });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      return jsonOk({ success: false, error: "Unauthorized" });
+    }
+
     const body = await req.json().catch(() => ({}));
     const pdfText = body?.pdfText;
     const fileName = body?.fileName;

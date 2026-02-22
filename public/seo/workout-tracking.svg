@@ -1,0 +1,18 @@
+<svg width="1200" height="700" viewBox="0 0 1200 700" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fitbg" x1="0" y1="0" x2="1200" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B2D5C"/>
+      <stop offset="1" stop-color="#3A5FAF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="700" fill="url(#fitbg)"/>
+  <rect x="140" y="110" width="920" height="480" rx="24" fill="#F5F7FC"/>
+  <rect x="185" y="160" width="380" height="385" rx="16" fill="#FFFFFF"/>
+  <rect x="635" y="160" width="380" height="385" rx="16" fill="#FFFFFF"/>
+  <path d="M235 450L300 380L360 410L430 300L520 335" stroke="#3A5FAF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="235" y="490" width="250" height="20" rx="8" fill="#D5DDF1"/>
+  <rect x="670" y="220" width="300" height="24" rx="9" fill="#D5DDF1"/>
+  <rect x="670" y="270" width="260" height="24" rx="9" fill="#D5DDF1"/>
+  <rect x="670" y="320" width="280" height="24" rx="9" fill="#D5DDF1"/>
+  <rect x="670" y="370" width="220" height="24" rx="9" fill="#D5DDF1"/>
+</svg>

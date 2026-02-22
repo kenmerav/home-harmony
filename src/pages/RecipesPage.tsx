@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,15 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { parseRecipesFromPdf, parseRecipesFromJson, ExtractedRecipe, fetchRecipes, saveRecipes, DbRecipe } from '@/lib/api/recipes';
+import {
+  parseRecipesFromPdf,
+  parseRecipesFromJson,
+  parseRecipesFromImage,
+  ExtractedRecipe,
+  fetchRecipes,
+  saveRecipes,
+  DbRecipe,
+} from '@/lib/api/recipes';
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
 import { EditRecipeDialog } from '@/components/recipes/EditRecipeDialog';
 import { estimateCookMinutes, formatCookTime } from '@/lib/recipeTime';
@@ -86,14 +94,7 @@ export default function RecipesPage() {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [kidFriendlyOverrides, setKidFriendlyOverrides] = useState<Record<string, boolean>>({});
 
-  // Load recipes from database on mount
-  useEffect(() => {
-    setFavoriteIds(getFavoriteIds());
-    setKidFriendlyOverrides(getKidFriendlyOverrides());
-    loadRecipes();
-  }, []);
-
-  const loadRecipes = async () => {
+  const loadRecipes = useCallback(async () => {
     try {
       setIsLoading(true);
       const nextFavorites = getFavoriteIds();
@@ -112,7 +113,14 @@ export default function RecipesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Load recipes from database on mount
+  useEffect(() => {
+    setFavoriteIds(getFavoriteIds());
+    setKidFriendlyOverrides(getKidFriendlyOverrides());
+    void loadRecipes();
+  }, [loadRecipes]);
 
   const refreshRecipeTags = () => {
     const nextFavorites = getFavoriteIds();
@@ -153,10 +161,12 @@ export default function RecipesPage() {
       processJson(file);
     } else if (file.type === 'application/pdf') {
       processPdf(file);
+    } else if (file.type.startsWith('image/')) {
+      processImage(file);
     } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a JSON or PDF file",
+        description: "Please upload a JSON, PDF, or image file",
         variant: "destructive",
       });
     }
@@ -255,6 +265,44 @@ export default function RecipesPage() {
         title: "Error",
         description: "Failed to process the PDF file",
         variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  const processImage = async (file: File) => {
+    setIsProcessing(true);
+    setProcessingStatus('Reading recipe photo...');
+
+    try {
+      setProcessingStatus('Analyzing recipe image with AI...');
+      const result = await parseRecipesFromImage(file);
+
+      if (!result.success || !result.recipes) {
+        toast({
+          title: 'Failed to process photo',
+          description: result.error || 'Could not extract recipes from the image',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setExtractedRecipes(result.recipes);
+      setSelectedRecipes(new Set(result.recipes.map((_, i) => i)));
+      setUploadStep('review');
+
+      toast({
+        title: 'Recipe photo processed',
+        description: `Found ${result.recipes.length} recipe${result.recipes.length !== 1 ? 's' : ''}`,
+      });
+    } catch (error) {
+      console.error('Error processing recipe photo:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to process recipe image',
+        variant: 'destructive',
       });
     } finally {
       setIsProcessing(false);
@@ -388,7 +436,7 @@ export default function RecipesPage() {
             </DialogTitle>
             <DialogDescription>
               {uploadStep === 'upload' 
-                ? 'Upload a JSON file or PDF cookbook to import recipes'
+                ? 'Upload a JSON file, PDF cookbook, or recipe photo to import recipes'
                 : `${extractedRecipes.length} recipes found. Select which ones to import.`
               }
             </DialogDescription>
@@ -407,7 +455,7 @@ export default function RecipesPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".json,.pdf"
+                  accept=".json,.pdf,image/*"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -415,14 +463,14 @@ export default function RecipesPage() {
                 {isProcessing ? (
                   <>
                     <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-                    <p className="font-medium">Processing PDF...</p>
+                    <p className="font-medium">Processing upload...</p>
                     <p className="text-sm text-muted-foreground mt-1">{processingStatus || 'Extracting recipes'}</p>
                   </>
                 ) : (
                   <>
                     <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <p className="font-medium">Click to upload JSON or PDF</p>
-                    <p className="text-sm text-muted-foreground mt-1">JSON recommended for best results</p>
+                    <p className="font-medium">Click to upload JSON, PDF, or recipe photo</p>
+                    <p className="text-sm text-muted-foreground mt-1">JSON is fastest; photos work for single recipes</p>
                   </>
                 )}
               </div>

@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -16,17 +15,9 @@ import {
 } from 'lucide-react';
 import { HomeHarmonyLogo } from '@/components/branding/HomeHarmonyLogo';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-
-function setMetaTag(name: string, content: string) {
-  let tag = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
-  if (!tag) {
-    tag = document.createElement('meta');
-    tag.setAttribute('name', name);
-    document.head.appendChild(tag);
-  }
-  tag.setAttribute('content', content);
-}
+import { useSeoMeta } from '@/lib/seo';
 
 const features = [
   {
@@ -84,18 +75,88 @@ const useCases = [
   },
 ];
 
+const seoGuides = [
+  { title: 'Meal Plan Frameworks', href: '/meal-plans' },
+  { title: 'Grocery List Rollups', href: '/grocery-lists' },
+  { title: 'Pantry Meal Guides', href: '/pantry-meals' },
+  { title: 'Recipe Collections', href: '/recipe-collections' },
+  { title: 'Household Templates', href: '/household-templates' },
+  { title: 'Macro Plan Frameworks', href: '/macro-plans' },
+  { title: 'Chore System Guides', href: '/chore-systems' },
+  { title: 'Task System Guides', href: '/task-systems' },
+  { title: 'Workout Tracking Guides', href: '/workout-tracking' },
+  { title: 'Lifestyle Tracking Guides', href: '/lifestyle-tracking' },
+];
+
+const landingFaq = [
+  {
+    question: 'What does Home Harmony do?',
+    answer:
+      'Home Harmony combines meal planning, grocery list automation, chores, tasks, family coordination, and wellness tracking in one system.',
+  },
+  {
+    question: 'Can I use Home Harmony for chores and tasks, not just meals?',
+    answer:
+      'Yes. The app supports shared household task systems, chore workflows, and family operational dashboards alongside meal planning.',
+  },
+  {
+    question: 'Does Home Harmony support fitness and lifestyle tracking?',
+    answer:
+      'Yes. Workout tracking is being merged in, and lifestyle modules for sleep, cycle tracking, and alcohol habits are planned and documented.',
+  },
+  {
+    question: 'How does Home Harmony improve grocery shopping?',
+    answer:
+      'It consolidates ingredient overlaps across scheduled meals and outputs a cleaner shopping list with combined quantities and reduced duplication.',
+  },
+];
+
 export default function LandingPage() {
-  useEffect(() => {
-    document.title = 'Home Harmony | Family Meal Planning, Grocery, Chores & Household Hub';
-    setMetaTag(
-      'description',
-      'Home Harmony helps families plan meals, merge grocery lists with accurate quantities, manage chores and tasks, track calories/macros, and soon track workouts and lifestyle metrics.',
-    );
-    setMetaTag(
-      'keywords',
-      'family meal planner, shared grocery list, chore tracker app, household management app, calorie tracker family, macro tracking app, workout tracker app',
-    );
-  }, []);
+  const { user } = useAuth();
+  const trialCtaTo = user ? '/onboarding?force=1' : '/signin?onboarding=1';
+
+  useSeoMeta({
+    title: 'Home Harmony | Family Meal Planner, Shared Grocery, Chores, Tasks, Workouts, and Lifestyle Tracking',
+    description:
+      'Home Harmony is the all-in-one family management app for meal planning, grocery list automation, chores, tasks, calorie/macro tracking, workouts, and lifestyle habit tracking.',
+    keywords: [
+      'family meal planner app',
+      'shared grocery list app',
+      'chore tracker app',
+      'household task management app',
+      'family dashboard app',
+      'workout tracker app',
+      'sleep habit tracker',
+      'period tracking planner',
+    ],
+    image: '/landing/hero-family.svg',
+    type: 'website',
+    faq: landingFaq,
+    breadcrumbs: [{ name: 'Home', url: '/' }],
+    schemas: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: 'Home Harmony',
+        applicationCategory: 'LifestyleApplication',
+        operatingSystem: 'Web',
+        description:
+          'Family operating system for meal planning, grocery automation, chores, task management, macro tracking, workouts, and lifestyle habits.',
+        offers: {
+          '@type': 'Offer',
+          price: '12',
+          priceCurrency: 'USD',
+          category: 'Subscription',
+        },
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'Home Harmony',
+        url: 'https://homeharmony.app',
+      },
+    ],
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -105,12 +166,15 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
           <HomeHarmonyLogo />
           <div className="flex items-center gap-2">
+            <Link to="/resources">
+              <Button variant="ghost">Resources</Button>
+            </Link>
             <Link to="/signin">
               <Button variant="ghost">Sign In</Button>
             </Link>
-            <a href="#pricing">
+            <Link to={trialCtaTo}>
               <Button>Start Free Trial</Button>
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -133,12 +197,12 @@ export default function LandingPage() {
               </p>
 
               <div className="mt-7 flex flex-wrap gap-3">
-                <a href="#pricing">
+                <Link to={trialCtaTo}>
                   <Button size="lg">
                     Try Home Harmony
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
-                </a>
+                </Link>
                 <Link to="/signin">
                   <Button size="lg" variant="outline">Sign In</Button>
                 </Link>
@@ -247,6 +311,46 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section className="mx-auto max-w-6xl px-4 pb-12 md:px-6">
+          <div className="rounded-xl border border-border bg-card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.15em] text-primary">Resource Library</p>
+                <h2 className="font-display text-3xl">Built-for-action household guides</h2>
+              </div>
+              <Link to="/resources">
+                <Button variant="outline">View All Guides</Button>
+              </Link>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {seoGuides.map((guide) => (
+                <Link
+                  key={guide.href}
+                  to={guide.href}
+                  className="rounded-lg border border-border p-4 text-sm font-medium transition hover:bg-muted/40"
+                >
+                  {guide.title}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-4 pb-12 md:px-6">
+          <div className="rounded-xl border border-border bg-card p-6">
+            <p className="text-xs uppercase tracking-[0.15em] text-primary">SEO FAQ</p>
+            <h2 className="mt-2 font-display text-3xl">Common Questions About Home Harmony</h2>
+            <div className="mt-5 space-y-4">
+              {landingFaq.map((item) => (
+                <article key={item.question} className="rounded-lg border border-border p-4">
+                  <h3 className="text-base font-semibold">{item.question}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">{item.answer}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
         <section className="mx-auto max-w-6xl px-4 pb-16 md:px-6" id="pricing">
           <div className="rounded-2xl border border-border bg-gradient-to-br from-secondary/50 to-background p-6 md:p-10">
             <div className="grid gap-8 md:grid-cols-[1.5fr_1fr]">
@@ -272,7 +376,7 @@ export default function LandingPage() {
                   <p className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-primary" /> Smart grocery list automation</p>
                 </div>
                 <div className="mt-5 flex flex-col gap-2">
-                  <Link to="/signin">
+                  <Link to={trialCtaTo}>
                     <Button className="w-full">Start Free Trial</Button>
                   </Link>
                   <Button

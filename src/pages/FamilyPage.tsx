@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Flame, Trophy } from 'lucide-react';
 import {
   acceptHouseholdInvite,
   createOrGetHousehold,
@@ -11,6 +12,7 @@ import {
   type HouseholdDashboard,
 } from '@/lib/api/family';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFamilyLeaderboard } from '@/lib/macroGame';
 
 const EMPTY_DASHBOARD: HouseholdDashboard = {
   household: null,
@@ -53,6 +55,7 @@ export default function FamilyPage() {
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),
     [dashboard.members],
   );
+  const familyLeaderboard = getFamilyLeaderboard();
 
   const onCreateHousehold = async () => {
     setCreatingHousehold(true);
@@ -109,6 +112,33 @@ export default function FamilyPage() {
             Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.
           </p>
         </div>
+
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="font-semibold">Family leaderboard</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Weekly score combines macro goal progress, healthy habits, and kids&apos; completed chores.
+          </p>
+          <div className="mt-3 space-y-2">
+            {familyLeaderboard.map((entry, index) => (
+              <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 text-xs font-semibold text-muted-foreground">{index + 1}</span>
+                  <p className="text-sm font-medium">{entry.name}</p>
+                  {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                  <span className="text-xs text-muted-foreground">{entry.headline}</span>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold">{entry.weekPoints} pts</p>
+                  <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                    <Flame className="w-3 h-3 text-orange-500" />
+                    {entry.streak} streak
+                  </p>
+                </div>
+              </div>
+            ))}
+            {familyLeaderboard.length === 0 && <p className="text-sm text-muted-foreground">No score data yet.</p>}
+          </div>
+        </section>
 
         {inviteToken && (
           <section className="rounded-xl border border-border bg-card p-4">

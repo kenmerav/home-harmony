@@ -12,8 +12,186 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      household_invites: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          household_id: string
+          id: string
+          invited_by: string
+          role: string
+          status: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          email: string
+          expires_at?: string
+          household_id: string
+          id?: string
+          invited_by: string
+          role: string
+          status?: string
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          household_id?: string
+          id?: string
+          invited_by?: string
+          role?: string
+          status?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "household_invites_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      household_members: {
+        Row: {
+          created_at: string
+          household_id: string
+          id: string
+          role: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          household_id: string
+          id?: string
+          role: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          household_id?: string
+          id?: string
+          role?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "household_members_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      households: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      planned_meals: {
+        Row: {
+          created_at: string
+          day: string
+          id: string
+          is_locked: boolean
+          is_skipped: boolean
+          owner_id: string | null
+          recipe_id: string
+          week_of: string
+        }
+        Insert: {
+          created_at?: string
+          day: string
+          id?: string
+          is_locked?: boolean
+          is_skipped?: boolean
+          owner_id?: string | null
+          recipe_id: string
+          week_of: string
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          id?: string
+          is_locked?: boolean
+          is_skipped?: boolean
+          owner_id?: string | null
+          recipe_id?: string
+          week_of?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planned_meals_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -25,6 +203,8 @@ export type Database = {
           household_id: string | null
           household_name: string | null
           id: string
+          onboarding_completed_at: string | null
+          onboarding_settings: Json | null
           phone: string | null
           timezone: string | null
           updated_at: string
@@ -39,6 +219,8 @@ export type Database = {
           household_id?: string | null
           household_name?: string | null
           id: string
+          onboarding_completed_at?: string | null
+          onboarding_settings?: Json | null
           phone?: string | null
           timezone?: string | null
           updated_at?: string
@@ -53,46 +235,18 @@ export type Database = {
           household_id?: string | null
           household_name?: string | null
           id?: string
+          onboarding_completed_at?: string | null
+          onboarding_settings?: Json | null
           phone?: string | null
           timezone?: string | null
           updated_at?: string
         }
-        Relationships: []
-      }
-      planned_meals: {
-        Row: {
-          created_at: string
-          day: string
-          id: string
-          is_locked: boolean
-          is_skipped: boolean
-          recipe_id: string
-          week_of: string
-        }
-        Insert: {
-          created_at?: string
-          day: string
-          id?: string
-          is_locked?: boolean
-          is_skipped?: boolean
-          recipe_id: string
-          week_of: string
-        }
-        Update: {
-          created_at?: string
-          day?: string
-          id?: string
-          is_locked?: boolean
-          is_skipped?: boolean
-          recipe_id?: string
-          week_of?: string
-        }
         Relationships: [
           {
-            foreignKeyName: "planned_meals_recipe_id_fkey"
-            columns: ["recipe_id"]
+            foreignKeyName: "profiles_household_id_fkey"
+            columns: ["household_id"]
             isOneToOne: false
-            referencedRelation: "recipes"
+            referencedRelation: "households"
             referencedColumns: ["id"]
           },
         ]
@@ -112,6 +266,7 @@ export type Database = {
           is_anchored: boolean
           meal_type: string
           name: string
+          owner_id: string | null
           protein_g: number
           servings: number
           updated_at: string
@@ -130,6 +285,7 @@ export type Database = {
           is_anchored?: boolean
           meal_type?: string
           name: string
+          owner_id?: string | null
           protein_g?: number
           servings?: number
           updated_at?: string
@@ -148,6 +304,7 @@ export type Database = {
           is_anchored?: boolean
           meal_type?: string
           name?: string
+          owner_id?: string | null
           protein_g?: number
           servings?: number
           updated_at?: string
@@ -198,7 +355,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      accept_household_invite: {
+        Args: { invite_token: string }
+        Returns: string
+      }
+      create_or_get_household: {
+        Args: { household_name?: string }
+        Returns: string
+      }
+      get_household_dashboard: { Args: never; Returns: Json }
+      invite_household_member: {
+        Args: { invite_email: string; invite_role?: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
@@ -327,6 +496,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

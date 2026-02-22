@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,23 @@ import { normalizeRecipeInstructions } from '@/lib/recipeText';
 import { getRecipeImageUrl } from '@/data/recipeImages';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DbRecipe, fetchRecipes } from '@/lib/api/recipes';
-import { getFavoriteIds, getKidFriendlyOverrides, getMealMultiplier, getPlanRules, setMealMultiplier, setPlanRules } from '@/lib/mealPrefs';
+import {
+  DinnerReminderPrefs,
+  MenuRejuvenatePrefs,
+  getDinnerReminderPrefs,
+  getFavoriteIds,
+  getKidFriendlyOverrides,
+  getMealMultiplier,
+  getMenuRejuvenatePrefs,
+  getPlanRules,
+  hasShownDinnerReminder,
+  markDinnerReminderShown,
+  markMenuRejuvenatedForWeek,
+  setDinnerReminderPrefs,
+  setMealMultiplier,
+  setMenuRejuvenatePrefs,
+  setPlanRules,
+} from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -45,6 +61,11 @@ const dayFullLabels: Record<DayOfWeek, string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday',
   friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
+
+const dayFromDate = (date: Date): DayOfWeek =>
+  (['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
+    date.getDay()
+  ] || 'monday') as DayOfWeek;
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
@@ -91,6 +112,17 @@ export default function MealsPage() {
     preferFavorites: true,
     preferKidFriendly: false,
     maxCookMinutes: null,
+    dayLocks: {},
+  });
+  const [dinnerReminderPrefs, setDinnerReminderPrefsState] = useState<DinnerReminderPrefs>({
+    enabled: false,
+    preferredDinnerTime: '18:00',
+  });
+  const [menuRejuvenatePrefs, setMenuRejuvenatePrefsState] = useState<MenuRejuvenatePrefs>({
+    enabled: false,
+    day: 'friday',
+    time: '15:00',
+    lastRanForWeekOf: null,
   });
   const [swapDialogMeal, setSwapDialogMeal] = useState<DbPlannedMeal | null>(null);
   const [swapMode, setSwapMode] = useState<'random' | 'choose' | 'request'>('random');
@@ -111,12 +143,7 @@ export default function MealsPage() {
   const weekStart = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
   const weekLabel = format(weekStart, 'MMM d') + ' – ' + format(addDays(weekStart, 6), 'MMM d');
 
-  useEffect(() => {
-    setPlanRulesState(getPlanRules());
-    loadMeals();
-  }, [weekOffset]);
-
-  const loadMeals = async () => {
+  const loadMeals = useCallback(async () => {
     try {
       setLoading(true);
       const data = await fetchMealsForWeek(weekOffset);
@@ -126,26 +153,113 @@ export default function MealsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [weekOffset]);
 
-  const ensureRecipesLoaded = async () => {
+  useEffect(() => {
+    setPlanRulesState(getPlanRules());
+    setDinnerReminderPrefsState(getDinnerReminderPrefs());
+    setMenuRejuvenatePrefsState(getMenuRejuvenatePrefs());
+    void loadMeals();
+  }, [loadMeals]);
+
+  useEffect(() => {
+    if (!menuRejuvenatePrefs.enabled) return;
+
+    const now = new Date();
+    const scheduled = new Date(now);
+    const currentDayIndex = now.getDay();
+    const targetDayIndex = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(
+      menuRejuvenatePrefs.day,
+    );
+    const delta = targetDayIndex - currentDayIndex;
+    const [hour, minute] = menuRejuvenatePrefs.time.split(':').map((x) => Number.parseInt(x, 10) || 0);
+    scheduled.setDate(now.getDate() + delta);
+    scheduled.setHours(hour, minute, 0, 0);
+
+    if (now < scheduled) return;
+
+    const nextWeekOf = format(addWeeks(startOfWeek(now, { weekStartsOn: 1 }), 1), 'yyyy-MM-dd');
+    if (menuRejuvenatePrefs.lastRanForWeekOf === nextWeekOf) return;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await generateMeals(1, undefined, planRules);
+        if (cancelled) return;
+        markMenuRejuvenatedForWeek(nextWeekOf);
+        setMenuRejuvenatePrefsState((prev) => ({ ...prev, lastRanForWeekOf: nextWeekOf }));
+        toast({
+          title: 'Next week menu regenerated',
+          description: `Auto-regenerated week starting ${nextWeekOf}.`,
+        });
+      } catch (error) {
+        console.error('Failed auto-regenerating next week menu:', error);
+      }
+    };
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [menuRejuvenatePrefs, planRules, toast]);
+
+  useEffect(() => {
+    if (!dinnerReminderPrefs.enabled) return;
+    if (weekOffset !== 0 || meals.length === 0) return;
+
+    const now = new Date();
+    const today = dayFromDate(now);
+    const todayMeal = meals.find((m) => m.day === today && !m.is_skipped && !!m.recipes);
+    if (!todayMeal?.recipes) return;
+
+    const cookMinutes = estimateCookMinutes(todayMeal.recipes.instructions) ?? 30;
+    const [dinnerHour, dinnerMinute] = dinnerReminderPrefs.preferredDinnerTime
+      .split(':')
+      .map((x) => Number.parseInt(x, 10) || 0);
+    const dinnerTime = new Date(now);
+    dinnerTime.setHours(dinnerHour, dinnerMinute, 0, 0);
+    const prepTime = new Date(dinnerTime.getTime() - cookMinutes * 60_000);
+    const reminderWindowEnd = new Date(dinnerTime.getTime() + 90 * 60_000);
+
+    if (now < prepTime || now > reminderWindowEnd) return;
+
+    const dateKey = format(now, 'yyyy-MM-dd');
+    if (hasShownDinnerReminder(dateKey, todayMeal.id)) return;
+
+    markDinnerReminderShown(dateKey, todayMeal.id);
+    toast({
+      title: 'Dinner prep reminder',
+      description: `Start "${todayMeal.recipes.name}" now to hit your ${dinnerReminderPrefs.preferredDinnerTime} dinner time.`,
+    });
+  }, [dinnerReminderPrefs, meals, toast, weekOffset]);
+
+  const ensureRecipesLoaded = useCallback(async () => {
     const recipes = await fetchRecipes();
     setAllRecipes(recipes);
     return recipes;
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!rulesOpen || allRecipes.length > 0) return;
+    void ensureRecipesLoaded();
+  }, [rulesOpen, allRecipes.length, ensureRecipesLoaded]);
 
   const savePlanRules = () => {
     const maxCookMinutes =
       typeof planRules.maxCookMinutes === 'number' && planRules.maxCookMinutes > 0
         ? Math.round(planRules.maxCookMinutes)
         : null;
+    const dayLocks = planRules.dayLocks || {};
     const next = {
       preferFavorites: !!planRules.preferFavorites,
       preferKidFriendly: !!planRules.preferKidFriendly,
       maxCookMinutes,
+      dayLocks,
     };
     setPlanRulesState(next);
     setPlanRules(next);
+    setDinnerReminderPrefs(dinnerReminderPrefs);
+    setMenuRejuvenatePrefs(menuRejuvenatePrefs);
     setRulesOpen(false);
     toast({ title: 'Planner rules saved' });
   };
@@ -607,6 +721,122 @@ export default function MealsPage() {
                 }
                 placeholder="No max"
               />
+            </div>
+            <div className="border border-border rounded-lg p-3 space-y-3">
+              <label className="flex items-center gap-3">
+                <Checkbox
+                  checked={dinnerReminderPrefs.enabled}
+                  onCheckedChange={(v) =>
+                    setDinnerReminderPrefsState((prev) => ({ ...prev, enabled: !!v }))
+                  }
+                />
+                <span className="text-sm">Dinner prep reminder</span>
+              </label>
+              {dinnerReminderPrefs.enabled && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Preferred dinner time</p>
+                  <Input
+                    type="time"
+                    value={dinnerReminderPrefs.preferredDinnerTime}
+                    onChange={(e) =>
+                      setDinnerReminderPrefsState((prev) => ({
+                        ...prev,
+                        preferredDinnerTime: e.target.value || '18:00',
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Reminder fires at dinner time minus estimated cook time.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="border border-border rounded-lg p-3 space-y-3">
+              <label className="flex items-center gap-3">
+                <Checkbox
+                  checked={menuRejuvenatePrefs.enabled}
+                  onCheckedChange={(v) =>
+                    setMenuRejuvenatePrefsState((prev) => ({ ...prev, enabled: !!v }))
+                  }
+                />
+                <span className="text-sm">Auto-rejuvenate next week menu</span>
+              </label>
+              {menuRejuvenatePrefs.enabled && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Day</p>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={menuRejuvenatePrefs.day}
+                      onChange={(e) =>
+                        setMenuRejuvenatePrefsState((prev) => ({
+                          ...prev,
+                          day: e.target.value as DayOfWeek,
+                        }))
+                      }
+                    >
+                      <option value="monday">Monday</option>
+                      <option value="tuesday">Tuesday</option>
+                      <option value="wednesday">Wednesday</option>
+                      <option value="thursday">Thursday</option>
+                      <option value="friday">Friday</option>
+                      <option value="saturday">Saturday</option>
+                      <option value="sunday">Sunday</option>
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Time</p>
+                    <Input
+                      type="time"
+                      value={menuRejuvenatePrefs.time}
+                      onChange={(e) =>
+                        setMenuRejuvenatePrefsState((prev) => ({
+                          ...prev,
+                          time: e.target.value || '15:00',
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-sm mb-2 font-medium">Recurring Day Locks</p>
+              <p className="text-xs text-muted-foreground mb-2">
+                Pick a recipe for any day to keep it consistent every week.
+              </p>
+              <div className="space-y-2">
+                {days.map((day) => (
+                  <div key={day} className="grid grid-cols-[90px_1fr] items-center gap-2">
+                    <span className="text-sm">{dayFullLabels[day]}</span>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={planRules.dayLocks?.[day] || ''}
+                      onChange={(e) =>
+                        setPlanRulesState((prev) => {
+                          const nextDayLocks = { ...(prev.dayLocks || {}) };
+                          if (e.target.value) nextDayLocks[day] = e.target.value;
+                          else delete nextDayLocks[day];
+                          return {
+                            ...prev,
+                            dayLocks: nextDayLocks,
+                          };
+                        })
+                      }
+                    >
+                      <option value="">No lock</option>
+                      {allRecipes
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((recipe) => (
+                          <option key={recipe.id} value={recipe.id}>
+                            {recipe.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setRulesOpen(false)}>Cancel</Button>
