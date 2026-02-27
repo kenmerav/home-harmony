@@ -1,0 +1,34 @@
+name: SMS Dispatch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase SMS dispatch
+        env:
+          SMS_DISPATCH_API_KEY: ${{ secrets.SMS_DISPATCH_API_KEY }}
+          DISPATCH_URL: https://amhnbyimvgykklzrenky.supabase.co/functions/v1/sms-dispatch
+        run: |
+          if [ -z "$SMS_DISPATCH_API_KEY" ]; then
+            echo "Missing GitHub Actions secret: SMS_DISPATCH_API_KEY"
+            exit 1
+          fi
+
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+            -X POST \
+            -H "x-sms-dispatch-key: $SMS_DISPATCH_API_KEY" \
+            "$DISPATCH_URL")"
+
+          echo "HTTP: $HTTP_CODE"
+          cat "$RESPONSE_FILE"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "sms-dispatch failed"
+            exit 1
+          fi
