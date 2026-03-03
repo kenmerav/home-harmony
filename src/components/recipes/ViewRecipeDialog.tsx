@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Anchor, Calendar, Clock3 } from 'lucide-react';
 import { formatCookTime } from '@/lib/recipeTime';
 import { normalizeRecipeInstructions } from '@/lib/recipeText';
+import { Button } from '@/components/ui/button';
 
 const dayLabels: Record<string, string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
@@ -19,9 +20,10 @@ interface ViewRecipeDialogProps {
   recipe: Recipe | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onEdit?: (recipe: Recipe) => void;
 }
 
-export function ViewRecipeDialog({ recipe, open, onOpenChange }: ViewRecipeDialogProps) {
+export function ViewRecipeDialog({ recipe, open, onOpenChange, onEdit }: ViewRecipeDialogProps) {
   if (!recipe) return null;
   const formattedInstructions = normalizeRecipeInstructions(recipe.instructions);
 
@@ -89,6 +91,18 @@ export function ViewRecipeDialog({ recipe, open, onOpenChange }: ViewRecipeDialo
               {formattedInstructions || 'No instructions available for this recipe yet.'}
             </div>
           </section>
+
+          {onEdit && (
+            <div className="pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => onEdit(recipe)}
+              >
+                Edit Recipe
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

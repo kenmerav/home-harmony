@@ -4,6 +4,26 @@ import { Button } from '@/components/ui/button';
 import { HomeHarmonyLogo } from '@/components/branding/HomeHarmonyLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { BILLING_ENABLED } from '@/lib/billing';
+
+async function resolveInvokeErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (error instanceof Error) {
+    const invokeError = error as Error & { context?: Response };
+    if (invokeError.context) {
+      try {
+        const cloned = invokeError.context.clone();
+        const body = await cloned.json();
+        if (body && typeof body.error === 'string' && body.error.trim()) {
+          return body.error;
+        }
+      } catch {
+        // keep fallback behavior
+      }
+    }
+    if (invokeError.message?.trim()) return invokeError.message;
+  }
+  return fallback;
+}
 
 export default function BillingPage() {
   const { user, signOut, subscription, isSubscribed, refreshSubscription } = useAuth();
@@ -11,6 +31,26 @@ export default function BillingPage() {
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  if (!BILLING_ENABLED) {
+    return (
+      <div className="min-h-screen bg-background grid place-items-center p-4">
+        <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <HomeHarmonyLogo />
+            <Button variant="ghost" onClick={() => signOut()}>Sign out</Button>
+          </div>
+          <h1 className="mt-6 font-display text-3xl">Free Access Enabled</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Billing is turned off right now. Your account has full access while we finish setup.
+          </p>
+          <div className="mt-6">
+            <Button onClick={() => navigate('/app')}>Open App</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const startCheckout = async () => {
     setLoadingCheckout(true);
@@ -22,12 +62,15 @@ export default function BillingPage() {
           cancelUrl: `${window.location.origin}/billing?checkout=cancel`,
         },
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        const detail = await resolveInvokeErrorMessage(error, 'Unable to start checkout');
+        throw new Error(detail);
+      }
       const url = data?.url as string | undefined;
       if (!url) throw new Error('No checkout URL returned');
       window.location.assign(url);
     } catch (error: unknown) {
-      const text = error instanceof Error ? error.message : 'Unable to start checkout';
+      const text = await resolveInvokeErrorMessage(error, 'Unable to start checkout');
       setMessage(text);
     } finally {
       setLoadingCheckout(false);
@@ -41,12 +84,15 @@ export default function BillingPage() {
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
         body: { returnUrl: `${window.location.origin}/billing` },
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        const detail = await resolveInvokeErrorMessage(error, 'Unable to open customer portal');
+        throw new Error(detail);
+      }
       const url = data?.url as string | undefined;
       if (!url) throw new Error('No portal URL returned');
       window.location.assign(url);
     } catch (error: unknown) {
-      const text = error instanceof Error ? error.message : 'Unable to open customer portal';
+      const text = await resolveInvokeErrorMessage(error, 'Unable to open customer portal');
       setMessage(text);
     } finally {
       setLoadingPortal(false);

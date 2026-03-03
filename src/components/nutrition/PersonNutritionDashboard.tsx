@@ -61,7 +61,10 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       />
 
       <div className="space-y-6">
-        <SectionCard title="Today's Progress">
+        <SectionCard
+          title="Today's Progress"
+          subtitle={`Final targets (editable): ${profile.macroPlan.calories} cal • ${profile.macroPlan.protein_g}P • ${profile.macroPlan.carbs_g}C • ${profile.macroPlan.fat_g}F`}
+        >
           <MacroBar
             current={{
               calories: todayScore.calories,
@@ -86,6 +89,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
 
         <SectionCard
           title="Today's Meals"
+          subtitle="Final targets (editable) are used for scoring and streaks."
           action={
             <Link to="/app">
               <Button variant="ghost" size="sm">
@@ -118,7 +122,10 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
           )}
         </SectionCard>
 
-        <SectionCard title="This Week" subtitle="Calories vs target">
+        <SectionCard
+          title="This Week"
+          subtitle={`Final targets (editable): ${targetCalories} calories/day`}
+        >
           <div className="flex items-end justify-between gap-2 h-32">
             {weekData.map((day) => {
               const percentage = Math.min((day.calories / targetCalories) * 100, 100);

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { RequireAuth } from "./components/auth/RequireAuth";
+import { RequireAdmin } from "./components/auth/RequireAdmin";
 import { RequireProfileComplete } from "./components/auth/RequireProfileComplete";
 import { RequireSubscription } from "./components/auth/RequireSubscription";
 import { WorkoutStoreProvider } from "./workouts/hooks/useWorkoutStore";
@@ -17,6 +18,8 @@ const AuthPage = lazy(() => import("./pages/AuthPage"));
 const BillingPage = lazy(() => import("./pages/BillingPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const TodayPage = lazy(() => import("./pages/TodayPage"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const CalendarPlannerPage = lazy(() => import("./pages/CalendarPlannerPage"));
 const MealsPage = lazy(() => import("./pages/MealsPage"));
 const RecipesPage = lazy(() => import("./pages/RecipesPage"));
 const GroceryPage = lazy(() => import("./pages/GroceryPage"));
@@ -24,6 +27,9 @@ const ChoresPage = lazy(() => import("./pages/ChoresPage"));
 const TasksPage = lazy(() => import("./pages/TasksPage"));
 const FamilyPage = lazy(() => import("./pages/FamilyPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const FreeToolsAnalyticsPage = lazy(() => import("./pages/FreeToolsAnalyticsPage"));
+const GrowthAnalyticsPage = lazy(() => import("./pages/GrowthAnalyticsPage"));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
 const MeDashboardPage = lazy(() => import("./pages/MeDashboardPage"));
 const WifeDashboardPage = lazy(() => import("./pages/WifeDashboardPage"));
 const WorkoutsHomePage = lazy(() => import("./workouts/pages/WorkoutsHomePage"));
@@ -71,6 +77,24 @@ const LifestyleTrackingHubPage = lazy(() =>
 const LifestyleTrackingDetailPage = lazy(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.LifestyleTrackingDetailPage })),
 );
+const FreeToolsHubPage = lazy(() =>
+  import("./pages/seo/FreeToolsPages").then((m) => ({ default: m.FreeToolsHubPage })),
+);
+const FreeToolsDetailPage = lazy(() =>
+  import("./pages/seo/FreeToolsPages").then((m) => ({ default: m.FreeToolsDetailPage })),
+);
+const ComparisonHubPage = lazy(() =>
+  import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonHubPage })),
+);
+const ComparisonDetailPage = lazy(() =>
+  import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonDetailPage })),
+);
+const TemplatesHubPage = lazy(() =>
+  import("./pages/seo/TemplatesGalleryPages").then((m) => ({ default: m.TemplatesHubPage })),
+);
+const TemplateDetailPage = lazy(() =>
+  import("./pages/seo/TemplatesGalleryPages").then((m) => ({ default: m.TemplateDetailPage })),
+);
 
 const queryClient = new QueryClient();
 
@@ -114,6 +138,12 @@ const App = () => (
               <Route path="/workout-tracking/:slug" element={<WorkoutTrackingDetailPage />} />
               <Route path="/lifestyle-tracking" element={<LifestyleTrackingHubPage />} />
               <Route path="/lifestyle-tracking/:slug" element={<LifestyleTrackingDetailPage />} />
+              <Route path="/free-tools" element={<FreeToolsHubPage />} />
+              <Route path="/free-tools/:slug" element={<FreeToolsDetailPage />} />
+              <Route path="/compare" element={<ComparisonHubPage />} />
+              <Route path="/compare/:slug" element={<ComparisonDetailPage />} />
+              <Route path="/templates" element={<TemplatesHubPage />} />
+              <Route path="/templates/:slug" element={<TemplateDetailPage />} />
               <Route path="/signin" element={<AuthPage />} />
               <Route
                 path="/onboarding"
@@ -139,6 +169,36 @@ const App = () => (
                   <RequireProfileComplete>
                     <RequireSubscription>
                       <TodayPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/calendar"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <CalendarPlannerPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/calendar/planner"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <CalendarPlannerPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/calendar/standard"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <CalendarPage />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }
@@ -211,6 +271,34 @@ const App = () => (
                       <SettingsPage />
                     </RequireSubscription>
                   </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/free-tools-analytics"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <FreeToolsAnalyticsPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/growth-analytics"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <GrowthAnalyticsPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <RequireAdmin>
+                    <AdminDashboardPage />
+                  </RequireAdmin>
                 }
               />
               <Route

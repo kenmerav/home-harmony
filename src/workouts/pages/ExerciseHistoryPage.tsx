@@ -3,6 +3,7 @@ import { ArrowLeft, Trophy, TrendingUp, Calendar, Dumbbell, BarChart3 } from 'lu
 import { Button } from '@/components/ui/button';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { ExerciseProgressChart } from '@/workouts/components/ExerciseProgressChart';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { cn } from '@/lib/utils';
 
 export default function ExerciseHistory() {
@@ -34,7 +35,7 @@ export default function ExerciseHistory() {
   const { personalRecords, records } = history;
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen bg-background pb-40">
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border">
         <div className="flex items-center h-14 px-4">
           <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)}>
@@ -152,6 +153,7 @@ export default function ExerciseHistory() {
           ))}
         </div>
       </div>
+      <WorkoutsBottomNav />
     </div>
   );
 }

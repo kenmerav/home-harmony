@@ -1,0 +1,123 @@
+import { supabase } from '@/integrations/supabase/client';
+
+export interface SmsPreferences {
+  enabled: boolean;
+  phone_e164: string;
+  timezone: string;
+  morning_digest_enabled: boolean;
+  morning_digest_time: string;
+  night_before_enabled: boolean;
+  night_before_time: string;
+  event_reminders_enabled: boolean;
+  reminder_offsets_minutes: number[];
+  preferred_dinner_time: string;
+  include_modules: string[];
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+}
+
+const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
+  enabled: false,
+  phone_e164: '',
+  timezone: 'America/New_York',
+  morning_digest_enabled: true,
+  morning_digest_time: '07:00',
+  night_before_enabled: true,
+  night_before_time: '20:00',
+  event_reminders_enabled: true,
+  reminder_offsets_minutes: [60, 30],
+  preferred_dinner_time: '18:00',
+  include_modules: ['meals', 'manual'],
+  quiet_hours_start: null,
+  quiet_hours_end: null,
+};
+
+async function invokeSmsPreferences(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke('sms-preferences', { body });
+  if (error) {
+    const invokeError = error as Error & { context?: Response };
+    if (invokeError.context) {
+      const response = invokeError.context;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = (await response.clone().json().catch(() => null)) as Record<string, unknown> | null;
+        if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+          throw new Error(payload.error);
+        }
+      } else {
+        const text = await response.clone().text().catch(() => '');
+        if (text.trim()) throw new Error(text.trim());
+      }
+      throw new Error(`SMS request failed (${response.status}).`);
+    }
+    if (invokeError.message?.trim()) throw new Error(invokeError.message);
+    throw new Error('SMS request failed.');
+  }
+  return (data || {}) as Record<string, unknown>;
+}
+
+function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPreferences {
+  if (!raw) return { ...DEFAULT_SMS_PREFERENCES };
+  return {
+    enabled: !!raw.enabled,
+    phone_e164: raw.phone_e164 || '',
+    timezone: raw.timezone || DEFAULT_SMS_PREFERENCES.timezone,
+    morning_digest_enabled: raw.morning_digest_enabled ?? DEFAULT_SMS_PREFERENCES.morning_digest_enabled,
+    morning_digest_time: raw.morning_digest_time || DEFAULT_SMS_PREFERENCES.morning_digest_time,
+    night_before_enabled: raw.night_before_enabled ?? DEFAULT_SMS_PREFERENCES.night_before_enabled,
+    night_before_time: raw.night_before_time || DEFAULT_SMS_PREFERENCES.night_before_time,
+    event_reminders_enabled: raw.event_reminders_enabled ?? DEFAULT_SMS_PREFERENCES.event_reminders_enabled,
+    reminder_offsets_minutes:
+      Array.isArray(raw.reminder_offsets_minutes) && raw.reminder_offsets_minutes.length > 0
+        ? raw.reminder_offsets_minutes
+        : DEFAULT_SMS_PREFERENCES.reminder_offsets_minutes,
+    preferred_dinner_time: raw.preferred_dinner_time || DEFAULT_SMS_PREFERENCES.preferred_dinner_time,
+    include_modules:
+      Array.isArray(raw.include_modules) && raw.include_modules.length > 0
+        ? raw.include_modules
+        : DEFAULT_SMS_PREFERENCES.include_modules,
+    quiet_hours_start: raw.quiet_hours_start || null,
+    quiet_hours_end: raw.quiet_hours_end || null,
+  };
+}
+
+export async function loadSmsPreferences(): Promise<SmsPreferences> {
+  const data = await invokeSmsPreferences({ action: 'get' });
+  if (typeof data.error === 'string' && data.error) throw new Error(data.error);
+  const prefs = normalizePrefs((data.preferences || null) as Partial<SmsPreferences> | null);
+  const browserTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+  if (
+    !prefs.phone_e164 &&
+    browserTz &&
+    prefs.timezone === 'America/New_York' &&
+    browserTz !== 'America/New_York'
+  ) {
+    return { ...prefs, timezone: browserTz };
+  }
+  return prefs;
+}
+
+export async function saveSmsPreferences(prefs: SmsPreferences): Promise<SmsPreferences> {
+  const data = await invokeSmsPreferences({
+    action: 'save',
+    ...prefs,
+  });
+  if (typeof data.error === 'string' && data.error) throw new Error(data.error);
+  return normalizePrefs((data.preferences || null) as Partial<SmsPreferences> | null);
+}
+
+export async function sendSmsTestMessage(): Promise<{ sid: string; status: string }> {
+  const data = await invokeSmsPreferences({ action: 'send_test' });
+  if (typeof data.error === 'string' && data.error) throw new Error(data.error);
+  return {
+    sid: String(data.sid || ''),
+    status: String(data.status || ''),
+  };
+}
+
+export function defaultSmsPreferences(timezoneGuess?: string): SmsPreferences {
+  return {
+    ...DEFAULT_SMS_PREFERENCES,
+    timezone: timezoneGuess || DEFAULT_SMS_PREFERENCES.timezone,
+  };
+}

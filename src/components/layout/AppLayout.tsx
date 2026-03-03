@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Home, 
+  Calendar,
   CalendarDays, 
   BookOpen, 
   ShoppingCart, 
@@ -9,6 +10,7 @@ import {
   ListChecks, 
   ClipboardList,
   UserRoundPlus,
+  Shield,
   Settings,
   LogOut,
   User,
@@ -20,10 +22,12 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
   children: ReactNode;
+  contentWidthClassName?: string;
 }
 
 const navItems = [
   { to: '/app', icon: Home, label: 'Today' },
+  { to: '/calendar', icon: Calendar, label: 'Calendar' },
   { to: '/meals', icon: CalendarDays, label: 'Meals' },
   { to: '/recipes', icon: BookOpen, label: 'Recipes' },
   { to: '/grocery', icon: ShoppingCart, label: 'Grocery' },
@@ -34,15 +38,18 @@ const navItems = [
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
+const adminNavItem = { to: '/admin', icon: Shield, label: 'Admin' };
+
 const profileItems = [
   { to: '/me', icon: User, label: 'Me' },
   { to: '/wife', icon: Users, label: 'Wife' },
 ];
 
-export function AppLayout({ children }: AppLayoutProps) {
+export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, isAdmin } = useAuth();
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
 
   const handleSignOut = async () => {
     await signOut();
@@ -53,7 +60,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className="min-h-screen bg-background">
       {/* Main Content */}
       <main className="pb-20 md:pb-6 md:pl-64">
-        <div className="max-w-4xl mx-auto p-4 md:p-6">
+        <div className={cn(contentWidthClassName || "max-w-4xl", "mx-auto p-4 md:p-6")}>
           <div className="mb-4 flex justify-end">
             <Button variant="outline" size="sm" onClick={handleSignOut}>
               <LogOut className="w-4 h-4 mr-2" />
@@ -74,8 +81,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
         
         <nav className="flex-1 px-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.to;
+          {visibleNavItems.map((item) => {
+            const isActive =
+              location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
             return (
               <NavLink
                 key={item.to}
@@ -100,7 +108,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
           
           {profileItems.map((item) => {
-            const isActive = location.pathname === item.to;
+            const isActive =
+              location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
             return (
               <NavLink
                 key={item.to}
@@ -123,8 +132,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border safe-area-inset-bottom">
         <div className="flex items-center gap-1 overflow-x-auto px-2 py-2">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.to;
+          {visibleNavItems.map((item) => {
+            const isActive =
+              location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
             return (
               <NavLink
                 key={item.to}

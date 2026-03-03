@@ -151,6 +151,189 @@ export type Database = {
         }
         Relationships: []
       }
+      growth_events: {
+        Row: {
+          created_at: string
+          dedupe_key: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          occurred_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          occurred_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          occurred_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lifecycle_flow_settings: {
+        Row: {
+          created_at: string
+          day0_enabled: boolean
+          day10_enabled: boolean
+          day2_enabled: boolean
+          day5_enabled: boolean
+          email_enabled: boolean
+          sms_enabled: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          day0_enabled?: boolean
+          day10_enabled?: boolean
+          day2_enabled?: boolean
+          day5_enabled?: boolean
+          email_enabled?: boolean
+          sms_enabled?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          day0_enabled?: boolean
+          day10_enabled?: boolean
+          day2_enabled?: boolean
+          day5_enabled?: boolean
+          email_enabled?: boolean
+          sms_enabled?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      free_tools_cta_events: {
+        Row: {
+          created_at: string
+          dedupe_key: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          occurred_at: string
+          tool_slug: string
+          user_id: string
+          variant: string
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          occurred_at: string
+          tool_slug: string
+          user_id?: string
+          variant: string
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          occurred_at?: string
+          tool_slug?: string
+          user_id?: string
+          variant?: string
+        }
+        Relationships: []
+      }
+      free_tools_lead_captures: {
+        Row: {
+          captured_at: string
+          created_at: string
+          dedupe_key: string
+          email: string
+          id: string
+          tool_slug: string
+          user_id: string
+          variant: string
+        }
+        Insert: {
+          captured_at: string
+          created_at?: string
+          dedupe_key: string
+          email: string
+          id?: string
+          tool_slug: string
+          user_id?: string
+          variant: string
+        }
+        Update: {
+          captured_at?: string
+          created_at?: string
+          dedupe_key?: string
+          email?: string
+          id?: string
+          tool_slug?: string
+          user_id?: string
+          variant?: string
+        }
+        Relationships: []
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      referral_events: {
+        Row: {
+          created_at: string
+          id: string
+          referred_email: string | null
+          referred_user_id: string | null
+          referrer_user_id: string
+          source: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          referred_email?: string | null
+          referred_user_id?: string | null
+          referrer_user_id: string
+          source?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          referred_email?: string | null
+          referred_user_id?: string | null
+          referrer_user_id?: string
+          source?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       planned_meals: {
         Row: {
           created_at: string
@@ -359,14 +542,35 @@ export type Database = {
         Args: { invite_token: string }
         Returns: string
       }
+      claim_referral: {
+        Args: { ref_code: string }
+        Returns: boolean
+      }
       create_or_get_household: {
         Args: { household_name?: string }
         Returns: string
+      }
+      get_or_create_referral_code: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      get_referral_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       get_household_dashboard: { Args: never; Returns: Json }
       invite_household_member: {
         Args: { invite_email: string; invite_role?: string }
         Returns: string
+      }
+      track_growth_event: {
+        Args: {
+          p_dedupe_key?: string
+          p_event_type: string
+          p_metadata?: Json
+          p_occurred_at?: string
+        }
+        Returns: undefined
       }
     }
     Enums: {

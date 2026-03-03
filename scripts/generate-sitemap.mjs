@@ -5,10 +5,18 @@ const SITE_ORIGIN = 'https://homeharmony.app';
 const now = new Date().toISOString().slice(0, 10);
 
 const repoRoot = resolve(process.cwd());
-const sourcePath = resolve(repoRoot, 'src/data/seoContent.ts');
+const seoSourcePath = resolve(repoRoot, 'src/data/seoContent.ts');
+const freeToolsSourcePath = resolve(repoRoot, 'src/data/freeToolsContent.ts');
+const comparisonSourcePath = resolve(repoRoot, 'src/data/comparisonContent.ts');
+const templatesSourcePath = resolve(repoRoot, 'src/data/templateGalleryContent.ts');
 const sitemapPath = resolve(repoRoot, 'public/sitemap.xml');
 
-const source = readFileSync(sourcePath, 'utf8');
+const sources = {
+  seo: readFileSync(seoSourcePath, 'utf8'),
+  freeTools: readFileSync(freeToolsSourcePath, 'utf8'),
+  comparison: readFileSync(comparisonSourcePath, 'utf8'),
+  templates: readFileSync(templatesSourcePath, 'utf8'),
+};
 
 const staticRoutes = [
   '/',
@@ -23,24 +31,31 @@ const staticRoutes = [
   '/task-systems',
   '/workout-tracking',
   '/lifestyle-tracking',
+  '/free-tools',
+  '/compare',
+  '/templates',
 ];
 
 const collections = [
-  { constName: 'mealPlanPages', base: '/meal-plans' },
-  { constName: 'groceryListPages', base: '/grocery-lists' },
-  { constName: 'pantryMealPages', base: '/pantry-meals' },
-  { constName: 'recipeCollectionPages', base: '/recipe-collections' },
-  { constName: 'householdTemplatePages', base: '/household-templates' },
-  { constName: 'macroPlanPages', base: '/macro-plans' },
-  { constName: 'choreSystemPages', base: '/chore-systems' },
-  { constName: 'taskSystemPages', base: '/task-systems' },
-  { constName: 'workoutTrackingPages', base: '/workout-tracking' },
-  { constName: 'lifestyleTrackingPages', base: '/lifestyle-tracking' },
+  { sourceKey: 'seo', constName: 'mealPlanPages', base: '/meal-plans' },
+  { sourceKey: 'seo', constName: 'groceryListPages', base: '/grocery-lists' },
+  { sourceKey: 'seo', constName: 'pantryMealPages', base: '/pantry-meals' },
+  { sourceKey: 'seo', constName: 'recipeCollectionPages', base: '/recipe-collections' },
+  { sourceKey: 'seo', constName: 'householdTemplatePages', base: '/household-templates' },
+  { sourceKey: 'seo', constName: 'macroPlanPages', base: '/macro-plans' },
+  { sourceKey: 'seo', constName: 'choreSystemPages', base: '/chore-systems' },
+  { sourceKey: 'seo', constName: 'taskSystemPages', base: '/task-systems' },
+  { sourceKey: 'seo', constName: 'workoutTrackingPages', base: '/workout-tracking' },
+  { sourceKey: 'seo', constName: 'lifestyleTrackingPages', base: '/lifestyle-tracking' },
+  { sourceKey: 'freeTools', constName: 'freeToolPages', base: '/free-tools' },
+  { sourceKey: 'comparison', constName: 'comparisonPages', base: '/compare' },
+  { sourceKey: 'templates', constName: 'templatePacks', base: '/templates' },
 ];
 
 const allRoutes = new Set(staticRoutes);
 
 for (const collection of collections) {
+  const source = sources[collection.sourceKey];
   const match = source.match(new RegExp(`export const ${collection.constName}[\\s\\S]*?= \\[(?<body>[\\s\\S]*?)\\n\\];`));
   const body = match?.groups?.body || '';
 

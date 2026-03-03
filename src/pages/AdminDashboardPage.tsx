@@ -1,0 +1,386 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { useToast } from '@/hooks/use-toast';
+import { fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
+
+function numberFmt(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function percentFmt(part: number, whole: number): string {
+  if (whole <= 0) return '0%';
+  return `${Math.round((part / whole) * 100)}%`;
+}
+
+function dateTimeFmt(value: string | null): string {
+  if (!value) return '-';
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return value;
+  return new Date(ts).toLocaleString();
+}
+
+function safeRatio(numerator: number, denominator: number): string {
+  if (denominator <= 0) return '0.0';
+  return (numerator / denominator).toFixed(1);
+}
+
+export default function AdminDashboardPage() {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState<AdminMetricsResponse | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErrorText(null);
+    try {
+      const data = await fetchAdminMetrics();
+      setMetrics(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load admin metrics.';
+      setErrorText(message);
+      setMetrics(null);
+      toast({
+        title: 'Admin metrics unavailable',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const subscriptionRows = useMemo(
+    () =>
+      Object.entries(metrics?.subscriptionsByStatus || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([status, count]) => ({ status, count })),
+    [metrics?.subscriptionsByStatus],
+  );
+
+  const moduleRows = useMemo(
+    () =>
+      Object.entries(metrics?.moduleUsage30d || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([module, count]) => ({ module, count })),
+    [metrics?.moduleUsage30d],
+  );
+
+  const topEventsWithShare = useMemo(() => {
+    const rows = metrics?.topGrowthEvents30d || [];
+    const total = rows.reduce((sum, row) => sum + row.count, 0);
+    return rows.map((row) => ({
+      ...row,
+      share: total > 0 ? Math.round((row.count / total) * 100) : 0,
+    }));
+  }, [metrics?.topGrowthEvents30d]);
+
+  const derived = useMemo(() => {
+    if (!metrics) return null;
+    const { summary, totals } = metrics;
+    return {
+      verificationRate: percentFmt(summary.verifiedUsers, summary.totalUsers),
+      onboardingRate: percentFmt(totals.onboardingCompleted, summary.totalUsers),
+      weeklyActiveRate: percentFmt(summary.activeUsers7d, summary.totalUsers),
+      monthlyActiveRate: percentFmt(summary.activeUsers30d, summary.totalUsers),
+      growthEventsPerMau: safeRatio(summary.growthEvents30d, summary.activeUsers30d),
+      recipesPerHousehold: safeRatio(totals.recipes, totals.households),
+      plannedMealsPerHousehold: safeRatio(totals.plannedMeals, totals.households),
+      freeToolLeadRate: percentFmt(totals.freeToolsLeads, totals.freeToolsEvents),
+      referralPerUserRate: percentFmt(totals.referralEvents, summary.totalUsers),
+    };
+  }, [metrics]);
+
+  const flags = useMemo(() => {
+    if (!metrics || !derived) return [];
+    const list: Array<{ label: string; detail: string; tone: 'neutral' | 'warning' }> = [];
+    if (metrics.summary.totalUsers > 0 && metrics.summary.activeUsers7d === 0) {
+      list.push({
+        label: 'No weekly activity',
+        detail: '0 active users in the last 7 days.',
+        tone: 'warning',
+      });
+    }
+    if (Number.parseInt(derived.onboardingRate, 10) < 60) {
+      list.push({
+        label: 'Onboarding conversion is low',
+        detail: `Only ${derived.onboardingRate} of users have completed onboarding.`,
+        tone: 'warning',
+      });
+    }
+    if (!list.length) {
+      list.push({
+        label: 'No major alerts',
+        detail: 'Core acquisition and engagement metrics are collecting normally.',
+        tone: 'neutral',
+      });
+    }
+    return list;
+  }, [derived, metrics]);
+
+  return (
+    <AppLayout contentWidthClassName="max-w-7xl">
+      <PageHeader
+        title="Admin Dashboard"
+        subtitle="Acquisition, activation, and product usage for your account base"
+        action={
+          <Button variant="outline" onClick={() => void refresh()} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
+
+      {errorText ? (
+        <SectionCard title="Access" subtitle="Admin access is required for global metrics">
+          <p className="text-sm text-muted-foreground">{errorText}</p>
+        </SectionCard>
+      ) : null}
+
+      {!metrics && loading ? (
+        <SectionCard title="Loading">
+          <p className="text-sm text-muted-foreground">Loading admin metrics...</p>
+        </SectionCard>
+      ) : null}
+
+      {metrics && derived ? (
+        <div className="space-y-6">
+          <SectionCard title="Snapshot" subtitle={`Generated ${dateTimeFmt(metrics.generatedAt)}`}>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Total users</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.totalUsers)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Verified users</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.verifiedUsers)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">New users (7d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.newUsers7d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">New users (30d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.newUsers30d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active users (7d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.activeUsers7d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active users (30d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.activeUsers30d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Growth events (7d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.growthEvents7d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Growth events (30d)</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.summary.growthEvents30d)}</p>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Core Ratios" subtitle="Conversion and quality health">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Verification rate</p>
+                <p className="mt-1 text-xl font-semibold">{derived.verificationRate}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Onboarding completion</p>
+                <p className="mt-1 text-xl font-semibold">{derived.onboardingRate}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Weekly active rate</p>
+                <p className="mt-1 text-xl font-semibold">{derived.weeklyActiveRate}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Monthly active rate</p>
+                <p className="mt-1 text-xl font-semibold">{derived.monthlyActiveRate}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Growth events per MAU</p>
+                <p className="mt-1 text-xl font-semibold">{derived.growthEventsPerMau}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Referral events per user</p>
+                <p className="mt-1 text-xl font-semibold">{derived.referralPerUserRate}</p>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Product Utilization" subtitle="How much data users are creating">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Profiles</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.profiles)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Households</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.households)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Recipes</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.recipes)}</p>
+                <p className="text-xs text-muted-foreground">{derived.recipesPerHousehold} per household</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Planned meals</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.plannedMeals)}</p>
+                <p className="text-xs text-muted-foreground">{derived.plannedMealsPerHousehold} per household</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Free tool CTA events</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.freeToolsEvents)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Free tool leads</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.freeToolsLeads)}</p>
+                <p className="text-xs text-muted-foreground">Lead rate {derived.freeToolLeadRate}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Referral events</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.referralEvents)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Growth events (all time)</p>
+                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.growthEventsAllTime)}</p>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Signals" subtitle="Automatic checks to catch issues quickly">
+            <div className="space-y-2">
+              {flags.map((flag) => (
+                <div key={flag.label} className="rounded-lg border border-border p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={flag.tone === 'warning' ? 'destructive' : 'outline'}>{flag.label}</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{flag.detail}</p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Module Usage (30d)" subtitle="Relative distribution of tracked events">
+            {moduleRows.length ? (
+              <div className="space-y-2">
+                {moduleRows.map((row) => {
+                  const share = metrics.summary.growthEvents30d > 0
+                    ? Math.round((row.count / metrics.summary.growthEvents30d) * 100)
+                    : 0;
+                  return (
+                    <div key={row.module} className="rounded-lg border border-border p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium capitalize">{row.module}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {numberFmt(row.count)} ({share}%)
+                        </p>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted">
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${share}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No module usage events in the last 30 days.</p>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Top Growth Events (30d)" subtitle="Most frequent instrumentation events">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Event type</TableHead>
+                  <TableHead className="text-right">Count</TableHead>
+                  <TableHead className="text-right">Share</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topEventsWithShare.length ? (
+                  topEventsWithShare.map((row) => (
+                    <TableRow key={row.eventType}>
+                      <TableCell>{row.eventType}</TableCell>
+                      <TableCell className="text-right">{numberFmt(row.count)}</TableCell>
+                      <TableCell className="text-right">{row.share}%</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                      No growth events in the last 30 days.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </SectionCard>
+
+          <SectionCard title="Billing Status Mix" subtitle="Subscription rows by status">
+            {subscriptionRows.length ? (
+              <div className="flex flex-wrap gap-2">
+                {subscriptionRows.map((row) => (
+                  <Badge key={row.status} variant="outline">
+                    {row.status}: {numberFmt(row.count)}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No subscription rows yet.</p>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Recent Users" subtitle="Most recent account creations">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Last sign in</TableHead>
+                  <TableHead>Confirmed</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {metrics.recentUsers.length ? (
+                  metrics.recentUsers.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.email || '(no email)'}</TableCell>
+                      <TableCell>{dateTimeFmt(row.createdAt)}</TableCell>
+                      <TableCell>{dateTimeFmt(row.lastSignInAt)}</TableCell>
+                      <TableCell>{row.emailConfirmedAt ? 'Yes' : 'No'}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                      No users found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </SectionCard>
+        </div>
+      ) : null}
+    </AppLayout>
+  );
+}

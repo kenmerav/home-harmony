@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { format } from 'date-fns';
+import { useEffect, useMemo, useState } from 'react';
+import { format, startOfWeek } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -7,7 +7,7 @@ import { MacroBar } from '@/components/ui/MacroBar';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { mockMealPlan, mockChildren, mockHouseTasks } from '@/data/mockData';
+import { mockMealPlan, mockChildren } from '@/data/mockData';
 import { DayOfWeek, MealLog } from '@/types';
 import {
   UtensilsCrossed,
@@ -41,20 +41,33 @@ import {
   getProfiles,
   getCurrentStreak,
 } from '@/lib/macroGame';
+import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
+import { loadTasks } from '@/lib/taskStore';
+import { useAuth } from '@/contexts/AuthContext';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   return days[new Date().getDay()] as DayOfWeek;
 };
 
+const LEADERBOARD_PRIZE_KEY = 'homehub.leaderboardPrizeByWeek.v1';
+const DEFAULT_WEEKLY_PRIZE = 'Winner gets M&Ms in their popcorn during family movie night.';
+
 export default function TodayPage() {
+  const { user } = useAuth();
   const todayLabel = format(new Date(), 'EEEE, MMMM d');
   const currentDay = getCurrentDay();
   const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const todaysMeal = mockMealPlan.find((m) => m.day === currentDay);
+  const weekKey = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const mockTodaysMeal = mockMealPlan.find((m) => m.day === currentDay);
   const { toast } = useToast();
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [mealServings, setMealServings] = useState('1');
+  const [liveMeals, setLiveMeals] = useState<DbPlannedMeal[]>([]);
+  const [prizeDialogOpen, setPrizeDialogOpen] = useState(false);
+  const [leaderboardPrize, setLeaderboardPrize] = useState('');
+  const [prizeInput, setPrizeInput] = useState('');
   const [quickAddData, setQuickAddData] = useState({
     name: '',
     calories: '',
@@ -64,6 +77,39 @@ export default function TodayPage() {
     person: 'both' as 'me' | 'wife' | 'both',
   });
   const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTodayMeals = async () => {
+      try {
+        const data = await fetchMealsForWeek(0);
+        if (!cancelled) setLiveMeals(data);
+      } catch (error) {
+        console.error('Failed to load today meal plan:', error);
+      }
+    };
+    void loadTodayMeals();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LEADERBOARD_PRIZE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      const storedPrize = parsed[weekKey] || '';
+      const prize = storedPrize || DEFAULT_WEEKLY_PRIZE;
+      if (!storedPrize) {
+        window.localStorage.setItem(LEADERBOARD_PRIZE_KEY, JSON.stringify({ ...parsed, [weekKey]: prize }));
+      }
+      setLeaderboardPrize(prize);
+      setPrizeInput(prize);
+    } catch {
+      setLeaderboardPrize(DEFAULT_WEEKLY_PRIZE);
+      setPrizeInput(DEFAULT_WEEKLY_PRIZE);
+    }
+  }, [weekKey]);
 
   const refresh = () => setRefreshTick((prev) => prev + 1);
   const profiles = useMemo(() => getProfiles(), [refreshTick]);
@@ -78,12 +124,46 @@ export default function TodayPage() {
   const wifeStreak = useMemo(() => getCurrentStreak('wife'), [refreshTick]);
   const leaderboard = useMemo(() => getFamilyLeaderboard(), [refreshTick]);
 
-  const todaysTasks = mockHouseTasks
+  const todaysTasks = loadTasks(user?.id)
     .filter((task) => task.frequency === 'once' || task.day === currentDay)
     .slice(0, 4);
+  const liveTodaysMeal = liveMeals.find((m) => m.day === currentDay && !m.is_skipped && !!m.recipes);
+  const todaysMeal = liveTodaysMeal
+    ? {
+        recipeId: liveTodaysMeal.recipe_id,
+        isSkipped: false,
+        recipe: {
+          name: liveTodaysMeal.recipes?.name || 'Unknown meal',
+          servings: liveTodaysMeal.recipes?.servings || 1,
+          macrosPerServing: {
+            calories: liveTodaysMeal.recipes?.calories || 0,
+            protein_g: liveTodaysMeal.recipes?.protein_g || 0,
+            carbs_g: liveTodaysMeal.recipes?.carbs_g || 0,
+            fat_g: liveTodaysMeal.recipes?.fat_g || 0,
+            fiber_g: liveTodaysMeal.recipes?.fiber_g || undefined,
+          },
+        },
+      }
+    : mockTodaysMeal;
+
+  const parseServings = (raw: string) => {
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.min(4, Math.max(0.25, parsed));
+  };
 
   const logMeal = (person: 'me' | 'wife' | 'both') => {
     if (!todaysMeal) return;
+    const servings = parseServings(mealServings);
+    const scaledMacros = {
+      calories: Math.round(todaysMeal.recipe.macrosPerServing.calories * servings),
+      protein_g: Math.round(todaysMeal.recipe.macrosPerServing.protein_g * servings),
+      carbs_g: Math.round(todaysMeal.recipe.macrosPerServing.carbs_g * servings),
+      fat_g: Math.round(todaysMeal.recipe.macrosPerServing.fat_g * servings),
+      fiber_g: todaysMeal.recipe.macrosPerServing.fiber_g
+        ? Math.round(todaysMeal.recipe.macrosPerServing.fiber_g * servings)
+        : undefined,
+    };
 
     const createLog = (target: 'me' | 'wife'): MealLog => ({
       id: `log-${Date.now()}-${target}`,
@@ -91,8 +171,8 @@ export default function TodayPage() {
       recipeName: todaysMeal.recipe.name,
       date: todayKey,
       person: target,
-      servings: 1,
-      macros: { ...todaysMeal.recipe.macrosPerServing },
+      servings,
+      macros: scaledMacros,
       isQuickAdd: false,
       createdAt: new Date(),
     });
@@ -100,10 +180,13 @@ export default function TodayPage() {
     if (person === 'both') {
       addMealLog(createLog('me'));
       addMealLog(createLog('wife'));
-      toast({ title: 'Logged for both', description: todaysMeal.recipe.name });
+      toast({ title: 'Logged for both', description: `${todaysMeal.recipe.name} • ${servings} servings each` });
     } else {
       addMealLog(createLog(person));
-      toast({ title: `Logged for ${person === 'me' ? profiles.me.name : profiles.wife.name}`, description: todaysMeal.recipe.name });
+      toast({
+        title: `Logged for ${person === 'me' ? profiles.me.name : profiles.wife.name}`,
+        description: `${todaysMeal.recipe.name} • ${servings} servings`,
+      });
     }
     refresh();
   };
@@ -157,6 +240,25 @@ export default function TodayPage() {
     refresh();
   };
 
+  const saveWeeklyPrize = () => {
+    const nextPrize = prizeInput.trim();
+    if (!nextPrize) {
+      toast({ title: 'Enter a prize', variant: 'destructive' });
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(LEADERBOARD_PRIZE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      parsed[weekKey] = nextPrize;
+      window.localStorage.setItem(LEADERBOARD_PRIZE_KEY, JSON.stringify(parsed));
+      setLeaderboardPrize(nextPrize);
+      setPrizeDialogOpen(false);
+      toast({ title: 'Weekly prize updated' });
+    } catch {
+      toast({ title: 'Could not save prize', variant: 'destructive' });
+    }
+  };
+
   return (
     <AppLayout>
       <PageHeader title="Today" subtitle={todayLabel} />
@@ -186,6 +288,37 @@ export default function TodayPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
+                <div className="w-full space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Serving size to log</p>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.25"
+                      min="0.25"
+                      max="4"
+                      value={mealServings}
+                      onChange={(e) => setMealServings(e.target.value)}
+                      className="h-8 w-20 text-center"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {['0.5', '0.75', '1', '1.25', '1.5', '2'].map((value) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={mealServings === value ? 'default' : 'outline'}
+                        onClick={() => setMealServings(value)}
+                      >
+                        {value}x
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
                 <Button size="sm" className="flex-1" onClick={() => logMeal('both')}>
                   <Check className="w-4 h-4 mr-2" />
                   Log for Both (+points)
@@ -261,11 +394,20 @@ export default function TodayPage() {
           title="Family Leaderboard"
           subtitle="Weekly points across nutrition + chores"
           action={
-            <Link to="/family">
-              <Button size="sm" variant="ghost">Family Hub</Button>
-            </Link>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setPrizeDialogOpen(true)}>
+                Set Prize
+              </Button>
+              <Link to="/family">
+                <Button size="sm" variant="ghost">Family Hub</Button>
+              </Link>
+            </div>
           }
         >
+          <div className="mb-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2">
+            <p className="text-xs uppercase tracking-wide text-primary/80">This Week&apos;s Prize</p>
+            <p className="text-sm font-medium text-foreground">{leaderboardPrize}</p>
+          </div>
           <div className="space-y-2">
             {leaderboard.map((entry, index) => (
               <div key={entry.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
@@ -462,6 +604,28 @@ export default function TodayPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Add
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={prizeDialogOpen} onOpenChange={setPrizeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Set Weekly Prize</DialogTitle>
+            <DialogDescription>Choose this week&apos;s reward for the family leaderboard winner.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Example: Winner picks Friday dessert"
+              value={prizeInput}
+              onChange={(e) => setPrizeInput(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPrizeDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveWeeklyPrize}>Save Prize</Button>
             </div>
           </div>
         </DialogContent>

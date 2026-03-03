@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { useSeoMeta } from '@/lib/seo';
+import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 
 const features = [
   {
@@ -112,8 +114,14 @@ const landingFaq = [
 ];
 
 export default function LandingPage() {
-  const { user } = useAuth();
+  const { user, isDemoUser } = useAuth();
   const trialCtaTo = user ? '/onboarding?force=1' : '/signin?onboarding=1';
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser) return;
+    const dayKey = new Date().toISOString().slice(0, 10);
+    void trackGrowthEventSafe('landing_view', { page: 'landing' }, `landing_view:${dayKey}`);
+  }, [user?.id, isDemoUser]);
 
   useSeoMeta({
     title: 'Home Harmony | Family Meal Planner, Shared Grocery, Chores, Tasks, Workouts, and Lifestyle Tracking',

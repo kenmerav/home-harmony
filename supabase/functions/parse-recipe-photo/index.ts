@@ -159,10 +159,15 @@ serve(async (req) => {
       return jsonOk({ success: false, error: "Valid image data is required" });
     }
 
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableApiKey) {
-      return jsonOk({ success: false, error: "AI service not configured" });
+    const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openAiApiKey) {
+      return jsonOk({
+        success: false,
+        error:
+          "AI service not configured. Add OPENAI_API_KEY in Supabase Edge Function secrets, then retry.",
+      });
     }
+    const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 
     const systemPrompt = `You are an expert recipe extractor.
 Extract every recipe visible in the provided photo.
@@ -194,14 +199,14 @@ Rules:
 
     const userPrompt = `Extract recipe(s) from this image file: ${fileName || "recipe photo"}.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
+        Authorization: `Bearer ${openAiApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model: openAiModel,
         temperature: 0.1,
         max_tokens: 8192,
         messages: [

@@ -19,6 +19,7 @@ import {
 import {
   AdultId,
   ActivityLevel,
+  BodyUnitSystem,
   BodyGoal,
   GoalPace,
   MacroQuestionnaire,
@@ -71,6 +72,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
   const { toast } = useToast();
   const profile = getProfiles()[personId];
   const [questionnaire, setQuestionnaire] = useState<MacroQuestionnaire>(profile.macroPlan.questionnaire);
+  const [bodyUnitSystem, setBodyUnitSystem] = useState<BodyUnitSystem>(profile.macroPlan.bodyUnitSystem || 'imperial');
   const [finalMacros, setFinalMacros] = useState({
     calories: profile.macroPlan.calories,
     protein_g: profile.macroPlan.protein_g,
@@ -85,6 +87,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     if (!open) return;
     const next = getProfiles()[personId];
     setQuestionnaire(next.macroPlan.questionnaire);
+    setBodyUnitSystem(next.macroPlan.bodyUnitSystem || 'imperial');
     setFinalMacros({
       calories: next.macroPlan.calories,
       protein_g: next.macroPlan.protein_g,
@@ -113,6 +116,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
   const save = () => {
     updateMacroPlan(personId, {
       questionnaire,
+      bodyUnitSystem,
       calories: Math.max(1000, Math.round(finalMacros.calories)),
       protein_g: Math.max(40, Math.round(finalMacros.protein_g)),
       carbs_g: Math.max(20, Math.round(finalMacros.carbs_g)),
@@ -126,17 +130,51 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     toast({ title: 'Macro goals saved' });
   };
 
+  const totalInches = Math.max(48, Math.round(questionnaire.heightCm / 2.54));
+  const heightFeet = Math.floor(totalInches / 12);
+  const heightInches = totalInches % 12;
+  const weightLb = Number((questionnaire.weightKg * 2.20462).toFixed(1));
+
+  const updateImperialHeight = (feet: number, inches: number) => {
+    const normalizedFeet = Math.max(3, feet);
+    const normalizedInches = Math.min(11, Math.max(0, inches));
+    const heightCm = Math.round((normalizedFeet * 12 + normalizedInches) * 2.54);
+    setQuestionnaire((prev) => ({ ...prev, heightCm }));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display">Macro Calculator</DialogTitle>
           <DialogDescription>
-            Questionnaire-based recommendation with full macro edits before saving.
+            Questionnaire-based calories + macro recommendation with editable final targets.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="rounded-lg border border-border p-3 space-y-2">
+            <p className="text-sm font-medium">Questionnaire (used to calculate calories)</p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={bodyUnitSystem === 'imperial' ? 'default' : 'outline'}
+                onClick={() => setBodyUnitSystem('imperial')}
+              >
+                Imperial (ft/in, lb)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={bodyUnitSystem === 'metric' ? 'default' : 'outline'}
+                onClick={() => setBodyUnitSystem('metric')}
+              >
+                Metric (cm, kg)
+              </Button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Sex</p>
@@ -166,29 +204,75 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 }
               />
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Height (cm)</p>
-              <Input
-                type="number"
-                min={120}
-                value={questionnaire.heightCm}
-                onChange={(e) =>
-                  setQuestionnaire((prev) => ({ ...prev, heightCm: Number.parseInt(e.target.value, 10) || 170 }))
-                }
-              />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Weight (kg)</p>
-              <Input
-                type="number"
-                min={35}
-                step="0.1"
-                value={questionnaire.weightKg}
-                onChange={(e) =>
-                  setQuestionnaire((prev) => ({ ...prev, weightKg: Number.parseFloat(e.target.value) || 70 }))
-                }
-              />
-            </div>
+            {bodyUnitSystem === 'imperial' ? (
+              <>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Height (ft)</p>
+                  <Input
+                    type="number"
+                    min={3}
+                    max={8}
+                    value={heightFeet}
+                    onChange={(e) =>
+                      updateImperialHeight(Number.parseInt(e.target.value, 10) || 5, heightInches)
+                    }
+                  />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Height (in)</p>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={11}
+                    value={heightInches}
+                    onChange={(e) =>
+                      updateImperialHeight(heightFeet, Number.parseInt(e.target.value, 10) || 0)
+                    }
+                  />
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Weight (lb)</p>
+                  <Input
+                    type="number"
+                    min={80}
+                    step="0.1"
+                    value={weightLb}
+                    onChange={(e) =>
+                      setQuestionnaire((prev) => ({
+                        ...prev,
+                        weightKg: Number.parseFloat(((Number.parseFloat(e.target.value) || 154) / 2.20462).toFixed(2)),
+                      }))
+                    }
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Height (cm)</p>
+                  <Input
+                    type="number"
+                    min={120}
+                    value={questionnaire.heightCm}
+                    onChange={(e) =>
+                      setQuestionnaire((prev) => ({ ...prev, heightCm: Number.parseInt(e.target.value, 10) || 170 }))
+                    }
+                  />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Weight (kg)</p>
+                  <Input
+                    type="number"
+                    min={35}
+                    step="0.1"
+                    value={questionnaire.weightKg}
+                    onChange={(e) =>
+                      setQuestionnaire((prev) => ({ ...prev, weightKg: Number.parseFloat(e.target.value) || 70 }))
+                    }
+                  />
+                </div>
+              </>
+            )}
             <div>
               <p className="text-xs text-muted-foreground mb-1">Activity level</p>
               <Select
@@ -265,38 +349,50 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
           <div className="rounded-lg border border-border p-3 space-y-3">
             <p className="text-sm font-medium">Final targets (editable)</p>
             <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="number"
-                value={finalMacros.calories}
-                onChange={(e) =>
-                  setFinalMacros((prev) => ({ ...prev, calories: Number.parseInt(e.target.value, 10) || 0 }))
-                }
-                placeholder="Calories"
-              />
-              <Input
-                type="number"
-                value={finalMacros.protein_g}
-                onChange={(e) =>
-                  setFinalMacros((prev) => ({ ...prev, protein_g: Number.parseInt(e.target.value, 10) || 0 }))
-                }
-                placeholder="Protein (g)"
-              />
-              <Input
-                type="number"
-                value={finalMacros.carbs_g}
-                onChange={(e) =>
-                  setFinalMacros((prev) => ({ ...prev, carbs_g: Number.parseInt(e.target.value, 10) || 0 }))
-                }
-                placeholder="Carbs (g)"
-              />
-              <Input
-                type="number"
-                value={finalMacros.fat_g}
-                onChange={(e) =>
-                  setFinalMacros((prev) => ({ ...prev, fat_g: Number.parseInt(e.target.value, 10) || 0 }))
-                }
-                placeholder="Fat (g)"
-              />
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Calories</p>
+                <Input
+                  type="number"
+                  value={finalMacros.calories}
+                  onChange={(e) =>
+                    setFinalMacros((prev) => ({ ...prev, calories: Number.parseInt(e.target.value, 10) || 0 }))
+                  }
+                  placeholder="Calories"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Protein (g)</p>
+                <Input
+                  type="number"
+                  value={finalMacros.protein_g}
+                  onChange={(e) =>
+                    setFinalMacros((prev) => ({ ...prev, protein_g: Number.parseInt(e.target.value, 10) || 0 }))
+                  }
+                  placeholder="Protein (g)"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Carbs (g)</p>
+                <Input
+                  type="number"
+                  value={finalMacros.carbs_g}
+                  onChange={(e) =>
+                    setFinalMacros((prev) => ({ ...prev, carbs_g: Number.parseInt(e.target.value, 10) || 0 }))
+                  }
+                  placeholder="Carbs (g)"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Fat (g)</p>
+                <Input
+                  type="number"
+                  value={finalMacros.fat_g}
+                  onChange={(e) =>
+                    setFinalMacros((prev) => ({ ...prev, fat_g: Number.parseInt(e.target.value, 10) || 0 }))
+                  }
+                  placeholder="Fat (g)"
+                />
+              </div>
             </div>
             <label className="flex items-center gap-2">
               <Checkbox checked={proteinOnlyMode} onCheckedChange={(checked) => setProteinOnlyMode(!!checked)} />

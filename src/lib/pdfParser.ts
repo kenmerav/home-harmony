@@ -1,13 +1,12 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-// Vite will bundle the worker and give us a URL string.
-import workerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 /**
  * Extract text from a PDF in the browser.
  * We do this client-side because the AI gateway does not reliably accept arbitrary file payloads.
  */
 export async function extractPdfText(file: File): Promise<{ text: string; pageCount: number }> {
-  GlobalWorkerOptions.workerSrc = workerSrc;
+  // Use a static public worker path to avoid dev-server module URL issues.
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = getDocument({ data: new Uint8Array(arrayBuffer) });

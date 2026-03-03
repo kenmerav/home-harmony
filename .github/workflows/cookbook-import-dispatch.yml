@@ -1,0 +1,41 @@
+name: Cookbook Import Dispatch
+
+on:
+  schedule:
+    - cron: "*/2 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cookbook-import-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase cookbook import dispatch
+        env:
+          COOKBOOK_IMPORT_DISPATCH_API_KEY: ${{ secrets.COOKBOOK_IMPORT_DISPATCH_API_KEY }}
+          DISPATCH_URL: https://amhnbyimvgykklzrenky.supabase.co/functions/v1/cookbook-import
+        run: |
+          if [ -z "$COOKBOOK_IMPORT_DISPATCH_API_KEY" ]; then
+            echo "Missing GitHub Actions secret: COOKBOOK_IMPORT_DISPATCH_API_KEY"
+            exit 1
+          fi
+
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+            --max-time 150 \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-cookbook-dispatch-key: $COOKBOOK_IMPORT_DISPATCH_API_KEY" \
+            -d '{"action":"dispatch","limit":2}' \
+            "$DISPATCH_URL")"
+
+          echo "HTTP: $HTTP_CODE"
+          cat "$RESPONSE_FILE"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "cookbook-import dispatch failed"
+            exit 1
+          fi

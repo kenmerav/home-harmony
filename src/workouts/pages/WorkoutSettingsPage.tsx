@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bell, Vibrate, Scale, Timer, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { cn } from '@/lib/utils';
 
@@ -36,7 +37,7 @@ export default function Settings() {
   const restTimerOptions = [60, 90, 120, 150, 180, 240, 300];
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-40">
       <header className="px-4 pt-8 pb-6">
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
         <p className="text-muted-foreground mt-1">Customize your experience</p>
@@ -179,6 +180,7 @@ export default function Settings() {
           <p className="mt-1">LiftLog v1.0</p>
         </div>
       </div>
+      <WorkoutsBottomNav />
     </div>
   );
 }

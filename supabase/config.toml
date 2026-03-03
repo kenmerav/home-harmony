@@ -3,5 +3,23 @@ project_id = "amhnbyimvgykklzrenky"
 [functions.parse-cookbook]
 verify_jwt = false
 
+[functions.cookbook-import]
+verify_jwt = false
+
+[functions.parse-recipe-url]
+verify_jwt = false
+
+[functions.sms-dispatch]
+verify_jwt = false
+
+[functions.sms-preferences]
+verify_jwt = false
+
+[functions.sms-webhook]
+verify_jwt = false
+
 [functions.stripe-webhook]
+verify_jwt = false
+
+[functions.admin-metrics]
 verify_jwt = false

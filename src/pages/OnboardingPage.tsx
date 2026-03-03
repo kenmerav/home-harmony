@@ -5,7 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
+import { generateMeals, MealGenerationOptions } from '@/lib/api/meals';
+import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { useToast } from '@/hooks/use-toast';
+import { setPlanRules } from '@/lib/mealPrefs';
+import { getPostAuthRoute } from '@/lib/billing';
 import {
   clearOnboardingDraft,
   loadOnboardingDraft,
@@ -80,6 +84,7 @@ type AlcoholGoal = (typeof ALCOHOL_GOAL_OPTIONS)[number];
 
 type StepId =
   | 'welcome'
+  | 'preset'
   | 'primaryGoals'
   | 'household'
   | 'kidCount'
@@ -106,6 +111,7 @@ type PlanModule = 'meals' | 'groceries' | 'chores' | 'tasks' | 'workouts';
 type ReminderProfile = 'minimal' | 'normal' | 'persistent';
 
 interface OnboardingAnswers {
+  onboardingPreset: 'busy-family' | 'fitness-focused' | 'chores-first' | 'balanced-all-in' | null;
   primaryGoals: PrimaryGoal[];
   householdType: HouseholdType | null;
   kidCount: KidCount | null;
@@ -147,6 +153,7 @@ interface PersonalizedPlan {
 }
 
 const DEFAULT_ONBOARDING: OnboardingAnswers = {
+  onboardingPreset: null,
   primaryGoals: [],
   householdType: null,
   kidCount: null,
@@ -175,6 +182,15 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   notificationsOptIn: null,
 };
 
+const ONBOARDING_PRESET_OPTIONS = [
+  'Busy family',
+  'Fitness focused',
+  'Chores first',
+  'Balanced all-in',
+] as const;
+
+const PENDING_TEMPLATE_KEY = 'homehub.pendingTemplate.v1';
+
 function hasFitnessGoal(onboarding: OnboardingAnswers): boolean {
   return onboarding.primaryGoals.includes('Fitness & workouts') || onboarding.primaryGoals.includes('All of the above');
 }
@@ -184,7 +200,7 @@ function needsStoreStep(onboarding: OnboardingAnswers): boolean {
 }
 
 function buildSteps(onboarding: OnboardingAnswers): StepId[] {
-  const steps: StepId[] = ['welcome', 'primaryGoals', 'household'];
+  const steps: StepId[] = ['welcome', 'preset', 'primaryGoals', 'household'];
 
   if (onboarding.householdType === 'Family') {
     steps.push('kidCount');
@@ -205,6 +221,121 @@ function buildSteps(onboarding: OnboardingAnswers): StepId[] {
   steps.push('notifications', 'value', 'plan');
 
   return steps;
+}
+
+function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardingPreset']>, current: OnboardingAnswers): OnboardingAnswers {
+  const base: OnboardingAnswers = {
+    ...current,
+    onboardingPreset: preset,
+  };
+
+  switch (preset) {
+    case 'busy-family':
+      return {
+        ...base,
+        primaryGoals: ['Meals & groceries', 'Family calendar & tasks'],
+        householdType: current.householdType || 'Family',
+        role: current.role || 'Primary planner',
+        routineIntensity: 'Balanced',
+        mealPreference: 'Plan weeknights only',
+        groceryMode: 'Pickup',
+        groceryStore: current.groceryStore || 'Walmart',
+        reminderStyle: 'Normal',
+        nutritionTracking: current.nutritionTracking || 'Track protein only',
+        hydrationTracking: current.hydrationTracking || 'Daily water goal',
+      };
+    case 'fitness-focused':
+      return {
+        ...base,
+        primaryGoals: ['Fitness & workouts', 'Meals & groceries'],
+        routineIntensity: 'Highly organized',
+        mealPreference: 'Plan the whole week',
+        reminderStyle: 'Persistent (keep nudging me)',
+        fitnessLevel: current.fitnessLevel || 'Intermediate',
+        workoutFrequency: '3-5',
+        workoutLocation: 'Both',
+        nutritionTracking: 'Track full macros',
+        hydrationTracking: 'Daily water goal',
+        stepGoal: '10,000',
+        sleepGoal: '8 hours',
+      };
+    case 'chores-first':
+      return {
+        ...base,
+        primaryGoals: ['Chores & routines', 'Family calendar & tasks'],
+        routineIntensity: 'Highly organized',
+        choreStyle: 'Rotating schedule',
+        reminderStyle: 'Persistent (keep nudging me)',
+        mealPreference: current.mealPreference || 'Plan weeknights only',
+      };
+    case 'balanced-all-in':
+      return {
+        ...base,
+        primaryGoals: ['All of the above', ...PRIMARY_GOAL_OPTIONS.filter((option) => option !== 'All of the above')],
+        routineIntensity: 'Balanced',
+        mealPreference: 'Plan weeknights only',
+        groceryMode: 'Mix',
+        groceryStore: current.groceryStore || 'Instacart',
+        choreStyle: 'Rotating schedule',
+        reminderStyle: 'Normal',
+        fitnessLevel: current.fitnessLevel || 'Beginner',
+        workoutFrequency: '3-5',
+        workoutLocation: 'Both',
+        nutritionTracking: current.nutritionTracking || 'Track protein only',
+        hydrationTracking: current.hydrationTracking || 'Daily water goal',
+      };
+    default:
+      return base;
+  }
+}
+
+function applyTemplateToOnboarding(templateSlug: string, current: OnboardingAnswers): OnboardingAnswers {
+  switch (templateSlug) {
+    case 'busy-family-weeknight-system':
+      return applyPresetToOnboarding('busy-family', {
+        ...current,
+        mealPreference: 'Plan weeknights only',
+        nutritionTracking: 'Track protein only',
+      });
+    case 'lean-grocery-budget-mode':
+      return {
+        ...current,
+        primaryGoals: ['Meals & groceries'],
+        groceryMode: 'Pickup',
+        groceryStore: 'Walmart',
+        mealPreference: 'Plan weeknights only',
+      };
+    case 'kids-chores-points-loop':
+      return {
+        ...current,
+        primaryGoals: ['Chores & routines', 'Family calendar & tasks'],
+        choreStyle: 'Rotating schedule',
+        reminderStyle: 'Persistent (keep nudging me)',
+      };
+    case 'family-weekly-reset-board':
+      return {
+        ...current,
+        primaryGoals: ['Family calendar & tasks', 'Chores & routines'],
+        routineIntensity: 'Highly organized',
+      };
+    case 'three-day-family-fitness':
+      return {
+        ...current,
+        primaryGoals: ['Fitness & workouts', 'Meals & groceries'],
+        fitnessLevel: 'Beginner',
+        workoutFrequency: '3-5',
+        workoutLocation: 'Both',
+      };
+    case 'protein-water-consistency':
+      return {
+        ...current,
+        nutritionTracking: 'Track protein only',
+        hydrationTracking: 'Daily water goal',
+        stepGoal: current.stepGoal || '8,000',
+      };
+    default:
+      return current;
+  }
 }
 
 function parseKids(kids: KidCount | null): number {
@@ -381,6 +512,8 @@ function isStepComplete(step: StepId, onboarding: OnboardingAnswers): boolean {
   switch (step) {
     case 'welcome':
       return true;
+    case 'preset':
+      return onboarding.onboardingPreset !== null;
     case 'primaryGoals':
       return onboarding.primaryGoals.length > 0;
     case 'household':
@@ -428,6 +561,21 @@ function isStepComplete(step: StepId, onboarding: OnboardingAnswers): boolean {
 
 function singleSelection<T extends string>(value: T | null): T[] {
   return value ? [value] : [];
+}
+
+function presetFromOption(option: (typeof ONBOARDING_PRESET_OPTIONS)[number]): NonNullable<OnboardingAnswers['onboardingPreset']> {
+  if (option === 'Busy family') return 'busy-family';
+  if (option === 'Fitness focused') return 'fitness-focused';
+  if (option === 'Chores first') return 'chores-first';
+  return 'balanced-all-in';
+}
+
+function presetToOption(preset: OnboardingAnswers['onboardingPreset']): (typeof ONBOARDING_PRESET_OPTIONS)[number] | null {
+  if (preset === 'busy-family') return 'Busy family';
+  if (preset === 'fitness-focused') return 'Fitness focused';
+  if (preset === 'chores-first') return 'Chores first';
+  if (preset === 'balanced-all-in') return 'Balanced all-in';
+  return null;
 }
 
 function humanizeEmail(email?: string | null): string {
@@ -501,7 +649,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (forceOnboarding || profileLoading || !isProfileComplete) return;
-    navigate(isSubscribed ? '/app' : '/billing', { replace: true });
+    navigate(getPostAuthRoute(isSubscribed), { replace: true });
   }, [forceOnboarding, isProfileComplete, isSubscribed, navigate, profileLoading]);
 
   useEffect(() => {
@@ -516,6 +664,23 @@ export default function OnboardingPage() {
       stepId: currentStepId,
     });
   }, [currentStepId, onboarding, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(PENDING_TEMPLATE_KEY);
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as { slug?: string };
+      if (parsed?.slug) {
+        setOnboarding((prev) => applyTemplateToOnboarding(parsed.slug || '', prev));
+      }
+    } catch {
+      // ignore malformed template payload
+    } finally {
+      window.localStorage.removeItem(PENDING_TEMPLATE_KEY);
+    }
+  }, []);
 
   const goBack = () => {
     if (submitting) return;
@@ -608,9 +773,35 @@ export default function OnboardingPage() {
         personalizedPlan: personalizedPlan as unknown as Record<string, unknown>,
       };
       await saveOnboardingResult(user.id, payload);
+
+      if (personalizedPlan.enabledModules.includes('meals') || personalizedPlan.enabledModules.includes('groceries')) {
+        const initialMealRules: MealGenerationOptions = {
+          preferFavorites: true,
+          preferKidFriendly: onboarding.householdType === 'Family',
+          maxCookMinutes: onboarding.onboardingPreset === 'busy-family' ? 30 : null,
+          dayLocks: {},
+        };
+        setPlanRules(initialMealRules);
+        try {
+          await generateMeals(0, undefined, initialMealRules);
+        } catch (bootstrapError) {
+          console.error('Initial meal generation after onboarding failed:', bootstrapError);
+        }
+      }
+
+      await trackGrowthEventSafe(
+        'onboarding_complete',
+        {
+          modules: personalizedPlan.enabledModules,
+          reminderProfile: personalizedPlan.reminderProfile,
+          preset: onboarding.onboardingPreset,
+        },
+        `onboarding_complete:${user.id}`,
+      );
+
       clearOnboardingDraft(user.id);
 
-      navigate(isSubscribed ? '/app' : '/billing', { replace: true });
+      navigate(getPostAuthRoute(isSubscribed), { replace: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not finish onboarding. Please try again.';
       setSubmitError(message);
@@ -673,6 +864,32 @@ export default function OnboardingPage() {
       );
 
       footer = <BottomCTA primaryLabel="Get started" onPrimary={goNext} />;
+      break;
+    }
+
+    case 'preset': {
+      content = (
+        <QuestionScreen
+          title="Pick your starting style"
+          helper="One tap gives you smart defaults. You can edit everything later."
+        >
+          <OptionList
+            options={ONBOARDING_PRESET_OPTIONS}
+            selected={singleSelection(presetToOption(onboarding.onboardingPreset))}
+            onToggle={(value) =>
+              setOnboarding((prev) => applyPresetToOnboarding(presetFromOption(value), prev))
+            }
+          />
+        </QuestionScreen>
+      );
+
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('preset', onboarding)}
+        />
+      );
       break;
     }
 

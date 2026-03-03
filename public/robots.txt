@@ -12,5 +12,6 @@ Disallow: /tasks
 Disallow: /family
 Disallow: /me
 Disallow: /wife
+Disallow: /free-tools-analytics
 
 Sitemap: https://homeharmony.app/sitemap.xml

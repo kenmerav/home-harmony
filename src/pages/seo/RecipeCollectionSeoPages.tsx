@@ -4,16 +4,80 @@ import { recipeCollectionPages } from '@/data/seoContent';
 import { useSeoMeta } from '@/lib/seo';
 import { SeoShell } from './SeoShell';
 import {
-  SeoActionPlan,
-  SeoBreadcrumbs,
-  SeoCrossClusterLinks,
-  SeoFreshnessBar,
   SeoHubPrimer,
-  SeoRelatedGuides,
-  SeoSuccessMetrics,
 } from './SeoDetailScaffold';
 import { seoCrossLinks } from '@/data/seoLinkGraph';
 import { estimateReadMinutes } from '@/lib/seoContentUtils';
+import { ResourcePageLayout } from './ResourcePageLayout';
+
+const recipeNarrative: Record<string, { intro: string; closing: string }> = {
+  'kid-friendly-slow-cooker-recipes': {
+    intro: 'This collection is designed for set-and-forget dinners that avoid intense flavors and keep family compliance high.',
+    closing: 'Use a mild base and optional toppings so one batch works for both kids and adults.',
+  },
+  'high-protein-meal-prep-recipes': {
+    intro: 'This page centers on protein-forward recipes that reheat well and maintain structure across multiple days.',
+    closing: 'Prioritize recipes with stable texture after storage to keep prep effort worth repeating.',
+  },
+  'under-30-minute-family-dinners': {
+    intro: 'This collection is built for time-capped evenings where dinner speed determines whether plans are followed.',
+    closing: 'Treat this set as your weekday default and reserve longer recipes for weekends.',
+  },
+  'family-breakfast-meal-prep-recipes': {
+    intro: 'This guide supports smoother mornings by front-loading breakfast decisions and prep workload.',
+    closing: 'Batch breakfast anchors first so weekday mornings run without last-minute improvisation.',
+  },
+  'freezer-friendly-family-recipes': {
+    intro: 'This collection is optimized for freezer cycles that protect dinner consistency during chaotic weeks.',
+    closing: 'Label, date, and portion every batch so freezer meals stay easy to deploy.',
+  },
+  'kid-friendly-one-pan-dinner-recipes': {
+    intro: 'This page focuses on low-mess dinner options where cleanup simplicity increases weeknight adherence.',
+    closing: 'Keep sheet-pan and skillet workflows standardized so prep and cleanup remain predictable.',
+  },
+  'low-mess-slow-cooker-freezer-dump-meals': {
+    intro: 'This collection is aimed at low-effort deployment: prep once, freeze, and cook with minimal decision overhead.',
+    closing: 'Use consistent bag labels and cook settings to reduce execution errors midweek.',
+  },
+  'kid-friendly-high-iron-dinner-recipes': {
+    intro: 'This guide pairs iron-focused ingredients with familiar formats so nutrition goals are easier to sustain.',
+    closing: 'Repeat the highest-acceptance iron meals weekly and rotate only supporting sides.',
+  },
+  'budget-meal-prep-bowl-recipe-collection': {
+    intro: 'This collection uses bowl-style builds to keep ingredient overlap high and cost per serving low.',
+    closing: 'Standardize base grains and proteins first, then vary sauces for flavor diversity.',
+  },
+  'dairy-free-family-dinner-recipe-collection': {
+    intro: 'This page is built for dairy-free execution that still feels satisfying and practical for shared dinners.',
+    closing: 'Lock dairy-free substitutes by recipe type so shopping and prep stay straightforward.',
+  },
+  'post-workout-family-dinner-recipe-collection': {
+    intro: 'This collection supports recovery-focused dinners with enough flexibility for mixed family goals.',
+    closing: 'Pair high-protein mains with easy carb sides to keep post-workout meals repeatable.',
+  },
+  'family-sunday-batch-cook-recipe-collection': {
+    intro: 'This guide is structured around Sunday production blocks that reduce weekday cooking pressure.',
+    closing: 'Choose a small set of high-yield batch recipes and run the same cadence for two weeks.',
+  },
+};
+
+function buildRecipeCollectionFaq(page: (typeof recipeCollectionPages)[number]) {
+  const narrative = recipeNarrative[page.slug];
+  return [
+    {
+      question: `How do I choose recipes from "${page.title}" each week?`,
+      answer: `${narrative.intro} Start with ${page.featuredRecipes[0].toLowerCase()} as your anchor recipe, then add one secondary option.`,
+    },
+    {
+      question: 'How many recipes should I rotate before the collection gets too complex?',
+      answer: `Use 3-4 repeatable recipes at a time and apply ${page.howToUseCollection[0].toLowerCase()} to keep execution stable.`,
+    },
+    {
+      question: 'How can I keep this collection practical on high-chaos weeks?',
+      answer: `${narrative.closing} Pair meals with quick add-ons like ${page.pairingIdeas[0].toLowerCase()} to protect completion.`,
+    },
+  ];
+}
 
 export function RecipeCollectionHubPage() {
   useSeoMeta({
@@ -64,6 +128,15 @@ export function RecipeCollectionHubPage() {
             <div className="p-5">
               <h2 className="font-display text-2xl">{page.title}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{page.description}</p>
+              <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Best fit</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {recipeNarrative[page.slug]?.intro || page.collectionAngle}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Outcome: {recipeNarrative[page.slug]?.closing || page.featuredRecipes[0]}
+                </p>
+              </div>
               <Link to={`/recipe-collections/${page.slug}`} className="mt-4 inline-block">
                 <Button variant="outline">Open Collection</Button>
               </Link>
@@ -78,6 +151,7 @@ export function RecipeCollectionHubPage() {
 export function RecipeCollectionDetailPage() {
   const { slug } = useParams();
   const page = recipeCollectionPages.find((item) => item.slug === slug);
+  const detailedFaq = page ? buildRecipeCollectionFaq(page) : [];
 
   useSeoMeta({
     title: page ? `${page.title} | Home Harmony` : 'Recipe Collections | Home Harmony',
@@ -94,7 +168,7 @@ export function RecipeCollectionDetailPage() {
           { name: page.title, url: `/recipe-collections/${page.slug}` },
         ]
       : [],
-    faq: page?.faq || [],
+    faq: detailedFaq,
   });
 
   if (!page) {
@@ -114,85 +188,91 @@ export function RecipeCollectionDetailPage() {
     `Apply this usage framework consistently: ${page.howToUseCollection[0]}`,
     `Add one pairing for speed and completion: ${page.pairingIdeas[0]}`,
   ].filter(Boolean);
-
-  const successMetrics = [
-    'Collection adherence: how many selected recipes were executed.',
-    'Family acceptance score by recipe format and flavor profile.',
-    'Prep efficiency gains from ingredient overlap and repeated workflow.',
+  const narrative = recipeNarrative[page.slug] || {
+    intro: 'This collection is organized for reliable household execution, not one-off inspiration.',
+    closing: 'Keep only recipes your household repeats and retire low-compliance options quickly.',
+  };
+  const editorialBlocks = [
+    {
+      title: 'Choose Collections by Execution Fit',
+      intro: page.collectionAngle,
+      paragraphs: [
+        narrative.intro,
+        `The right collection is the one your household can actually repeat. Start by selecting featured options like ${page.featuredRecipes[0].toLowerCase()} that match your weekly constraints.`,
+        `This approach avoids random browsing and gives your week a stable recipe lane with fewer decision points.`,
+      ],
+      highlights: page.featuredRecipes,
+    },
+    {
+      title: 'How to Run the Collection Week to Week',
+      paragraphs: [
+        `Use the collection with a fixed operating pattern: ${page.howToUseCollection[0].toLowerCase()}, then ${page.howToUseCollection[1].toLowerCase()}.`,
+        `Consistency comes from repeatable sequencing, not adding more recipes every week.`,
+      ],
+      highlights: page.howToUseCollection,
+    },
+    {
+      title: 'Pairing Logic and Swap Planning',
+      paragraphs: [
+        `Pairings keep meals complete without extra planning work. For this collection, use pairings such as ${page.pairingIdeas[0].toLowerCase()}.`,
+        narrative.closing,
+        `Treat pairings as optional speed boosters that help you maintain momentum when time or ingredients are limited.`,
+      ],
+      highlights: page.pairingIdeas,
+    },
   ];
 
   return (
-    <SeoShell>
-      <SeoBreadcrumbs
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Resources', href: '/resources' },
-          { label: 'Recipe Collections', href: '/recipe-collections' },
-          { label: page.title },
-        ]}
-      />
-      <h1 className="font-display text-4xl">{page.title}</h1>
-      <p className="mt-3 max-w-3xl text-muted-foreground">{page.description}</p>
-      <SeoFreshnessBar minutes={estimateReadMinutes([page.featuredRecipes, page.howToUseCollection, page.pairingIdeas])} />
-      <div className="mt-6 grid gap-6 md:grid-cols-[1.2fr_1fr]">
-        <div className="space-y-5">
-          <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="font-display text-2xl">Collection Angle</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{page.collectionAngle}</p>
-          </section>
-          <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="font-display text-2xl">Featured Recipe Paths</h2>
-            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              {page.featuredRecipes.map((item) => (
-                <li key={item}>• {item}</li>
-              ))}
-            </ul>
-          </section>
-          <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="font-display text-2xl">How to Use This Collection</h2>
-            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              {page.howToUseCollection.map((item) => (
-                <li key={item}>• {item}</li>
-              ))}
-            </ul>
-          </section>
-          <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="font-display text-2xl">Pairing Ideas</h2>
-            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              {page.pairingIdeas.map((item) => (
-                <li key={item}>• {item}</li>
-              ))}
-            </ul>
-          </section>
-          <SeoActionPlan
-            title="Collection Rollout Plan"
-            intro="Run each collection in a controlled weekly cycle so you can identify high-performing recipes and remove low-compliance options quickly."
-            steps={actionPlanSteps}
-          />
-          <SeoSuccessMetrics title="How to Measure Collection Quality" metrics={successMetrics} />
-          <SeoRelatedGuides
-            title="Related Recipe Collections"
-            items={recipeCollectionPages}
-            basePath="/recipe-collections"
-            currentSlug={page.slug}
-          />
-          <SeoCrossClusterLinks title="Next Best Guides for Execution" links={seoCrossLinks['/recipe-collections'] || []} />
-        </div>
-        <aside className="space-y-4">
-          <img src={page.heroImage} alt={page.heroAlt} className="w-full rounded-xl border border-border object-cover" />
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="font-display text-xl">FAQ</h3>
-            <div className="mt-3 space-y-3">
-              {page.faq.map((item) => (
-                <div key={item.question}>
-                  <p className="text-sm font-semibold">{item.question}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-      </div>
-    </SeoShell>
+    <ResourcePageLayout
+      breadcrumbs={[
+        { label: 'Home', href: '/' },
+        { label: 'Resources', href: '/resources' },
+        { label: 'Recipe Collections', href: '/recipe-collections' },
+        { label: page.title },
+      ]}
+      title={page.title}
+      subtitle={page.description}
+      heroImage={page.heroImage}
+      heroAlt={page.heroAlt}
+      meta={{
+        published: 'February 21, 2026',
+        updated: 'February 21, 2026',
+        readMinutes: estimateReadMinutes([page.featuredRecipes, page.howToUseCollection, page.pairingIdeas]),
+      }}
+      bestFor={page.collectionAngle}
+      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      outcomes={[page.featuredRecipes[0], page.howToUseCollection[0], page.pairingIdeas[0]]}
+      howItWorks={actionPlanSteps}
+      editorialBlocks={editorialBlocks}
+      flexibilityTitle="Flexibility and Pairing Swaps"
+      flexibilityItems={page.pairingIdeas}
+      faq={detailedFaq}
+      relatedGroups={[
+        {
+          title: 'Recipe Collections',
+          links: recipeCollectionPages
+            .filter((item) => item.slug !== page.slug)
+            .map((item) => ({ title: item.title, href: `/recipe-collections/${item.slug}` })),
+        },
+        {
+          title: 'Execution Guides',
+          links: (seoCrossLinks['/recipe-collections'] || []).map((item) => ({
+            title: item.title,
+            href: item.href,
+            description: item.description,
+          })),
+        },
+      ]}
+      quietCta={{
+        title: 'Save This Collection Workflow',
+        description: 'Keep your collection, grocery rollups, and weekly reminders connected in one system.',
+        primary: { label: 'Start Free Trial', href: '/signin' },
+        secondary: { label: 'More Resources', href: '/resources', variant: 'outline' },
+      }}
+      advancedSections={[
+        { title: 'Featured recipe paths', items: page.featuredRecipes },
+        { title: 'Collection usage details', items: page.howToUseCollection },
+      ]}
+    />
   );
 }

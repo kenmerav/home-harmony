@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Recipe, DayOfWeek } from '@/types';
-import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check } from 'lucide-react';
+import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check, Link2, WandSparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -16,12 +16,18 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import {
+  enqueueCookbookImportFromPdf,
   parseRecipesFromPdf,
   parseRecipesFromJson,
   parseRecipesFromImage,
+  parseRecipesFromUrl,
+  fetchCookbookImportJobs,
+  cancelCookbookImportJob,
+  CookbookImportJob,
   ExtractedRecipe,
   fetchRecipes,
   saveRecipes,
+  cleanUpRecipeLibrary,
   DbRecipe,
 } from '@/lib/api/recipes';
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
@@ -31,6 +37,17 @@ import { normalizeRecipeInstructions } from '@/lib/recipeText';
 import { getRecipeImageUrl } from '@/data/recipeImages';
 import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
+import { isDemoModeEnabled } from '@/lib/demoMode';
+
+function isEdgeTransportFailure(errorMessage?: string): boolean {
+  const value = String(errorMessage || '').toLowerCase();
+  return (
+    value.includes('failed to send a request to the edge function') ||
+    value.includes('failed to fetch') ||
+    value.includes('networkerror') ||
+    value.includes('fetch failed')
+  );
+}
 
 const dayLabels: Record<DayOfWeek, string> = {
   monday: 'Monday',
@@ -45,8 +62,8 @@ const dayLabels: Record<DayOfWeek, string> = {
 // Convert DB recipe to display format
 function dbRecipeToDisplayRecipe(
   dbRecipe: DbRecipe,
-  favoriteIds: Set<string>,
-  kidFriendlyOverrides: Record<string, boolean>,
+  favoriteIds: Set<string> = new Set(),
+  kidFriendlyOverrides: Record<string, boolean> = {},
 ): Recipe {
   const inferredKidFriendly = inferKidFriendly(dbRecipe);
   const isKidFriendly = kidFriendlyOverrides[dbRecipe.id] ?? inferredKidFriendly;
@@ -87,12 +104,18 @@ export default function RecipesPage() {
   const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+  const [urlInput, setUrlInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [kidFriendlyOverrides, setKidFriendlyOverrides] = useState<Record<string, boolean>>({});
+  const [isCleaningRecipes, setIsCleaningRecipes] = useState(false);
+  const [importJobs, setImportJobs] = useState<CookbookImportJob[]>([]);
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
+  const hasLoadedImportJobsRef = useRef(false);
 
   const loadRecipes = useCallback(async () => {
     try {
@@ -115,12 +138,75 @@ export default function RecipesPage() {
     }
   }, [toast]);
 
+  const loadImportJobs = useCallback(async () => {
+    if (isDemoModeEnabled()) {
+      setImportJobs([]);
+      return;
+    }
+
+    try {
+      const jobs = await fetchCookbookImportJobs(12);
+      setImportJobs(jobs);
+    } catch (error) {
+      console.error('Failed to load import jobs:', error);
+    }
+  }, []);
+
   // Load recipes from database on mount
   useEffect(() => {
     setFavoriteIds(getFavoriteIds());
     setKidFriendlyOverrides(getKidFriendlyOverrides());
     void loadRecipes();
   }, [loadRecipes]);
+
+  useEffect(() => {
+    if (isDemoModeEnabled()) return;
+
+    void loadImportJobs();
+    const timer = window.setInterval(() => {
+      void loadImportJobs();
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [loadImportJobs]);
+
+  useEffect(() => {
+    if (!importJobs.length) {
+      importStatusRef.current = {};
+      return;
+    }
+
+    const previous = importStatusRef.current;
+    const next: Record<string, CookbookImportJob['status']> = {};
+
+    for (const job of importJobs) {
+      next[job.id] = job.status;
+      const prevStatus = previous[job.id];
+      if (!hasLoadedImportJobsRef.current || !prevStatus || prevStatus === job.status) continue;
+
+      if (job.status === 'completed') {
+        toast({
+          title: 'Recipe import complete',
+          description: `${job.recipes_saved} recipe${job.recipes_saved === 1 ? '' : 's'} added from ${job.file_name}.`,
+        });
+        void loadRecipes();
+      } else if (job.status === 'failed') {
+        toast({
+          title: 'Recipe import failed',
+          description: job.error_message || `We couldn't process ${job.file_name}.`,
+          variant: 'destructive',
+        });
+      } else if (job.status === 'canceled') {
+        toast({
+          title: 'Recipe import canceled',
+          description: `${job.file_name} was canceled.`,
+        });
+      }
+    }
+
+    importStatusRef.current = next;
+    hasLoadedImportJobsRef.current = true;
+  }, [importJobs, loadRecipes, toast]);
 
   const refreshRecipeTags = () => {
     const nextFavorites = getFavoriteIds();
@@ -146,15 +232,59 @@ export default function RecipesPage() {
     refreshRecipeTags();
   };
 
+  const runRecipeCleanup = async () => {
+    try {
+      setIsCleaningRecipes(true);
+      const result = await cleanUpRecipeLibrary();
+      await loadRecipes();
+      toast({
+        title: 'Recipe cleanup complete',
+        description: `Checked ${result.scanned} recipe${result.scanned === 1 ? '' : 's'}, updated ${result.updated}.`,
+      });
+    } catch (error) {
+      console.error('Failed to clean recipe library:', error);
+      toast({
+        title: 'Cleanup failed',
+        description: error instanceof Error ? error.message : 'Could not clean your recipes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCleaningRecipes(false);
+    }
+  };
+
+  const cancelImport = async (job: CookbookImportJob) => {
+    try {
+      setCancelingJobId(job.id);
+      await cancelCookbookImportJob(job.id);
+      toast({
+        title: 'Import canceled',
+        description: `${job.file_name} has been canceled.`,
+      });
+      await loadImportJobs();
+    } catch (error) {
+      console.error('Failed to cancel import:', error);
+      toast({
+        title: 'Could not cancel import',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCancelingJobId(null);
+    }
+  };
+
   const filteredRecipes = recipes.filter(recipe => {
     const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFavorite = !favoritesOnly || !!recipe.isFavorite;
     const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
     return matchesSearch && matchesFavorite && matchesKidFriendly;
   });
+  const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     
     if (file.type === 'application/json' || file.name.endsWith('.json')) {
@@ -179,10 +309,10 @@ export default function RecipesPage() {
     try {
       const result = await parseRecipesFromJson(file);
       
-      if (!result.success || !result.recipes) {
+      if (!result.success || !result.recipes || result.recipes.length === 0) {
         toast({
           title: "Failed to parse JSON",
-          description: result.error || "Could not extract recipes from the JSON file",
+          description: result.error || "No recipes were found in the JSON file",
           variant: "destructive",
         });
         setIsProcessing(false);
@@ -213,6 +343,16 @@ export default function RecipesPage() {
 
   const processPdf = async (file: File) => {
     setIsProcessing(true);
+
+    if (isDemoModeEnabled()) {
+      toast({
+        title: 'Demo mode limitation',
+        description: 'PDF background import is only available for signed-in accounts.',
+        variant: 'destructive',
+      });
+      setIsProcessing(false);
+      return;
+    }
     
     const fileSizeMB = file.size / (1024 * 1024);
     
@@ -226,24 +366,69 @@ export default function RecipesPage() {
       return;
     }
 
-    if (fileSizeMB > 20) {
-      setProcessingStatus(`Large file (${fileSizeMB.toFixed(0)}MB) - extracting text...`);
-    } else {
-      setProcessingStatus('Extracting text from PDF...');
-    }
-    
+    setProcessingStatus(fileSizeMB > 20
+      ? `Large file (${fileSizeMB.toFixed(0)}MB) - extracting text...`
+      : 'Extracting text from PDF...',
+    );
+
     try {
-      setProcessingStatus(fileSizeMB > 20 
-        ? `Processing large cookbook (${fileSizeMB.toFixed(0)}MB)... this may take a minute`
-        : 'Analyzing recipes with AI...'
-      );
-      
-      const result = await parseRecipesFromPdf(file);
-      
-      if (!result.success || !result.recipes) {
+      const result = await enqueueCookbookImportFromPdf(file, {
+        onProgress: (message) => setProcessingStatus(message),
+      });
+
+      if (result.success && result.job) {
+        setUploadModalOpen(false);
+        setUploadStep('upload');
+        setExtractedRecipes([]);
+        setSelectedRecipes(new Set());
+        setUrlInput('');
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+
         toast({
-          title: "Failed to process PDF",
-          description: result.error || "Could not extract recipes from the PDF",
+          title: 'Import started',
+          description: 'You can leave this page. We will keep processing in the background.',
+        });
+        void loadImportJobs();
+        return;
+      }
+
+      // If background queue endpoint is unreachable, fall back to direct parsing.
+      if (isEdgeTransportFailure(result.error)) {
+        setProcessingStatus('Background upload unavailable. Processing PDF directly...');
+        const fallback = await parseRecipesFromPdf(file, {
+          onProgress: (message) => setProcessingStatus(message),
+        });
+
+        if (!fallback.success || !fallback.recipes || fallback.recipes.length === 0) {
+          toast({
+            title: 'Failed to process PDF',
+            description:
+              fallback.error ||
+              result.error ||
+              'No recipes were found in the PDF. If scanned, try clearer pages.',
+            variant: 'destructive',
+          });
+          setIsProcessing(false);
+          setProcessingStatus('');
+          return;
+        }
+
+        setExtractedRecipes(fallback.recipes);
+        setSelectedRecipes(new Set(fallback.recipes.map((_, i) => i)));
+        setUploadStep('review');
+        toast({
+          title: 'PDF processed (direct mode)',
+          description: `Found ${fallback.recipes.length} recipes. You can still import now.`,
+        });
+        return;
+      }
+
+      if (!result.success || !result.job) {
+        toast({
+          title: 'Failed to queue PDF import',
+          description: result.error || 'Could not start import for this PDF.',
           variant: "destructive",
         });
         setIsProcessing(false);
@@ -251,19 +436,11 @@ export default function RecipesPage() {
         return;
       }
 
-      setExtractedRecipes(result.recipes);
-      setSelectedRecipes(new Set(result.recipes.map((_, i) => i)));
-      setUploadStep('review');
-      
-      toast({
-        title: "PDF processed",
-        description: `Found ${result.recipes.length} recipes`,
-      });
     } catch (error) {
       console.error('Error processing PDF:', error);
       toast({
         title: "Error",
-        description: "Failed to process the PDF file",
+        description: "Failed to queue the PDF import",
         variant: "destructive",
       });
     } finally {
@@ -280,10 +457,10 @@ export default function RecipesPage() {
       setProcessingStatus('Analyzing recipe image with AI...');
       const result = await parseRecipesFromImage(file);
 
-      if (!result.success || !result.recipes) {
+      if (!result.success || !result.recipes || result.recipes.length === 0) {
         toast({
           title: 'Failed to process photo',
-          description: result.error || 'Could not extract recipes from the image',
+          description: result.error || 'No recipe could be extracted from the image',
           variant: 'destructive',
         });
         return;
@@ -302,6 +479,53 @@ export default function RecipesPage() {
       toast({
         title: 'Error',
         description: 'Failed to process recipe image',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  const processUrl = async () => {
+    const input = urlInput.trim();
+    if (!input) {
+      toast({
+        title: 'Add a link first',
+        description: 'Paste a website or public social post link.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingStatus('Reading recipe link...');
+
+    try {
+      const result = await parseRecipesFromUrl(input);
+
+      if (!result.success || !result.recipes || result.recipes.length === 0) {
+        toast({
+          title: 'Failed to process link',
+          description: result.error || 'No recipes were found at that link',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setExtractedRecipes(result.recipes);
+      setSelectedRecipes(new Set(result.recipes.map((_, i) => i)));
+      setUploadStep('review');
+
+      toast({
+        title: 'Link processed',
+        description: `Found ${result.recipes.length} recipe${result.recipes.length !== 1 ? 's' : ''}`,
+      });
+    } catch (error) {
+      console.error('Error processing recipe link:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to process recipe link',
         variant: 'destructive',
       });
     } finally {
@@ -330,7 +554,9 @@ export default function RecipesPage() {
 
     try {
       const savedRecipes = await saveRecipes(selectedExtracted);
-      const displayRecipes = savedRecipes.map(dbRecipeToDisplayRecipe);
+      const displayRecipes = savedRecipes.map((recipe) =>
+        dbRecipeToDisplayRecipe(recipe, favoriteIds, kidFriendlyOverrides),
+      );
       
       setRecipes(prev => [...displayRecipes, ...prev]);
       setUploadModalOpen(false);
@@ -344,9 +570,10 @@ export default function RecipesPage() {
       });
     } catch (error) {
       console.error('Failed to save recipes:', error);
+      const message = error instanceof Error ? error.message : 'Failed to save recipes. Please try again.';
       toast({
         title: "Error",
-        description: "Failed to save recipes. Please try again.",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -360,6 +587,7 @@ export default function RecipesPage() {
     setUploadStep('upload');
     setExtractedRecipes([]);
     setSelectedRecipes(new Set());
+    setUrlInput('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -371,10 +599,20 @@ export default function RecipesPage() {
         title="Recipes" 
         subtitle={`${recipes.length} recipes in your library`}
         action={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => void runRecipeCleanup()}
+              disabled={isCleaningRecipes}
+            >
+              <WandSparkles className="w-4 h-4 mr-2" />
+              {isCleaningRecipes ? 'Cleaning...' : 'Clean Up Recipes'}
+            </Button>
             <Button onClick={() => setUploadModalOpen(true)}>
-            <Upload className="w-4 h-4 mr-2" />
-            Upload Recipes
-          </Button>
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Recipes
+            </Button>
+          </div>
         }
       />
 
@@ -406,6 +644,49 @@ export default function RecipesPage() {
         </Button>
       </div>
 
+      {activeImportJobs.length > 0 && (
+        <div className="mb-6 rounded-xl border border-border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-medium">Background recipe imports</p>
+            <Button variant="outline" size="sm" onClick={() => void loadImportJobs()}>
+              Refresh
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            {activeImportJobs.map((job) => {
+              const total = Math.max(job.progress_total, 1);
+              const pct = Math.min(100, Math.round((job.progress_current / total) * 100));
+              const isCanceling = cancelingJobId === job.id;
+              return (
+                <div key={job.id} className="rounded-lg border border-border/80 p-3">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="font-medium truncate pr-2">{job.file_name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{job.status === 'queued' ? 'Queued' : `${pct}%`}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void cancelImport(job)}
+                        disabled={isCanceling}
+                      >
+                        {isCanceling ? 'Canceling...' : 'Cancel'}
+                      </Button>
+                    </div>
+                  </div>
+                  {job.error_message && (
+                    <p className="mb-2 text-xs text-muted-foreground">{job.error_message}</p>
+                  )}
+                  <div className="h-2 w-full rounded-full bg-muted">
+                    <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Recipe Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
         {filteredRecipes.map(recipe => (
@@ -436,7 +717,7 @@ export default function RecipesPage() {
             </DialogTitle>
             <DialogDescription>
               {uploadStep === 'upload' 
-                ? 'Upload a JSON file, PDF cookbook, or recipe photo to import recipes'
+                ? 'Upload JSON/PDF/photo or paste a recipe link to import recipes. PDF imports run in the background.'
                 : `${extractedRecipes.length} recipes found. Select which ones to import.`
               }
             </DialogDescription>
@@ -483,6 +764,29 @@ export default function RecipesPage() {
                   <li>• Cooking instructions</li>
                   <li>• Nutrition facts (calories, protein, carbs, fat)</li>
                 </ul>
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <p className="font-medium mb-2">Or paste a recipe link</p>
+                <div className="flex gap-2">
+                  <Input
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://example.com/recipe or public social post URL"
+                    disabled={isProcessing}
+                  />
+                  <Button
+                    onClick={() => void processUrl()}
+                    disabled={isProcessing || !urlInput.trim()}
+                    variant="outline"
+                  >
+                    <Link2 className="w-4 h-4 mr-2" />
+                    Import Link
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Best with recipe websites and public posts. Private or blocked social posts may need a screenshot upload instead.
+                </p>
               </div>
             </div>
           ) : (
@@ -550,6 +854,10 @@ export default function RecipesPage() {
         recipe={viewingRecipe}
         open={!!viewingRecipe}
         onOpenChange={(open) => !open && setViewingRecipe(null)}
+        onEdit={(recipe) => {
+          setViewingRecipe(null);
+          setEditingRecipe(recipe);
+        }}
       />
 
       {/* Edit Recipe Dialog */}

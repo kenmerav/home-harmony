@@ -7,6 +7,7 @@ export type Sex = 'male' | 'female';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'athlete';
 export type BodyGoal = 'fat_loss' | 'maintenance' | 'muscle_gain' | 'recomp';
 export type GoalPace = 'slow' | 'moderate' | 'aggressive';
+export type BodyUnitSystem = 'imperial' | 'metric';
 
 const STORAGE_KEY = 'homehub.macroGameState.v1';
 const CHORES_STATE_KEY = 'homehub.choresEconomyState.v2';
@@ -31,6 +32,7 @@ export interface MacroPlan {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
+  bodyUnitSystem: BodyUnitSystem;
   proteinOnlyMode: boolean;
   waterTargetOz: number;
   alcoholLimitDrinks: number;
@@ -149,6 +151,7 @@ function defaultPlan(id: AdultId): MacroPlan {
   return {
     questionnaire,
     ...recommendation,
+    bodyUnitSystem: 'imperial',
     proteinOnlyMode: false,
     waterTargetOz: id === 'wife' ? 80 : 100,
     alcoholLimitDrinks: id === 'wife' ? 1 : 2,
@@ -194,12 +197,31 @@ function readState(): StoredState {
     }
     const parsed = JSON.parse(raw) as Partial<StoredState>;
     const seed = initialState();
+    const mergedProfiles = {
+      me: {
+        ...seed.profiles.me,
+        ...(parsed.profiles?.me || {}),
+        macroPlan: {
+          ...seed.profiles.me.macroPlan,
+          ...(parsed.profiles?.me?.macroPlan || {}),
+          bodyUnitSystem: parsed.profiles?.me?.macroPlan?.bodyUnitSystem || seed.profiles.me.macroPlan.bodyUnitSystem,
+        },
+      },
+      wife: {
+        ...seed.profiles.wife,
+        ...(parsed.profiles?.wife || {}),
+        macroPlan: {
+          ...seed.profiles.wife.macroPlan,
+          ...(parsed.profiles?.wife?.macroPlan || {}),
+          bodyUnitSystem:
+            parsed.profiles?.wife?.macroPlan?.bodyUnitSystem || seed.profiles.wife.macroPlan.bodyUnitSystem,
+        },
+      },
+    };
+
     return {
       mealLogs: Array.isArray(parsed.mealLogs) ? (parsed.mealLogs as StoredMealLog[]) : seed.mealLogs,
-      profiles: {
-        me: parsed.profiles?.me || seed.profiles.me,
-        wife: parsed.profiles?.wife || seed.profiles.wife,
-      },
+      profiles: mergedProfiles,
       trackers:
         parsed.trackers && typeof parsed.trackers === 'object'
           ? (parsed.trackers as StoredState['trackers'])
@@ -268,6 +290,7 @@ export function updateMacroPlan(personId: AdultId, updates: Partial<MacroPlan>) 
       ...current,
       ...updates,
       questionnaire: updates.questionnaire || current.questionnaire,
+      bodyUnitSystem: updates.bodyUnitSystem || current.bodyUnitSystem || 'imperial',
     },
   };
   writeState(state);

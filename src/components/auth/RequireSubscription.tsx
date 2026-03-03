@@ -1,9 +1,11 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { BILLING_ENABLED } from '@/lib/billing';
 
 export function RequireSubscription({ children }: { children: JSX.Element }) {
   const { user, loading, isSubscribed, subscriptionLoading } = useAuth();
   const location = useLocation();
+  if (!BILLING_ENABLED) return children;
 
   if (loading || subscriptionLoading) {
     return <div className="min-h-screen grid place-items-center text-muted-foreground">Loading subscription...</div>;

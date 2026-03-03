@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Flame, TrendingUp, Calendar, ChevronRight, Dumbbell, Shuffle, Footprints, Bike, PersonStanding, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddCardioModal } from '@/workouts/components/AddCardioModal';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { cn } from '@/lib/utils';
 import { CORE_EXERCISES, type CardioSession } from '@/workouts/types/workout';
@@ -131,7 +132,7 @@ export default function Index() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-40">
       {/* Header */}
       <header className="px-4 pt-8 pb-6">
         <h1 className="text-3xl font-bold text-foreground">LiftLog</h1>
@@ -333,6 +334,7 @@ export default function Index() {
         onSave={handleSaveCardio}
         distanceUnit={settings.distanceUnit}
       />
+      <WorkoutsBottomNav />
     </div>
   );
 }

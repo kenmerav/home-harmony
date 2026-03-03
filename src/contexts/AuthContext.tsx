@@ -3,7 +3,11 @@ import { User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { TablesUpdate } from '@/integrations/supabase/types';
 import { isDemoModeEnabled, setDemoModeEnabled } from '@/lib/demoMode';
-import { resetDemoStore, setDemoRecipes } from '@/lib/demoStore';
+import { resetDemoStore } from '@/lib/demoStore';
+import { claimReferral } from '@/lib/api/referrals';
+import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
+import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
+import { BILLING_ENABLED } from '@/lib/billing';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -27,6 +31,7 @@ interface ProfileInfo {
 interface AuthContextValue {
   user: User | null;
   isDemoUser: boolean;
+  isAdmin: boolean;
   loading: boolean;
   profile: ProfileInfo | null;
   profileLoading: boolean;
@@ -49,16 +54,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const DEMO_USER = {
-  id: 'demo-user',
-  email: 'demo@homeharmony.local',
-  app_metadata: { provider: 'email', providers: ['email'] },
-  user_metadata: { full_name: 'Demo User' },
-  aud: 'authenticated',
-  role: 'authenticated',
-  created_at: new Date().toISOString(),
-} as User;
-
 const DEMO_PROFILE: ProfileInfo = {
   fullName: 'Demo User',
   householdName: 'Demo Household',
@@ -68,6 +63,19 @@ const DEMO_PROFILE: ProfileInfo = {
   dietaryPreferences: ['Kid Friendly', 'High Protein'],
   timezone: 'America/New_York',
 };
+
+const DEFAULT_ADMIN_EMAILS = ['kroberts035@gmail.com'];
+
+function parseAdminEmails(raw: string | undefined): Set<string> {
+  if (!raw) return new Set(DEFAULT_ADMIN_EMAILS);
+  const parsed = raw
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return parsed.length ? new Set(parsed) : new Set(DEFAULT_ADMIN_EMAILS);
+}
+
+const ADMIN_EMAILS = parseAdminEmails(import.meta.env.VITE_ADMIN_EMAILS);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -116,6 +124,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSubscription(null);
       return;
     }
+    if (!BILLING_ENABLED) {
+      setSubscription({
+        status: 'active',
+        currentPeriodEnd: null,
+        trialEndsAt: null,
+        priceId: null,
+      });
+      setSubscriptionLoading(false);
+      return;
+    }
     if (isDemoUser) {
       setSubscription({
         status: 'active',
@@ -151,21 +169,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const init = async () => {
       if (isDemoModeEnabled()) {
-        setIsDemoUser(true);
-        setUser(DEMO_USER);
-        setProfile(DEMO_PROFILE);
-        setSubscription({
-          status: 'active',
-          currentPeriodEnd: null,
-          trialEndsAt: null,
-          priceId: 'demo-price',
-        });
-        setLoading(false);
-        return;
+        // Demo mode is disabled for users; clear any stale local flag/state.
+        setDemoModeEnabled(false);
+        resetDemoStore();
       }
 
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
+
       setIsDemoUser(false);
       setUser(data.session?.user ?? null);
       setLoading(false);
@@ -173,7 +184,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     init();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isDemoModeEnabled()) return;
       setIsDemoUser(false);
       setUser(session?.user ?? null);
       setLoading(false);
@@ -190,6 +200,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshProfile();
   }, [refreshProfile, refreshSubscription, user?.id]);
 
+  useEffect(() => {
+    if (!user || isDemoUser) return;
+    const userId = user.id;
+
+    const referralCode = readPendingReferralCode();
+    if (!referralCode) return;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const claimed = await claimReferral(referralCode);
+        if (claimed) {
+          await trackGrowthEventSafe('referral_claimed', { code: referralCode }, `referral_claimed:${userId}`);
+        }
+      } catch (error) {
+        console.error('Failed claiming referral code:', error);
+      } finally {
+        if (!cancelled) clearPendingReferralCode();
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [isDemoUser, user]);
+
   const value = useMemo<AuthContextValue>(() => {
     const isProfileComplete = Boolean(
       profile?.fullName?.trim() &&
@@ -199,11 +236,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile.dietaryPreferences.length > 0,
     );
     const status = subscription?.status || 'inactive';
-    const isSubscribed = status === 'active' || status === 'trialing';
+    const isSubscribed = !BILLING_ENABLED || status === 'active' || status === 'trialing';
+    const userEmail = user?.email?.trim().toLowerCase() || '';
+    const isAdmin = !isDemoUser && Boolean(userEmail && ADMIN_EMAILS.has(userEmail));
 
     return {
       user,
       isDemoUser,
+      isAdmin,
       loading,
       profile,
       profileLoading,
@@ -215,6 +255,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isDemoUser) {
           setDemoModeEnabled(false);
           setIsDemoUser(false);
+          setUser(null);
+          setProfile(null);
+          setSubscription(null);
+          const { error: demoSignOutError } = await supabase.auth.signOut();
+          if (demoSignOutError) {
+            console.error('Failed to clear demo session before sign in:', demoSignOutError.message);
+          }
         }
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -223,6 +270,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isDemoUser) {
           setDemoModeEnabled(false);
           setIsDemoUser(false);
+          setUser(null);
+          setProfile(null);
+          setSubscription(null);
+          const { error: demoSignOutError } = await supabase.auth.signOut();
+          if (demoSignOutError) {
+            console.error('Failed to clear demo session before sign up:', demoSignOutError.message);
+          }
         }
         const { error } = await supabase.auth.signUp({
           email,
@@ -239,6 +293,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       signOut: async () => {
         if (isDemoUser) {
+          const { error } = await supabase.auth.signOut();
+          if (error) console.error('Failed to sign out demo session:', error.message);
           setDemoModeEnabled(false);
           resetDemoStore();
           setLoading(false);
@@ -254,32 +310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw error;
       },
       startDemoSession: async () => {
-        resetDemoStore();
-        try {
-          const { data } = await supabase
-            .from('recipes')
-            .select('*')
-            .order('created_at', { ascending: false });
-          if (data && data.length > 0) {
-            setDemoRecipes(data);
-          }
-        } catch {
-          // If recipe fetch fails, demo falls back to seeded recipes.
-        }
-
-        setDemoModeEnabled(true);
-        setLoading(false);
-        setProfileLoading(false);
-        setSubscriptionLoading(false);
-        setIsDemoUser(true);
-        setUser(DEMO_USER);
-        setProfile(DEMO_PROFILE);
-        setSubscription({
-          status: 'active',
-          currentPeriodEnd: null,
-          trialEndsAt: null,
-          priceId: 'demo-price',
-        });
+        throw new Error('Demo mode is disabled. Please create an account to start your trial.');
       },
       updateProfile: async (updates) => {
         if (!user) throw new Error('You must be signed in to update profile.');

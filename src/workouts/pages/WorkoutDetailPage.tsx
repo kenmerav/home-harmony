@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Clock, Dumbbell, Trash2, StickyNote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 
 export default function WorkoutDetail() {
@@ -48,7 +49,7 @@ export default function WorkoutDetail() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen bg-background pb-40">
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border">
         <div className="flex items-center justify-between h-14 px-4">
           <div className="flex items-center">
@@ -120,6 +121,7 @@ export default function WorkoutDetail() {
           })}
         </div>
       </div>
+      <WorkoutsBottomNav />
     </div>
   );
 }

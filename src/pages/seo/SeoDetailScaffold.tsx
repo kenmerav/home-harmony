@@ -23,7 +23,7 @@ interface HubPrimerItem {
 
 export function SeoBreadcrumbs({ items }: { items: BreadcrumbItem[] }) {
   return (
-    <nav aria-label="Breadcrumb" className="mb-4 text-xs text-muted-foreground">
+    <nav aria-label="Breadcrumb" className="mb-5 text-xs text-muted-foreground">
       <ol className="flex flex-wrap items-center gap-2">
         {items.map((item, index) => (
           <li key={`${item.label}-${index}`} className="flex items-center gap-2">
@@ -167,14 +167,14 @@ export function SeoHubPrimer({
   if (!items.length) return null;
 
   return (
-    <section className="mb-8 rounded-xl border border-border bg-card p-5">
-      <h2 className="font-display text-2xl">{title}</h2>
-      <p className="mt-2 text-sm text-muted-foreground">{intro}</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+    <section className="mx-auto mb-12 max-w-4xl border-t border-border/60 pt-10">
+      <h2 className="font-display text-3xl leading-tight md:text-4xl">{title}</h2>
+      <p className="mt-3 max-w-3xl text-base leading-7 text-muted-foreground">{intro}</p>
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
         {items.map((item) => (
-          <article key={item.title} className="rounded-lg border border-border p-4">
-            <h3 className="text-sm font-semibold">{item.title}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
+          <article key={item.title} className="rounded-xl border border-border/60 bg-card/70 p-5">
+            <h3 className="font-display text-xl leading-tight">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
           </article>
         ))}
       </div>

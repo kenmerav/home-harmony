@@ -34,7 +34,7 @@ function jsonOk(body: unknown) {
 
 function prepareChunkText(pdfText: string) {
   // The client already chunks, this is just a safety net.
-  const MAX_CHARS = 350_000;
+  const MAX_CHARS = 25_000;
   if (pdfText.length > MAX_CHARS) {
     console.log(`Text truncated from ${pdfText.length} to ${MAX_CHARS} chars`);
     return `${pdfText.slice(0, MAX_CHARS)}\n\n[TRUNCATED - chunk too large]`;
@@ -233,11 +233,16 @@ serve(async (req) => {
       return jsonOk({ success: false, error: "Extracted PDF text is required" });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY not configured");
-      return jsonOk({ success: false, error: "AI service not configured" });
+    const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openAiApiKey) {
+      console.error("OPENAI_API_KEY not configured");
+      return jsonOk({
+        success: false,
+        error:
+          "AI service not configured. Add OPENAI_API_KEY in Supabase Edge Function secrets, then retry.",
+      });
     }
+    const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 
     const chunkText = prepareChunkText(pdfText);
     console.log("Processing cookbook chunk:", {
@@ -255,30 +260,49 @@ serve(async (req) => {
       chunkText,
     });
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        temperature: 0.1,
-        max_tokens: 8192,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openAiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          temperature: 0.1,
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        return jsonOk({
+          success: false,
+          error: "AI request timed out. Please retry; if needed, split this PDF into smaller files.",
+        });
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
       console.error("AI gateway error:", response.status, errorText);
 
+      const contextTooLong =
+        response.status === 400 &&
+        (errorText.includes("context_length_exceeded") ||
+          errorText.toLowerCase().includes("maximum context length"));
+
       const statusHint =
-        response.status === 429
+        contextTooLong
+          ? "This PDF chunk is still too large for the model context window."
+          : response.status === 429
           ? "Rate limit exceeded. Please try again in a moment."
           : response.status === 402
           ? "AI credits required. Please add credits to continue."
@@ -286,7 +310,11 @@ serve(async (req) => {
 
       return jsonOk({
         success: false,
-        error: errorText ? `${statusHint} ${errorText}` : statusHint,
+        error: contextTooLong
+          ? `${statusHint} Please retry import; if needed, split the PDF into smaller parts.`
+          : errorText
+          ? `${statusHint} ${errorText}`
+          : statusHint,
       });
     }
 

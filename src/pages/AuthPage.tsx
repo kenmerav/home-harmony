@@ -4,23 +4,34 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HomeHarmonyLogo } from '@/components/branding/HomeHarmonyLogo';
 import { useAuth } from '@/contexts/AuthContext';
+import { stashPendingReferralCode } from '@/lib/referral';
+import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
+import { getPostAuthRoute } from '@/lib/billing';
 
 export default function AuthPage() {
-  const { user, isSubscribed, isProfileComplete, signIn, signUp, startDemoSession } = useAuth();
+  const { user, isSubscribed, isProfileComplete, signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [householdName, setHouseholdName] = useState('');
-  const [startingDemo, setStartingDemo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const search = new URLSearchParams(location.search);
   const onboardingIntent = search.get('onboarding') === '1';
+  const referralCode = search.get('ref');
+  const source = search.get('source');
+  const intent = search.get('intent');
+  const ab = search.get('ab');
 
-  const from = (location.state as { from?: string } | null)?.from || (onboardingIntent ? '/onboarding?force=1' : '/billing');
+  const from = (location.state as { from?: string } | null)?.from || (onboardingIntent ? '/onboarding?force=1' : '/app');
+
+  useEffect(() => {
+    if (!referralCode) return;
+    stashPendingReferralCode(referralCode);
+  }, [referralCode]);
 
   useEffect(() => {
     if (!user) return;
@@ -32,7 +43,7 @@ export default function AuthPage() {
       navigate('/onboarding', { replace: true });
       return;
     }
-    navigate(isSubscribed ? '/app' : '/billing', { replace: true });
+    navigate(getPostAuthRoute(isSubscribed), { replace: true });
   }, [isProfileComplete, isSubscribed, navigate, onboardingIntent, user]);
 
   const onSubmit = async (e: FormEvent) => {
@@ -42,6 +53,16 @@ export default function AuthPage() {
     try {
       if (mode === 'signin') {
         await signIn(email, password);
+        await trackGrowthEventSafe(
+          'signin_success',
+          {
+            source: source || null,
+            intent: intent || null,
+            ab: ab || null,
+            onboardingIntent,
+          },
+          `signin_success:${new Date().toISOString().slice(0, 10)}:${source || 'direct'}:${intent || 'none'}`,
+        );
         navigate(from, { replace: true });
       } else {
         await signUp(email, password, {
@@ -49,6 +70,16 @@ export default function AuthPage() {
           householdName,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
+        await trackGrowthEventSafe(
+          'signup_submitted',
+          {
+            source: source || null,
+            intent: intent || null,
+            ab: ab || null,
+            onboardingIntent,
+          },
+          `signup_submitted:${new Date().toISOString().slice(0, 10)}:${source || 'direct'}:${intent || 'none'}`,
+        );
         setMessage('Account created. Check your email for confirmation if prompted, then sign in.');
         setMode('signin');
         setPassword('');
@@ -59,13 +90,6 @@ export default function AuthPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const enterDemo = async () => {
-    setStartingDemo(true);
-    await startDemoSession();
-    navigate('/app', { replace: true });
-    setStartingDemo(false);
   };
 
   return (
@@ -135,11 +159,6 @@ export default function AuthPage() {
           <Link to="/" className="text-xs text-muted-foreground underline">
             Back to homepage
           </Link>
-        </div>
-        <div className="mt-3">
-          <Button variant="outline" className="w-full" onClick={enterDemo} disabled={startingDemo}>
-            {startingDemo ? 'Starting demo...' : 'Continue as Demo Account'}
-          </Button>
         </div>
       </div>
     </div>

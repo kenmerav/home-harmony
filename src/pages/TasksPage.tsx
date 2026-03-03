@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { mockHouseTasks } from '@/data/mockData';
 import { HouseTask, TaskStatus, TaskType, TaskFrequency, DayOfWeek } from '@/types';
 import { Plus, Circle, Clock, CheckCircle2, AlertCircle, Info, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,6 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { loadTasks, saveTasks } from '@/lib/taskStore';
+import { useAuth } from '@/contexts/AuthContext';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -53,7 +54,9 @@ const typeIcons = {
 };
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState(mockHouseTasks);
+  const { user } = useAuth();
+  const [tasks, setTasks] = useState<HouseTask[]>([]);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
   const [view, setView] = useState<'manager' | 'owner'>('manager');
   const [addTaskOpen, setAddTaskOpen] = useState(false);
   const [newTask, setNewTask] = useState({
@@ -65,6 +68,16 @@ export default function TasksPage() {
   });
   const currentDay = getCurrentDay();
   const { toast } = useToast();
+
+  useEffect(() => {
+    setTasks(loadTasks(user?.id));
+    setTasksLoaded(true);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!tasksLoaded) return;
+    saveTasks(tasks, user?.id);
+  }, [tasks, tasksLoaded, user?.id]);
 
   const cycleStatus = (taskId: string) => {
     setTasks(prev => prev.map(task => {

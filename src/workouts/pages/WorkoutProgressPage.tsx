@@ -4,6 +4,7 @@ import { ChevronRight, TrendingUp, Calendar, Dumbbell, Flame, Scale, Plus } from
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { AddWeightModal } from '@/workouts/components/AddWeightModal';
 import { WeightChart } from '@/workouts/components/WeightChart';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -86,7 +87,7 @@ export default function Progress() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-40">
       <header className="px-4 pt-8 pb-4">
         <h1 className="text-2xl font-bold text-foreground">Progress</h1>
         <p className="text-muted-foreground mt-1">Track your training journey</p>
@@ -274,6 +275,7 @@ export default function Progress() {
         weightUnit={settings.weightUnit}
         lastWeight={latestWeight?.weight}
       />
+      <WorkoutsBottomNav />
     </div>
   );
 }

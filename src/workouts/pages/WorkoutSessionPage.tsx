@@ -6,6 +6,7 @@ import { WorkoutHeader } from '@/workouts/components/WorkoutHeader';
 import { ExerciseCard } from '@/workouts/components/ExerciseCard';
 import { ExerciseSearch } from '@/workouts/components/ExerciseSearch';
 import { RestTimer } from '@/workouts/components/RestTimer';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { useRestTimer } from '@/workouts/hooks/useRestTimer';
 import type { Workout, Exercise, WorkoutSet } from '@/workouts/types/workout';
@@ -272,7 +273,7 @@ export default function WorkoutSession() {
   }, [restTimer]);
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen bg-background pb-40">
       <WorkoutHeader
         title={templates.find(t => t.id === templateId)?.name || 'Workout'}
         startTime={workout.startTime}
@@ -339,6 +340,7 @@ export default function WorkoutSession() {
           onAddTime={restTimer.addTime}
         />
       )}
+      <WorkoutsBottomNav />
     </div>
   );
 }

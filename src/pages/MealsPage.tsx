@@ -49,6 +49,7 @@ import {
   setPlanRules,
 } from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
+import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -270,6 +271,16 @@ export default function MealsPage() {
       const data = await generateMeals(weekOffset, daysToRegen, planRules);
       setMeals(data);
       toast({ title: 'Meals generated!', description: `${data.length} meals planned for the week` });
+      await trackGrowthEventSafe(
+        'meals_regenerated',
+        {
+          weekOffset,
+          days: daysToRegen || days,
+          preferFavorites: !!planRules.preferFavorites,
+          preferKidFriendly: !!planRules.preferKidFriendly,
+          maxCookMinutes: planRules.maxCookMinutes || null,
+        },
+      );
     } catch (error: unknown) {
       toast({ title: 'Error', description: getErrorMessage(error, 'Failed to generate meals'), variant: 'destructive' });
     } finally {

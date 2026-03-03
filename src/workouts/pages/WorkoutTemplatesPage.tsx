@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Plus, MoreVertical, Play, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CreateTemplateModal } from '@/workouts/components/CreateTemplateModal';
+import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
 import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { cn } from '@/lib/utils';
 import type { WorkoutTemplate } from '@/workouts/types/workout';
@@ -48,7 +49,7 @@ export default function Templates() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-40">
       <header className="px-4 pt-8 pb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Templates</h1>
@@ -172,7 +173,7 @@ export default function Templates() {
           onAddCustomExercise={addCustomExercise}
         />
       )}
+      <WorkoutsBottomNav />
     </div>
   );
 }
-

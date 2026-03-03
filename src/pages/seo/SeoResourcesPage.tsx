@@ -34,17 +34,18 @@ export default function SeoResourcesPage() {
 
   return (
     <SeoShell>
-      <div className="mb-8">
-        <p className="text-xs uppercase tracking-[0.16em] text-primary">Programmatic Resource Hub</p>
-        <h1 className="mt-2 font-display text-4xl">Plan Better, Shop Smarter, Run Home Smoother</h1>
-        <p className="mt-3 max-w-3xl text-muted-foreground">
-          These pages are built around real household workflows. Each section has a unique framework so you can apply it directly,
-          not generic blog filler.
+      <div className="mx-auto mb-12 max-w-4xl border-b border-border/60 pb-10">
+        <p className="text-xs uppercase tracking-[0.16em] text-primary">Resource Library</p>
+        <h1 className="mt-3 max-w-3xl font-display text-4xl leading-[1.04] tracking-tight md:text-6xl">
+          Systems for meals, groceries, chores, tasks, and routines
+        </h1>
+        <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground md:text-xl">
+          Each guide is built to be implemented quickly, with clear next actions and fewer decisions for your week.
         </p>
       </div>
       <SeoHubPrimer
-        title="How to Use the Resource Library"
-        intro="Treat this library as an operating system map. Start in one category, implement for two weeks, then connect adjacent systems to increase consistency."
+        title="How to use this library"
+        intro="Start with your current bottleneck. Run one framework for two weeks before adding another."
         items={[
           {
             title: 'Start with your biggest bottleneck',
@@ -65,13 +66,44 @@ export default function SeoResourcesPage() {
         ]}
       />
 
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <section className="mx-auto mb-12 max-w-4xl rounded-2xl border border-primary/30 bg-primary/10 p-6">
+        <h2 className="font-display text-3xl leading-tight">Free tool library</h2>
+        <p className="mt-2 text-sm leading-7 text-muted-foreground">
+          Use quick generators for meal structure, grocery cleanup, chores, macros, and weekly reset planning.
+        </p>
+        <Link to="/free-tools" className="mt-4 inline-block">
+          <Button>Explore Free Tools</Button>
+        </Link>
+      </section>
+
+      <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-2">
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Comparison Guides</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            Evaluate Home Harmony against Cozi, AnyList, and Todoist with migration-focused checklists.
+          </p>
+          <Link to="/compare" className="mt-4 inline-block">
+            <Button variant="outline">View Comparisons</Button>
+          </Link>
+        </article>
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Template Gallery</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            Use plug-and-play templates for meals, grocery systems, chores, task boards, and fitness cadence.
+          </p>
+          <Link to="/templates" className="mt-4 inline-block">
+            <Button variant="outline">Browse Templates</Button>
+          </Link>
+        </article>
+      </section>
+
+      <div className="mx-auto grid max-w-5xl gap-5 md:grid-cols-2">
         {seoCategories.map((category) => (
-          <article key={category.slug} className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <img src={category.heroImage} alt={category.heroAlt} className="h-44 w-full object-cover" loading="lazy" />
-            <div className="p-5">
-              <h2 className="font-display text-2xl">{category.title}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{category.description}</p>
+          <article key={category.slug} className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+            <img src={category.heroImage} alt={category.heroAlt} className="h-52 w-full object-cover" loading="lazy" />
+            <div className="p-6">
+              <h2 className="font-display text-2xl leading-tight">{category.title}</h2>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">{category.description}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {category.keywords.slice(0, 2).map((keyword) => (
                   <span key={keyword} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
