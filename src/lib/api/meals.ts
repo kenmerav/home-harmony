@@ -8,6 +8,7 @@ import { inferKidFriendly } from '@/lib/kidFriendly';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoMeals, getDemoRecipes, setDemoMeals } from '@/lib/demoStore';
 import { normalizeRecipeIngredients } from '@/lib/recipeText';
+import { syncScheduledMealsToCalendar } from '@/lib/calendarStore';
 
 export interface DbPlannedMeal {
   id: string;
@@ -59,6 +60,20 @@ function getWeekOf(weekOffset: number): string {
   return format(ws, 'yyyy-MM-dd');
 }
 
+function getWeekOffsetFromWeekOf(weekOf: string): number {
+  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+  const mealWeek = new Date(weekOf);
+  return Math.round((mealWeek.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+}
+
+async function syncMealCalendarSafely(meals: DbPlannedMeal[]) {
+  try {
+    await syncScheduledMealsToCalendar(meals);
+  } catch (error) {
+    console.error('Failed syncing meal schedule to calendar_events:', error);
+  }
+}
+
 export async function fetchMealsForWeek(weekOffset: number): Promise<DbPlannedMeal[]> {
   if (isDemoModeEnabled()) {
     return getDemoMeals(weekOffset).map((meal) => ({
@@ -82,6 +97,72 @@ export async function fetchMealsForWeek(weekOffset: number): Promise<DbPlannedMe
       ? { ...meal.recipes, ingredients: normalizeRecipeIngredients(meal.recipes.ingredients) }
       : meal.recipes,
   }));
+}
+
+export async function setMealForDay(
+  weekOffset: number,
+  day: DayOfWeek,
+  recipeId: string,
+): Promise<DbPlannedMeal[]> {
+  if (isDemoModeEnabled()) {
+    const weekOf = getWeekOf(weekOffset);
+    const scoped = getDemoMeals(weekOffset);
+    const existing = scoped.find((meal) => meal.day === day);
+    const next = scoped.map(({ recipes: _, ...meal }) => meal);
+    if (existing) {
+      const updated = next.map((meal) =>
+        meal.id === existing.id
+          ? {
+              ...meal,
+              recipe_id: recipeId,
+              is_skipped: false,
+            }
+          : meal,
+      );
+      setDemoMeals(weekOffset, updated);
+    } else {
+      next.push({
+        id: `demo-m-${weekOf}-${day}`,
+        recipe_id: recipeId,
+        day,
+        week_of: weekOf,
+        is_locked: false,
+        is_skipped: false,
+        created_at: new Date().toISOString(),
+      });
+      setDemoMeals(weekOffset, next);
+    }
+    return getDemoMeals(weekOffset);
+  }
+
+  const weekOf = getWeekOf(weekOffset);
+  const { data: existing, error: existingError } = await supabase
+    .from('planned_meals')
+    .select('id')
+    .eq('day', day)
+    .eq('week_of', weekOf)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.id) {
+    const { error: updateError } = await supabase
+      .from('planned_meals')
+      .update({ recipe_id: recipeId, is_skipped: false })
+      .eq('id', existing.id);
+    if (updateError) throw updateError;
+  } else {
+    const { error: insertError } = await supabase.from('planned_meals').insert({
+      day,
+      week_of: weekOf,
+      recipe_id: recipeId,
+      is_skipped: false,
+    });
+    if (insertError) throw insertError;
+  }
+
+  const refreshed = await fetchMealsForWeek(weekOffset);
+  await syncMealCalendarSafely(refreshed);
+  return refreshed;
 }
 
 export async function generateMeals(
@@ -269,7 +350,9 @@ export async function generateMeals(
     if (error) throw error;
   }
 
-  return fetchMealsForWeek(weekOffset);
+  const refreshed = await fetchMealsForWeek(weekOffset);
+  await syncMealCalendarSafely(refreshed);
+  return refreshed;
 }
 
 export async function swapMeal(mealId: string, weekOf: string, day: string): Promise<DbPlannedMeal[]> {
@@ -323,11 +406,10 @@ export async function swapMeal(mealId: string, weekOf: string, day: string): Pro
     .update({ recipe_id: newRecipeId })
     .eq('id', mealId);
 
-  // Return updated week - determine weekOffset from weekOf
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const mealWeek = new Date(weekOf);
-  const diffWeeks = Math.round((mealWeek.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
-  return fetchMealsForWeek(diffWeeks);
+  const diffWeeks = getWeekOffsetFromWeekOf(weekOf);
+  const refreshed = await fetchMealsForWeek(diffWeeks);
+  await syncMealCalendarSafely(refreshed);
+  return refreshed;
 }
 
 export async function updateMealRecipe(mealId: string, recipeId: string, weekOf: string): Promise<DbPlannedMeal[]> {
@@ -347,10 +429,10 @@ export async function updateMealRecipe(mealId: string, recipeId: string, weekOf:
     .eq('id', mealId);
   if (error) throw error;
 
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const mealWeek = new Date(weekOf);
-  const diffWeeks = Math.round((mealWeek.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
-  return fetchMealsForWeek(diffWeeks);
+  const diffWeeks = getWeekOffsetFromWeekOf(weekOf);
+  const refreshed = await fetchMealsForWeek(diffWeeks);
+  await syncMealCalendarSafely(refreshed);
+  return refreshed;
 }
 
 export async function toggleMealLock(mealId: string, isLocked: boolean, weekOf?: string) {
@@ -389,4 +471,10 @@ export async function toggleMealSkip(mealId: string, isSkipped: boolean, weekOf?
     .update({ is_skipped: isSkipped })
     .eq('id', mealId);
   if (error) throw error;
+
+  if (weekOf) {
+    const diffWeeks = getWeekOffsetFromWeekOf(weekOf);
+    const refreshed = await fetchMealsForWeek(diffWeeks);
+    await syncMealCalendarSafely(refreshed);
+  }
 }

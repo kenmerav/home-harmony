@@ -45,6 +45,8 @@ interface AuthContextValue {
     password: string,
     profile?: { fullName?: string; householdName?: string; timezone?: string },
   ) => Promise<void>;
+  requestPasswordReset: (email: string, redirectTo?: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
   startDemoSession: () => Promise<void>;
   updateProfile: (updates: TablesUpdate<'profiles'>) => Promise<void>;
@@ -289,6 +291,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             },
           },
         });
+        if (error) throw error;
+      },
+      requestPasswordReset: async (email, redirectTo) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo,
+        });
+        if (error) throw error;
+      },
+      updatePassword: async (password) => {
+        const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
       },
       signOut: async () => {

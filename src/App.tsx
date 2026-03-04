@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireAdmin } from "./components/auth/RequireAdmin";
@@ -15,6 +15,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const SeoResourcesPage = lazy(() => import("./pages/seo/SeoResourcesPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const BillingPage = lazy(() => import("./pages/BillingPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const TodayPage = lazy(() => import("./pages/TodayPage"));
@@ -27,11 +28,11 @@ const ChoresPage = lazy(() => import("./pages/ChoresPage"));
 const TasksPage = lazy(() => import("./pages/TasksPage"));
 const FamilyPage = lazy(() => import("./pages/FamilyPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const GetStartedPage = lazy(() => import("./pages/GetStartedPage"));
 const FreeToolsAnalyticsPage = lazy(() => import("./pages/FreeToolsAnalyticsPage"));
 const GrowthAnalyticsPage = lazy(() => import("./pages/GrowthAnalyticsPage"));
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
-const MeDashboardPage = lazy(() => import("./pages/MeDashboardPage"));
-const WifeDashboardPage = lazy(() => import("./pages/WifeDashboardPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const WorkoutsHomePage = lazy(() => import("./workouts/pages/WorkoutsHomePage"));
 const WorkoutSessionPage = lazy(() => import("./workouts/pages/WorkoutSessionPage"));
 const WorkoutTemplatesPage = lazy(() => import("./workouts/pages/WorkoutTemplatesPage"));
@@ -145,6 +146,7 @@ const App = () => (
               <Route path="/templates" element={<TemplatesHubPage />} />
               <Route path="/templates/:slug" element={<TemplateDetailPage />} />
               <Route path="/signin" element={<AuthPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route
                 path="/onboarding"
                 element={
@@ -274,6 +276,16 @@ const App = () => (
                 }
               />
               <Route
+                path="/getting-started"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <GetStartedPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
                 path="/free-tools-analytics"
                 element={
                   <RequireProfileComplete>
@@ -302,25 +314,17 @@ const App = () => (
                 }
               />
               <Route
-                path="/me"
+                path="/dashboard/:dashboardId"
                 element={
                   <RequireProfileComplete>
                     <RequireSubscription>
-                      <MeDashboardPage />
+                      <DashboardPage />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }
               />
-              <Route
-                path="/wife"
-                element={
-                  <RequireProfileComplete>
-                    <RequireSubscription>
-                      <WifeDashboardPage />
-                    </RequireSubscription>
-                  </RequireProfileComplete>
-                }
-              />
+              <Route path="/me" element={<Navigate to="/dashboard/me" replace />} />
+              <Route path="/wife" element={<Navigate to="/dashboard/wife" replace />} />
                 <Route
                   path="/workouts"
                   element={

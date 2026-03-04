@@ -1,0 +1,42 @@
+import { supabase } from '@/integrations/supabase/client';
+
+interface EmailInvokeResponse {
+  success?: boolean;
+  error?: string;
+}
+
+async function invokeEmail(payload: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke('transactional-email', { body: payload });
+  if (error) throw new Error(error.message || 'Failed to send email.');
+  const response = (data || {}) as EmailInvokeResponse;
+  if (response.error) throw new Error(response.error);
+  return response;
+}
+
+export async function sendWelcomeEmail(appUrl?: string) {
+  return invokeEmail({
+    action: 'send_welcome',
+    appUrl:
+      appUrl ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined),
+  });
+}
+
+export async function sendFamilyInviteEmail(payload: {
+  email: string;
+  role: 'spouse' | 'kid';
+  inviteLink: string;
+  householdName?: string | null;
+  appUrl?: string;
+}) {
+  return invokeEmail({
+    action: 'send_family_invite',
+    email: payload.email,
+    role: payload.role,
+    inviteLink: payload.inviteLink,
+    householdName: payload.householdName || null,
+    appUrl:
+      payload.appUrl ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined),
+  });
+}

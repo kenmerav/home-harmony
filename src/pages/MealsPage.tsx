@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Wand2 } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   fetchMealsForWeek,
   generateMeals,
+  setMealForDay,
   swapMeal,
   updateMealRecipe,
   toggleMealLock,
@@ -50,6 +51,17 @@ import {
 } from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
+import { syncScheduledMealsToCalendar } from '@/lib/calendarStore';
+import { useAuth } from '@/contexts/AuthContext';
+import { getProfiles, listDashboardProfiles } from '@/lib/macroGame';
+import {
+  addPlannedFoodEntry,
+  deletePlannedFoodEntry,
+  getPlannedFoodEntries,
+  listCommonPlannedFoods,
+  type PlannedFoodEntry,
+  type PlannedMealType,
+} from '@/lib/mealBudgetPlanner';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -61,6 +73,24 @@ const dayLabels: Record<DayOfWeek, string> = {
 const dayFullLabels: Record<DayOfWeek, string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday',
   friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
+};
+
+const PLANNED_MEAL_TYPE_OPTIONS: PlannedMealType[] = [
+  'breakfast',
+  'lunch',
+  'dinner',
+  'snack',
+  'dessert',
+  'alcohol',
+];
+
+const plannedMealTypeLabel: Record<PlannedMealType, string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack',
+  dessert: 'Dessert',
+  alcohol: 'Alcohol',
 };
 
 const dayFromDate = (date: Date): DayOfWeek =>
@@ -100,7 +130,10 @@ interface PantryMatch {
   missing: string[];
 }
 
+type PlannerViewMode = 'weekly-dinners' | 'weekly-lunches' | 'daily-all';
+
 export default function MealsPage() {
+  const { user } = useAuth();
   const [weekOffset, setWeekOffset] = useState(0);
   const [meals, setMeals] = useState<DbPlannedMeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,9 +165,37 @@ export default function MealsPage() {
   const [selectedRecipeId, setSelectedRecipeId] = useState('');
   const [swapRequest, setSwapRequest] = useState('');
   const [requestMaxMinutes, setRequestMaxMinutes] = useState('');
+  const [manualDialogDay, setManualDialogDay] = useState<DayOfWeek | null>(null);
+  const [manualRecipeId, setManualRecipeId] = useState('');
+  const [manualRecipeQuery, setManualRecipeQuery] = useState('');
   const [pantryOpen, setPantryOpen] = useState(false);
   const [pantryInput, setPantryInput] = useState('');
   const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
+  const [plannerEntries, setPlannerEntries] = useState<PlannedFoodEntry[]>([]);
+  const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
+  const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [plannerDashboardId, setPlannerDashboardId] = useState('me');
+  const [plannerForm, setPlannerForm] = useState<{
+    date: string;
+    mealType: PlannedMealType;
+    recipeId: string;
+    name: string;
+    servings: string;
+    calories: string;
+    protein_g: string;
+    carbs_g: string;
+    fat_g: string;
+  }>({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    mealType: 'breakfast',
+    recipeId: '',
+    name: '',
+    servings: '1',
+    calories: '',
+    protein_g: '',
+    carbs_g: '',
+    fat_g: '',
+  });
   const favoriteIds = getFavoriteIds();
   const kidFriendlyOverrides = getKidFriendlyOverrides();
   const { toast } = useToast();
@@ -143,6 +204,8 @@ export default function MealsPage() {
 
   const weekStart = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
   const weekLabel = format(weekStart, 'MMM d') + ' – ' + format(addDays(weekStart, 6), 'MMM d');
+  const dashboardProfiles = listDashboardProfiles();
+  const macroProfiles = getProfiles();
 
   const loadMeals = useCallback(async () => {
     try {
@@ -162,6 +225,18 @@ export default function MealsPage() {
     setMenuRejuvenatePrefsState(getMenuRejuvenatePrefs());
     void loadMeals();
   }, [loadMeals]);
+
+  useEffect(() => {
+    const available = dashboardProfiles.map((profile) => profile.id);
+    if (available.length === 0) return;
+    if (!available.includes(plannerDashboardId)) {
+      setPlannerDashboardId(available[0]);
+    }
+  }, [dashboardProfiles, plannerDashboardId]);
+
+  useEffect(() => {
+    setPlannerEntries(getPlannedFoodEntries(user?.id));
+  }, [user?.id]);
 
   useEffect(() => {
     if (!menuRejuvenatePrefs.enabled) return;
@@ -245,7 +320,11 @@ export default function MealsPage() {
     void ensureRecipesLoaded();
   }, [rulesOpen, allRecipes.length, ensureRecipesLoaded]);
 
-  const savePlanRules = () => {
+  const refreshPlannerEntries = useCallback(() => {
+    setPlannerEntries(getPlannedFoodEntries(user?.id));
+  }, [user?.id]);
+
+  const savePlanRules = async () => {
     const maxCookMinutes =
       typeof planRules.maxCookMinutes === 'number' && planRules.maxCookMinutes > 0
         ? Math.round(planRules.maxCookMinutes)
@@ -261,6 +340,11 @@ export default function MealsPage() {
     setPlanRules(next);
     setDinnerReminderPrefs(dinnerReminderPrefs);
     setMenuRejuvenatePrefs(menuRejuvenatePrefs);
+    try {
+      await syncScheduledMealsToCalendar(meals);
+    } catch (error) {
+      console.error('Failed syncing meal calendar after rules save:', error);
+    }
     setRulesOpen(false);
     toast({ title: 'Planner rules saved' });
   };
@@ -302,7 +386,7 @@ export default function MealsPage() {
 
   const openSwapDialog = async (meal: DbPlannedMeal) => {
     setSwapDialogMeal(meal);
-    setSwapMode('random');
+    setSwapMode('choose');
     setChooseRecipeQuery('');
     setSelectedRecipeId('');
     setSwapRequest('');
@@ -320,10 +404,6 @@ export default function MealsPage() {
       if (swapMode === 'random') {
         await handleSwap(swapDialogMeal);
       } else if (swapMode === 'choose') {
-        const recipeOptions = allRecipes
-          .slice()
-          .sort((a, b) => a.name.localeCompare(b.name));
-
         const exactMatch = recipeOptions.find(
           (r) => r.name.toLowerCase().trim() === chooseRecipeQuery.toLowerCase().trim(),
         );
@@ -436,6 +516,161 @@ export default function MealsPage() {
     setSelectedDays(next);
   };
 
+  const recipeOptions = allRecipes
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const chooseRecipeOptions = recipeOptions.filter((recipe) =>
+    chooseRecipeQuery.trim()
+      ? recipe.name.toLowerCase().includes(chooseRecipeQuery.trim().toLowerCase())
+      : true,
+  );
+  const manualRecipeOptions = recipeOptions.filter((recipe) =>
+    manualRecipeQuery.trim()
+      ? recipe.name.toLowerCase().includes(manualRecipeQuery.trim().toLowerCase())
+      : true,
+  );
+
+  const openManualDialog = async (day: DayOfWeek) => {
+    setManualDialogDay(day);
+    setManualRecipeId('');
+    setManualRecipeQuery('');
+    try {
+      await ensureRecipesLoaded();
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load recipes', variant: 'destructive' });
+    }
+  };
+
+  const applyManualMealForDay = async () => {
+    if (!manualDialogDay || !manualRecipeId) {
+      toast({ title: 'Choose a recipe first', variant: 'destructive' });
+      return;
+    }
+    try {
+      const data = await setMealForDay(weekOffset, manualDialogDay, manualRecipeId);
+      setMeals(data);
+      setManualDialogDay(null);
+      toast({ title: `${dayFullLabels[manualDialogDay]} updated` });
+    } catch (error: unknown) {
+      toast({
+        title: 'Could not set meal',
+        description: getErrorMessage(error, 'Failed to save this day.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const addPlannerItem = () => {
+    const servings = Number.parseFloat(plannerForm.servings);
+    const calories = Number.parseInt(plannerForm.calories, 10);
+    const protein = Number.parseInt(plannerForm.protein_g, 10) || 0;
+    const carbs = Number.parseInt(plannerForm.carbs_g, 10) || 0;
+    const fat = Number.parseInt(plannerForm.fat_g, 10) || 0;
+
+    if (!plannerForm.date) {
+      toast({ title: 'Pick a date', variant: 'destructive' });
+      return;
+    }
+    if (!plannerForm.name.trim()) {
+      toast({ title: 'Add a meal/item name', variant: 'destructive' });
+      return;
+    }
+    if (!Number.isFinite(servings) || servings <= 0) {
+      toast({ title: 'Servings must be greater than 0', variant: 'destructive' });
+      return;
+    }
+    if (!Number.isFinite(calories) || calories < 0) {
+      toast({ title: 'Add calories to project totals', variant: 'destructive' });
+      return;
+    }
+
+    addPlannedFoodEntry(
+      {
+        date: plannerForm.date,
+        mealType: plannerForm.mealType,
+        name: plannerForm.name.trim(),
+        servings,
+        calories,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
+        sourceRecipeId: plannerForm.recipeId || null,
+      },
+      user?.id,
+    );
+    setPlannerForm((prev) => ({
+      ...prev,
+      name: '',
+      recipeId: '',
+      servings: '1',
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+    }));
+    refreshPlannerEntries();
+    toast({ title: 'Planned meal added' });
+  };
+
+  const commonPlannedFoods = listCommonPlannedFoods(user?.id, 10);
+
+  const weekDateRows = days.map((day, index) => ({
+    day,
+    date: format(addDays(weekStart, index), 'yyyy-MM-dd'),
+  }));
+  const dinnerBaseByDate = new Map<string, { name: string; calories: number; protein_g: number; carbs_g: number; fat_g: number }>();
+  for (const row of weekDateRows) {
+    const meal = getMealForDay(row.day);
+    if (!meal || meal.is_skipped || !meal.recipes) continue;
+    dinnerBaseByDate.set(row.date, {
+      name: meal.recipes.name,
+      calories: Math.round(meal.recipes.calories || 0),
+      protein_g: Math.round(meal.recipes.protein_g || 0),
+      carbs_g: Math.round(meal.recipes.carbs_g || 0),
+      fat_g: Math.round(meal.recipes.fat_g || 0),
+    });
+  }
+
+  const entriesByDate = plannerEntries.reduce<Record<string, PlannedFoodEntry[]>>((acc, entry) => {
+    if (!acc[entry.date]) acc[entry.date] = [];
+    acc[entry.date].push(entry);
+    return acc;
+  }, {});
+
+  const macroTarget =
+    macroProfiles[plannerDashboardId]?.macroPlan || macroProfiles.me?.macroPlan || {
+      calories: 2000,
+      protein_g: 140,
+      carbs_g: 180,
+      fat_g: 70,
+    };
+
+  const projectedByDate = weekDateRows.reduce<
+    Record<string, { calories: number; protein_g: number; carbs_g: number; fat_g: number }>
+  >((acc, row) => {
+    const dinnerBase = dinnerBaseByDate.get(row.date);
+    const entries = entriesByDate[row.date] || [];
+    const totals = {
+      calories: dinnerBase?.calories || 0,
+      protein_g: dinnerBase?.protein_g || 0,
+      carbs_g: dinnerBase?.carbs_g || 0,
+      fat_g: dinnerBase?.fat_g || 0,
+    };
+    for (const entry of entries) {
+      totals.calories += entry.calories;
+      totals.protein_g += entry.protein_g;
+      totals.carbs_g += entry.carbs_g;
+      totals.fat_g += entry.fat_g;
+    }
+    acc[row.date] = totals;
+    return acc;
+  }, {});
+
+  const plannerRows =
+    plannerViewMode === 'daily-all'
+      ? weekDateRows.filter((row) => row.date === plannerDay)
+      : weekDateRows;
+
   return (
     <AppLayout>
       <PageHeader
@@ -482,143 +717,161 @@ export default function MealsPage() {
             <div key={d} className="bg-card rounded-xl border border-border p-4 h-20 animate-pulse" />
           ))}
         </div>
-      ) : meals.length === 0 ? (
-        <div className="text-center py-12">
-          <RefreshCw className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-          <p className="text-muted-foreground">No meals planned for this week</p>
-          <p className="text-sm text-muted-foreground mt-1">Click "Regenerate" to auto-fill from your recipes</p>
-        </div>
       ) : (
-        <div className="space-y-3 stagger-children">
-          {days.map((day, index) => {
-            const meal = getMealForDay(day);
-            const date = format(addDays(weekStart, index), 'd');
-            const isToday = format(addDays(weekStart, index), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-            const recipe = meal?.recipes;
+        <>
+          {meals.length === 0 && (
+            <div className="text-center py-6 text-muted-foreground">
+              <RefreshCw className="w-10 h-10 mx-auto mb-3 opacity-50" />
+              <p>No meals planned for this week yet.</p>
+              <p className="text-sm mt-1">Use "Add Meal" on any day or click Regenerate.</p>
+            </div>
+          )}
+          <div className="space-y-3 stagger-children">
+            {days.map((day, index) => {
+              const meal = getMealForDay(day);
+              const date = format(addDays(weekStart, index), 'd');
+              const isToday = format(addDays(weekStart, index), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+              const recipe = meal?.recipes;
 
-            return (
-              <div
-                key={day}
-                className={cn(
-                  "bg-card rounded-xl border border-border p-4 transition-gentle",
-                  isToday && "ring-2 ring-primary/20 border-primary/30",
-                  meal?.is_skipped && "opacity-60"
-                )}
-              >
+              return (
                 <div
-                  className={cn("flex items-start gap-4", meal?.recipes && !meal?.is_skipped && "cursor-pointer")}
-                  onClick={() => {
-                    if (meal?.recipes && !meal.is_skipped) setSelectedMeal(meal);
-                  }}
+                  key={day}
+                  className={cn(
+                    "bg-card rounded-xl border border-border p-4 transition-gentle",
+                    isToday && "ring-2 ring-primary/20 border-primary/30",
+                    meal?.is_skipped && "opacity-60"
+                  )}
                 >
-                  <div className={cn("w-12 text-center flex-shrink-0", isToday && "text-primary")}>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">{dayLabels[day]}</p>
-                    <p className={cn("text-2xl font-display font-semibold", isToday ? "text-primary" : "text-foreground")}>
-                      {date}
-                    </p>
-                  </div>
+                  <div
+                    className={cn("flex items-start gap-4", meal?.recipes && !meal?.is_skipped && "cursor-pointer")}
+                    onClick={() => {
+                      if (meal?.recipes && !meal.is_skipped) setSelectedMeal(meal);
+                    }}
+                  >
+                    <div className={cn("w-12 text-center flex-shrink-0", isToday && "text-primary")}>
+                      <p className="text-xs font-medium uppercase text-muted-foreground">{dayLabels[day]}</p>
+                      <p className={cn("text-2xl font-display font-semibold", isToday ? "text-primary" : "text-foreground")}>
+                        {date}
+                      </p>
+                    </div>
 
-                  <div className="flex-1 min-w-0">
-                    {meal && recipe && !meal.is_skipped ? (
-                      <div>
-                        <h3 className="font-medium text-foreground">{recipe.name}</h3>
-                        <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                          <span>{recipe.calories} cal</span>
-                          <span>•</span>
-                          <span>{recipe.protein_g}g protein</span>
-                          {estimateCookMinutes(recipe.instructions) && (
-                            <>
-                              <span>•</span>
-                              <span>{estimateCookMinutes(recipe.instructions)} min</span>
-                            </>
-                          )}
-                          {favoriteIds.has(recipe.id) && (
-                            <>
-                              <span>•</span>
-                              <span className="text-primary">Favorite</span>
-                            </>
-                          )}
-                          {isKidFriendlyRecipe(recipe) && (
-                            <>
-                              <span>•</span>
-                              <span className="text-accent">Kid Friendly</span>
-                            </>
-                          )}
-                          {recipe.is_anchored && (
-                            <>
-                              <span>•</span>
-                              <span className="text-primary text-xs">Anchored</span>
-                            </>
-                          )}
+                    <div className="flex-1 min-w-0">
+                      {meal && recipe && !meal.is_skipped ? (
+                        <div>
+                          <h3 className="font-medium text-foreground">{recipe.name}</h3>
+                          <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                            <span>{recipe.calories} cal</span>
+                            <span>•</span>
+                            <span>{recipe.protein_g}g protein</span>
+                            {estimateCookMinutes(recipe.instructions) && (
+                              <>
+                                <span>•</span>
+                                <span>{estimateCookMinutes(recipe.instructions)} min</span>
+                              </>
+                            )}
+                            {favoriteIds.has(recipe.id) && (
+                              <>
+                                <span>•</span>
+                                <span className="text-primary">Favorite</span>
+                              </>
+                            )}
+                            {isKidFriendlyRecipe(recipe) && (
+                              <>
+                                <span>•</span>
+                                <span className="text-accent">Kid Friendly</span>
+                              </>
+                            )}
+                            {recipe.is_anchored && (
+                              <>
+                                <span>•</span>
+                                <span className="text-primary text-xs">Anchored</span>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ) : meal?.is_skipped && recipe ? (
-                      <div className="text-muted-foreground">
-                        <p className="font-medium line-through">{recipe.name}</p>
-                        <p className="text-sm">Skipped</p>
+                      ) : meal?.is_skipped && recipe ? (
+                        <div className="text-muted-foreground">
+                          <p className="font-medium line-through">{recipe.name}</p>
+                          <p className="text-sm">Skipped</p>
+                        </div>
+                      ) : (
+                        <div className="text-muted-foreground">
+                          <p className="text-sm">No meal planned</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {meal ? (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSwapDialog(meal);
+                          }}
+                          title="Swap meal"
+                        >
+                          Swap
+                        </Button>
+                        <Button
+                          variant={getMealMultiplier(meal.id) === 2 ? 'default' : 'ghost'}
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleDoubleMeal(meal.id);
+                          }}
+                          title="Double recipe for grocery list"
+                        >
+                          <Scale className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleLock(meal);
+                          }}
+                        >
+                          {meal.is_locked ? <Lock className="w-4 h-4 text-primary" /> : <Unlock className="w-4 h-4 text-muted-foreground" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSkip(meal);
+                          }}
+                        >
+                          <SkipForward className={cn("w-4 h-4", meal.is_skipped ? "text-destructive" : "text-muted-foreground")} />
+                        </Button>
                       </div>
                     ) : (
-                      <div className="text-muted-foreground">
-                        <p className="text-sm">No meal planned</p>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void openManualDialog(day);
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add Meal
+                        </Button>
                       </div>
                     )}
                   </div>
-
-                  {meal && (
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <Button
-                        variant={getMealMultiplier(meal.id) === 2 ? 'default' : 'ghost'}
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleDoubleMeal(meal.id);
-                        }}
-                        title="Double recipe for grocery list"
-                      >
-                        <Scale className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSwapDialog(meal);
-                        }}
-                        title="Swap meal"
-                      >
-                        <Wand2 className="w-4 h-4 text-muted-foreground" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleLock(meal);
-                        }}
-                      >
-                        {meal.is_locked ? <Lock className="w-4 h-4 text-primary" /> : <Unlock className="w-4 h-4 text-muted-foreground" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleSkip(meal);
-                        }}
-                      >
-                        <SkipForward className={cn("w-4 h-4", meal.is_skipped ? "text-destructive" : "text-muted-foreground")} />
-                      </Button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Legend */}
@@ -642,6 +895,271 @@ export default function MealsPage() {
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-primary" />
           <span>Anchored</span>
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-xl border border-border bg-card p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-xl">Macro Budget Planner</h2>
+            <p className="text-sm text-muted-foreground">
+              Plan breakfast, lunch, snacks, desserts, and alcohol. Project calories/macros against your target.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Target profile</span>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={plannerDashboardId}
+              onChange={(event) => setPlannerDashboardId(event.target.value)}
+            >
+              {dashboardProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={plannerViewMode === 'daily-all' ? 'default' : 'outline'}
+            onClick={() => setPlannerViewMode('daily-all')}
+          >
+            Daily - all meals
+          </Button>
+          <Button
+            size="sm"
+            variant={plannerViewMode === 'weekly-dinners' ? 'default' : 'outline'}
+            onClick={() => setPlannerViewMode('weekly-dinners')}
+          >
+            Weekly - dinners
+          </Button>
+          <Button
+            size="sm"
+            variant={plannerViewMode === 'weekly-lunches' ? 'default' : 'outline'}
+            onClick={() => setPlannerViewMode('weekly-lunches')}
+          >
+            Weekly - lunches
+          </Button>
+          {plannerViewMode === 'daily-all' && (
+            <Input
+              type="date"
+              value={plannerDay}
+              onChange={(event) => {
+                setPlannerDay(event.target.value);
+                setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+              }}
+              className="w-[180px]"
+            />
+          )}
+        </div>
+
+        <div className="rounded-lg border border-border p-3 space-y-3">
+          <p className="text-sm font-medium">Add planned meal/item</p>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              type="date"
+              value={plannerForm.date}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, date: event.target.value }))}
+            />
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={plannerForm.mealType}
+              onChange={(event) =>
+                setPlannerForm((prev) => ({
+                  ...prev,
+                  mealType: event.target.value as PlannedMealType,
+                }))
+              }
+            >
+              {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
+                <option key={mealType} value={mealType}>
+                  {plannedMealTypeLabel[mealType]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={plannerForm.recipeId}
+              onChange={(event) => {
+                const recipeId = event.target.value;
+                const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+                if (!recipe) {
+                  setPlannerForm((prev) => ({ ...prev, recipeId, name: '' }));
+                  return;
+                }
+                setPlannerForm((prev) => ({
+                  ...prev,
+                  recipeId: recipe.id,
+                  name: recipe.name,
+                  mealType: (PLANNED_MEAL_TYPE_OPTIONS.includes(recipe.meal_type as PlannedMealType)
+                    ? (recipe.meal_type as PlannedMealType)
+                    : prev.mealType),
+                  calories: String(Math.round(recipe.calories || 0)),
+                  protein_g: String(Math.round(recipe.protein_g || 0)),
+                  carbs_g: String(Math.round(recipe.carbs_g || 0)),
+                  fat_g: String(Math.round(recipe.fat_g || 0)),
+                }));
+              }}
+            >
+              <option value="">Optional: choose from recipes</option>
+              {recipeOptions.map((recipe) => (
+                <option key={recipe.id} value={recipe.id}>
+                  {recipe.name}
+                </option>
+              ))}
+            </select>
+            <Input
+              placeholder="Item name (ex: 3 eggs and toast)"
+              value={plannerForm.name}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
+            />
+          </div>
+          <div className="grid gap-2 md:grid-cols-5">
+            <Input
+              type="number"
+              step="0.25"
+              min="0.1"
+              placeholder="Servings"
+              value={plannerForm.servings}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: event.target.value }))}
+            />
+            <Input
+              type="number"
+              min="0"
+              placeholder="Calories"
+              value={plannerForm.calories}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: event.target.value }))}
+            />
+            <Input
+              type="number"
+              min="0"
+              placeholder="Protein"
+              value={plannerForm.protein_g}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: event.target.value }))}
+            />
+            <Input
+              type="number"
+              min="0"
+              placeholder="Carbs"
+              value={plannerForm.carbs_g}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: event.target.value }))}
+            />
+            <Input
+              type="number"
+              min="0"
+              placeholder="Fat"
+              value={plannerForm.fat_g}
+              onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: event.target.value }))}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={addPlannerItem}>Add to plan</Button>
+            {commonPlannedFoods.map((food) => (
+              <Button
+                key={food}
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setPlannerForm((prev) => ({
+                    ...prev,
+                    name: food,
+                  }))
+                }
+              >
+                {food}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          {plannerRows.map((row) => {
+            const allEntries = entriesByDate[row.date] || [];
+            const filteredEntries =
+              plannerViewMode === 'weekly-dinners'
+                ? allEntries.filter((entry) => entry.mealType === 'dinner')
+                : plannerViewMode === 'weekly-lunches'
+                ? allEntries.filter((entry) => entry.mealType === 'lunch')
+                : allEntries;
+
+            const dinnerBase = dinnerBaseByDate.get(row.date);
+            const projected = projectedByDate[row.date] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+            const calorieDelta = projected.calories - macroTarget.calories;
+            const calorieStatus =
+              calorieDelta > 0
+                ? `${calorieDelta} over budget`
+                : calorieDelta < 0
+                ? `${Math.abs(calorieDelta)} under budget`
+                : 'On target';
+
+            const shouldShowDinnerBase =
+              Boolean(dinnerBase) &&
+              (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
+
+            return (
+              <div key={row.date} className="rounded-lg border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">
+                    {format(new Date(`${row.date}T00:00:00`), 'EEE, MMM d')}
+                  </p>
+                  <p className={cn('text-xs', calorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                    {calorieStatus}
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
+                  {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  {shouldShowDinnerBase && dinnerBase && (
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                      <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {dinnerBase.calories} cal • {dinnerBase.protein_g}P • {dinnerBase.carbs_g}C • {dinnerBase.fat_g}F
+                      </p>
+                    </div>
+                  )}
+                  {filteredEntries.map((entry) => (
+                    <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {plannedMealTypeLabel[entry.mealType]}: {entry.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {entry.servings}x • {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          deletePlannedFoodEntry(entry.id, user?.id);
+                          refreshPlannerEntries();
+                        }}
+                        title="Remove planned item"
+                      >
+                        <Trash2 className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  ))}
+                  {!shouldShowDinnerBase && filteredEntries.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No items planned for this view.</p>
+                  )}
+                  {shouldShowDinnerBase && filteredEntries.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No extra planned items yet.</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -734,6 +1252,22 @@ export default function MealsPage() {
               />
             </div>
             <div className="border border-border rounded-lg p-3 space-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Normal dinner time</p>
+                <Input
+                  type="time"
+                  value={dinnerReminderPrefs.preferredDinnerTime}
+                  onChange={(e) =>
+                    setDinnerReminderPrefsState((prev) => ({
+                      ...prev,
+                      preferredDinnerTime: e.target.value || '18:00',
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Used for meal calendar timing and tonight&apos;s dinner target.
+                </p>
+              </div>
               <label className="flex items-center gap-3">
                 <Checkbox
                   checked={dinnerReminderPrefs.enabled}
@@ -741,25 +1275,12 @@ export default function MealsPage() {
                     setDinnerReminderPrefsState((prev) => ({ ...prev, enabled: !!v }))
                   }
                 />
-                <span className="text-sm">Dinner prep reminder</span>
+                <span className="text-sm">Enable dinner prep reminder</span>
               </label>
               {dinnerReminderPrefs.enabled && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Preferred dinner time</p>
-                  <Input
-                    type="time"
-                    value={dinnerReminderPrefs.preferredDinnerTime}
-                    onChange={(e) =>
-                      setDinnerReminderPrefsState((prev) => ({
-                        ...prev,
-                        preferredDinnerTime: e.target.value || '18:00',
-                      }))
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Reminder fires at dinner time minus estimated cook time.
-                  </p>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  Reminder fires at dinner time minus estimated cook time.
+                </p>
               )}
             </div>
             <div className="border border-border rounded-lg p-3 space-y-3">
@@ -851,7 +1372,7 @@ export default function MealsPage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setRulesOpen(false)}>Cancel</Button>
-              <Button onClick={savePlanRules}>Save Rules</Button>
+              <Button onClick={() => void savePlanRules()}>Save Rules</Button>
             </div>
           </div>
         </DialogContent>
@@ -887,15 +1408,15 @@ export default function MealsPage() {
                   onChange={(e) => setSelectedRecipeId(e.target.value)}
                 >
                   <option value="">Select recipe...</option>
-                  {allRecipes
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
+                  {chooseRecipeOptions.map((recipe) => (
+                    <option key={recipe.id} value={recipe.id}>
+                      {recipe.name}
+                    </option>
+                  ))}
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  Showing {chooseRecipeOptions.length} recipe{chooseRecipeOptions.length !== 1 ? 's' : ''}.
+                </p>
               </div>
             )}
 
@@ -921,6 +1442,44 @@ export default function MealsPage() {
               <Button variant="outline" onClick={() => setSwapDialogMeal(null)}>Cancel</Button>
               <Button onClick={applySwap}>Apply Swap</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Add Meal Dialog */}
+      <Dialog open={!!manualDialogDay} onOpenChange={(open) => !open && setManualDialogDay(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add Meal</DialogTitle>
+            <DialogDescription>
+              {manualDialogDay ? `Choose a recipe for ${dayFullLabels[manualDialogDay]}.` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={manualRecipeQuery}
+              onChange={(event) => setManualRecipeQuery(event.target.value)}
+              placeholder="Search recipes..."
+            />
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={manualRecipeId}
+              onChange={(event) => setManualRecipeId(event.target.value)}
+            >
+              <option value="">Select recipe...</option>
+              {manualRecipeOptions.map((recipe) => (
+                <option key={recipe.id} value={recipe.id}>
+                  {recipe.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Showing {manualRecipeOptions.length} recipe{manualRecipeOptions.length !== 1 ? 's' : ''}.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setManualDialogDay(null)}>Cancel</Button>
+            <Button onClick={() => void applyManualMealForDay()}>Save Meal</Button>
           </div>
         </DialogContent>
       </Dialog>

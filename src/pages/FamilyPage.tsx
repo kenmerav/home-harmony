@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/family';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFamilyLeaderboard } from '@/lib/macroGame';
+import { sendFamilyInviteEmail } from '@/lib/api/emails';
 
 const EMPTY_DASHBOARD: HouseholdDashboard = {
   household: null,
@@ -75,10 +76,23 @@ export default function FamilyPage() {
     setSubmittingInvite(true);
     setMessage(null);
     setLastInviteLink(null);
+    const targetEmail = inviteEmail.trim().toLowerCase();
     try {
-      const token = await inviteHouseholdMember(inviteEmail, inviteRole);
+      const token = await inviteHouseholdMember(targetEmail, inviteRole);
       const link = `${window.location.origin}/family?invite=${token}`;
       setLastInviteLink(link);
+      try {
+        await sendFamilyInviteEmail({
+          email: targetEmail,
+          role: inviteRole,
+          inviteLink: link,
+          householdName: dashboard.household?.name || profile?.householdName || null,
+        });
+        setMessage(`Invite email sent to ${targetEmail}.`);
+      } catch (emailError) {
+        console.error('Failed sending invite email:', emailError);
+        setMessage(`Invite created, but email could not be sent. Share this link manually: ${link}`);
+      }
       setInviteEmail('');
       await loadDashboard();
     } catch (error: unknown) {

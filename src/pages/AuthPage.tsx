@@ -9,8 +9,8 @@ import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { getPostAuthRoute } from '@/lib/billing';
 
 export default function AuthPage() {
-  const { user, isSubscribed, isProfileComplete, signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const { user, isSubscribed, isProfileComplete, signIn, signUp, requestPasswordReset } = useAuth();
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -64,7 +64,7 @@ export default function AuthPage() {
           `signin_success:${new Date().toISOString().slice(0, 10)}:${source || 'direct'}:${intent || 'none'}`,
         );
         navigate(from, { replace: true });
-      } else {
+      } else if (mode === 'signup') {
         await signUp(email, password, {
           fullName,
           householdName,
@@ -83,6 +83,14 @@ export default function AuthPage() {
         setMessage('Account created. Check your email for confirmation if prompted, then sign in.');
         setMode('signin');
         setPassword('');
+      } else {
+        const redirectTo =
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/reset-password`
+            : undefined;
+        await requestPasswordReset(email, redirectTo);
+        setMessage('Password reset email sent. Check your inbox and spam folder.');
+        setMode('signin');
       }
     } catch (error: unknown) {
       const text = error instanceof Error ? error.message : 'Authentication failed';
@@ -96,11 +104,15 @@ export default function AuthPage() {
     <div className="min-h-screen bg-background grid place-items-center p-4">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm">
         <HomeHarmonyLogo className="mb-6" />
-        <h1 className="font-display text-2xl">{mode === 'signin' ? 'Sign in' : 'Create account'}</h1>
+        <h1 className="font-display text-2xl">
+          {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Reset password'}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           {mode === 'signin'
             ? 'Welcome back. Sign in to continue.'
-            : 'Create your Home Harmony account to start your trial.'}
+            : mode === 'signup'
+            ? 'Create your Home Harmony account to start your trial.'
+            : 'Enter your email to receive a password reset link.'}
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-3">
@@ -128,29 +140,48 @@ export default function AuthPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <Input
-            type="password"
-            required
-            minLength={6}
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          {mode !== 'forgot' && (
+            <Input
+              type="password"
+              required
+              minLength={6}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          )}
           <Button className="w-full" disabled={loading}>
-            {loading ? 'Please wait...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+            {loading
+              ? 'Please wait...'
+              : mode === 'signin'
+              ? 'Sign In'
+              : mode === 'signup'
+              ? 'Create Account'
+              : 'Send Reset Link'}
           </Button>
         </form>
 
         {message && <p className="mt-3 text-sm text-muted-foreground">{message}</p>}
 
         <div className="mt-4 text-sm">
-          {mode === 'signin' ? (
-            <button type="button" className="text-primary underline" onClick={() => setMode('signup')}>
-              Need an account? Create one
-            </button>
-          ) : (
+          {mode === 'signin' && (
+            <div className="flex items-center gap-4">
+              <button type="button" className="text-primary underline" onClick={() => setMode('signup')}>
+                Need an account? Create one
+              </button>
+              <button type="button" className="text-primary underline" onClick={() => setMode('forgot')}>
+                Forgot password?
+              </button>
+            </div>
+          )}
+          {mode === 'signup' && (
             <button type="button" className="text-primary underline" onClick={() => setMode('signin')}>
               Have an account? Sign in
+            </button>
+          )}
+          {mode === 'forgot' && (
+            <button type="button" className="text-primary underline" onClick={() => setMode('signin')}>
+              Back to sign in
             </button>
           )}
         </div>
