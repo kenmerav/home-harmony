@@ -2,7 +2,7 @@ import { format, subDays } from 'date-fns';
 import { mockMealLogs, mockProfiles } from '@/data/mockData';
 import { Macros, MealLog } from '@/types';
 
-export type AdultId = 'me' | 'wife';
+export type AdultId = string;
 export type Sex = 'male' | 'female';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'athlete';
 export type BodyGoal = 'fat_loss' | 'maintenance' | 'muscle_gain' | 'recomp';
@@ -42,6 +42,7 @@ interface PersonGameProfile {
   id: AdultId;
   name: string;
   macroPlan: MacroPlan;
+  createdAt?: string;
 }
 
 interface DayTracker {
@@ -51,8 +52,14 @@ interface DayTracker {
 
 interface StoredState {
   mealLogs: StoredMealLog[];
-  profiles: Record<AdultId, PersonGameProfile>;
-  trackers: Record<string, Partial<Record<AdultId, DayTracker>>>;
+  profiles: Record<string, PersonGameProfile>;
+  trackers: Record<string, Partial<Record<string, DayTracker>>>;
+}
+
+export interface DashboardProfile {
+  id: string;
+  name: string;
+  createdAt?: string;
 }
 
 export interface DailyScore {
@@ -104,8 +111,10 @@ const paceAdjustments: Record<GoalPace, number> = {
   aggressive: 700,
 };
 
-const defaultQuestionnaire = (id: AdultId): MacroQuestionnaire => {
-  if (id === 'wife') {
+const defaultQuestionnaire = (id: AdultId, name?: string): MacroQuestionnaire => {
+  const normalizedName = (name || '').toLowerCase();
+  const femaleHint = id === 'wife' || normalizedName.includes('wife') || normalizedName.includes('mom');
+  if (femaleHint) {
     return {
       sex: 'female',
       age: 34,
@@ -145,17 +154,42 @@ function fromStoredMealLog(log: StoredMealLog): MealLog {
   };
 }
 
-function defaultPlan(id: AdultId): MacroPlan {
-  const questionnaire = defaultQuestionnaire(id);
+function defaultPlan(id: AdultId, name?: string): MacroPlan {
+  const questionnaire = defaultQuestionnaire(id, name);
   const recommendation = calculateMacroRecommendation(questionnaire);
+  const isFemalePreset = questionnaire.sex === 'female';
   return {
     questionnaire,
     ...recommendation,
     bodyUnitSystem: 'imperial',
     proteinOnlyMode: false,
-    waterTargetOz: id === 'wife' ? 80 : 100,
-    alcoholLimitDrinks: id === 'wife' ? 1 : 2,
+    waterTargetOz: isFemalePreset ? 80 : 100,
+    alcoholLimitDrinks: isFemalePreset ? 1 : 2,
   };
+}
+
+function sanitizeDashboardName(name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, ' ');
+  return trimmed || 'Dashboard';
+}
+
+function toDashboardName(id: string): string {
+  return id
+    .replace(/[-_]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function createDashboardId(name: string): string {
+  const slug = sanitizeDashboardName(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36);
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${slug || 'dashboard'}-${suffix}`;
 }
 
 function initialState(): StoredState {
@@ -179,8 +213,8 @@ function initialState(): StoredState {
   return {
     mealLogs: mockMealLogs.map(toStoredMealLog),
     profiles: {
-      me: { id: 'me', name: meProfile?.name || 'Me', macroPlan: mePlan },
-      wife: { id: 'wife', name: wifeProfile?.name || 'Wife', macroPlan: wifePlan },
+      me: { id: 'me', name: meProfile?.name || 'Me', macroPlan: mePlan, createdAt: new Date().toISOString() },
+      wife: { id: 'wife', name: wifeProfile?.name || 'Wife', macroPlan: wifePlan, createdAt: new Date().toISOString() },
     },
     trackers: {},
   };
@@ -197,27 +231,40 @@ function readState(): StoredState {
     }
     const parsed = JSON.parse(raw) as Partial<StoredState>;
     const seed = initialState();
-    const mergedProfiles = {
-      me: {
-        ...seed.profiles.me,
-        ...(parsed.profiles?.me || {}),
+    const parsedProfiles =
+      parsed.profiles && typeof parsed.profiles === 'object'
+        ? (parsed.profiles as Record<string, Partial<PersonGameProfile>>)
+        : {};
+    const mergedProfiles: Record<string, PersonGameProfile> = {};
+
+    Object.entries(parsedProfiles).forEach(([id, incoming]) => {
+      if (!id) return;
+      const fallbackName = id === 'me' ? 'Me' : id === 'wife' ? 'Wife' : toDashboardName(id);
+      const basePlan = defaultPlan(id, incoming?.name || fallbackName);
+      const incomingMacroPlan = incoming?.macroPlan || {};
+      const incomingQuestionnaire = incomingMacroPlan.questionnaire || {};
+
+      mergedProfiles[id] = {
+        id,
+        name: incoming?.name?.trim() || fallbackName,
+        createdAt: incoming?.createdAt || new Date().toISOString(),
         macroPlan: {
-          ...seed.profiles.me.macroPlan,
-          ...(parsed.profiles?.me?.macroPlan || {}),
-          bodyUnitSystem: parsed.profiles?.me?.macroPlan?.bodyUnitSystem || seed.profiles.me.macroPlan.bodyUnitSystem,
+          ...basePlan,
+          ...incomingMacroPlan,
+          questionnaire: {
+            ...basePlan.questionnaire,
+            ...incomingQuestionnaire,
+          },
+          bodyUnitSystem: incomingMacroPlan.bodyUnitSystem || basePlan.bodyUnitSystem,
         },
-      },
-      wife: {
-        ...seed.profiles.wife,
-        ...(parsed.profiles?.wife || {}),
-        macroPlan: {
-          ...seed.profiles.wife.macroPlan,
-          ...(parsed.profiles?.wife?.macroPlan || {}),
-          bodyUnitSystem:
-            parsed.profiles?.wife?.macroPlan?.bodyUnitSystem || seed.profiles.wife.macroPlan.bodyUnitSystem,
-        },
-      },
-    };
+      };
+    });
+
+    ['me', 'wife'].forEach((id) => {
+      if (!mergedProfiles[id]) {
+        mergedProfiles[id] = seed.profiles[id];
+      }
+    });
 
     return {
       mealLogs: Array.isArray(parsed.mealLogs) ? (parsed.mealLogs as StoredMealLog[]) : seed.mealLogs,
@@ -235,6 +282,9 @@ function readState(): StoredState {
 function writeState(state: StoredState) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:macro-state-updated'));
+  }
 }
 
 function dayKey(date = new Date()) {
@@ -281,11 +331,67 @@ export function getProfiles(): Record<AdultId, PersonGameProfile> {
   return readState().profiles;
 }
 
+export function listDashboardProfiles(): DashboardProfile[] {
+  const profiles = Object.values(getProfiles());
+  return profiles
+    .slice()
+    .sort((a, b) => {
+      if (a.id === 'me') return -1;
+      if (b.id === 'me') return 1;
+      if (a.id === 'wife') return -1;
+      if (b.id === 'wife') return 1;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    })
+    .map((profile) => ({ id: profile.id, name: profile.name, createdAt: profile.createdAt }));
+}
+
+export function addDashboardProfile(name: string): DashboardProfile {
+  const state = readState();
+  const finalName = sanitizeDashboardName(name);
+  let id = createDashboardId(finalName);
+  while (state.profiles[id]) {
+    id = createDashboardId(finalName);
+  }
+  const profile: PersonGameProfile = {
+    id,
+    name: finalName,
+    createdAt: new Date().toISOString(),
+    macroPlan: defaultPlan(id, finalName),
+  };
+  state.profiles[id] = profile;
+  writeState(state);
+  return { id: profile.id, name: profile.name, createdAt: profile.createdAt };
+}
+
+export function renameDashboardProfile(personId: AdultId, name: string): DashboardProfile {
+  const state = readState();
+  const profile = ensureProfile(state, personId);
+  profile.name = sanitizeDashboardName(name);
+  state.profiles[personId] = profile;
+  writeState(state);
+  return { id: profile.id, name: profile.name, createdAt: profile.createdAt };
+}
+
+function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile {
+  const existing = state.profiles[personId];
+  if (existing) return existing;
+  const fallbackName = personId === 'me' ? 'Me' : personId === 'wife' ? 'Wife' : toDashboardName(personId);
+  const created: PersonGameProfile = {
+    id: personId,
+    name: fallbackName,
+    createdAt: new Date().toISOString(),
+    macroPlan: defaultPlan(personId, fallbackName),
+  };
+  state.profiles[personId] = created;
+  return created;
+}
+
 export function updateMacroPlan(personId: AdultId, updates: Partial<MacroPlan>) {
   const state = readState();
-  const current = state.profiles[personId].macroPlan;
+  const currentProfile = ensureProfile(state, personId);
+  const current = currentProfile.macroPlan;
   state.profiles[personId] = {
-    ...state.profiles[personId],
+    ...currentProfile,
     macroPlan: {
       ...current,
       ...updates,
@@ -308,6 +414,7 @@ export function addMealLog(log: MealLog) {
 
 export function addWater(personId: AdultId, ounces: number, date = dayKey()) {
   const state = readState();
+  ensureProfile(state, personId);
   const current = trackerForDate(state, date, personId);
   state.trackers[date] = state.trackers[date] || {};
   state.trackers[date][personId] = {
@@ -319,6 +426,7 @@ export function addWater(personId: AdultId, ounces: number, date = dayKey()) {
 
 export function addAlcohol(personId: AdultId, drinks: number, date = dayKey()) {
   const state = readState();
+  ensureProfile(state, personId);
   const current = trackerForDate(state, date, personId);
   state.trackers[date] = state.trackers[date] || {};
   state.trackers[date][personId] = {
@@ -339,7 +447,7 @@ function sumMacros(logs: MealLog[]): Macros {
 
 export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
   const state = readState();
-  const profile = state.profiles[personId];
+  const profile = ensureProfile(state, personId);
   const logs = state.mealLogs
     .map(fromStoredMealLog)
     .filter((log) => log.person === personId && log.date === date);
@@ -452,7 +560,8 @@ function getKidEntries(): LeaderboardEntry[] {
 }
 
 export function getFamilyLeaderboard(date = new Date()): LeaderboardEntry[] {
-  const adults: LeaderboardEntry[] = (['me', 'wife'] as AdultId[]).map((id) => {
+  const profiles = listDashboardProfiles();
+  const adults: LeaderboardEntry[] = profiles.map(({ id, name }) => {
     const today = getDailyScore(id, format(date, 'yyyy-MM-dd'));
     const streak = getCurrentStreak(id, date);
     const weekPoints = getWeekPoints(id, date);
@@ -462,7 +571,7 @@ export function getFamilyLeaderboard(date = new Date()): LeaderboardEntry[] {
         : `${today.protein_g}g protein, ${today.calories} cal`;
     return {
       id,
-      name: getProfiles()[id].name,
+      name,
       type: 'adult',
       todayPoints: today.points,
       weekPoints,
