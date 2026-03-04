@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2 } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2, Calculator } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -132,6 +133,11 @@ interface PantryMatch {
 
 type PlannerViewMode = 'weekly-dinners' | 'weekly-lunches' | 'daily-all';
 
+function metricProgress(current: number, target: number): number {
+  if (!target || target <= 0) return 0;
+  return Math.max(0, Math.min((current / target) * 100, 150));
+}
+
 export default function MealsPage() {
   const { user } = useAuth();
   const [weekOffset, setWeekOffset] = useState(0);
@@ -168,6 +174,8 @@ export default function MealsPage() {
   const [manualDialogDay, setManualDialogDay] = useState<DayOfWeek | null>(null);
   const [manualRecipeId, setManualRecipeId] = useState('');
   const [manualRecipeQuery, setManualRecipeQuery] = useState('');
+  const [macroDialogOpen, setMacroDialogOpen] = useState(false);
+  const [recipesLoading, setRecipesLoading] = useState(false);
   const [pantryOpen, setPantryOpen] = useState(false);
   const [pantryInput, setPantryInput] = useState('');
   const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
@@ -175,6 +183,7 @@ export default function MealsPage() {
   const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
+  const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [plannerForm, setPlannerForm] = useState<{
     date: string;
     mealType: PlannedMealType;
@@ -310,15 +319,29 @@ export default function MealsPage() {
   }, [dinnerReminderPrefs, meals, toast, weekOffset]);
 
   const ensureRecipesLoaded = useCallback(async () => {
-    const recipes = await fetchRecipes();
-    setAllRecipes(recipes);
-    return recipes;
-  }, []);
+    if (allRecipes.length > 0) return allRecipes;
+    setRecipesLoading(true);
+    try {
+      const recipes = await fetchRecipes();
+      setAllRecipes(recipes);
+      return recipes;
+    } finally {
+      setRecipesLoading(false);
+    }
+  }, [allRecipes]);
 
   useEffect(() => {
     if (!rulesOpen || allRecipes.length > 0) return;
     void ensureRecipesLoaded();
   }, [rulesOpen, allRecipes.length, ensureRecipesLoaded]);
+
+  useEffect(() => {
+    if (allRecipes.length > 0 || recipesLoading) return;
+    void ensureRecipesLoaded().catch((error) => {
+      console.error('Failed preloading recipes:', error);
+      setRecipesLoading(false);
+    });
+  }, [allRecipes.length, ensureRecipesLoaded, recipesLoading]);
 
   const refreshPlannerEntries = useCallback(() => {
     setPlannerEntries(getPlannedFoodEntries(user?.id));
@@ -407,7 +430,8 @@ export default function MealsPage() {
         const exactMatch = recipeOptions.find(
           (r) => r.name.toLowerCase().trim() === chooseRecipeQuery.toLowerCase().trim(),
         );
-        const resolvedRecipeId = selectedRecipeId || exactMatch?.id || '';
+        const singleFiltered = chooseRecipeOptions.length === 1 ? chooseRecipeOptions[0] : null;
+        const resolvedRecipeId = selectedRecipeId || exactMatch?.id || singleFiltered?.id || '';
 
         if (!resolvedRecipeId) {
           toast({ title: 'Type or pick a recipe first', variant: 'destructive' });
@@ -519,6 +543,11 @@ export default function MealsPage() {
   const recipeOptions = allRecipes
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
+  const plannerRecipeOptions = recipeOptions.filter((recipe) =>
+    plannerRecipeQuery.trim()
+      ? recipe.name.toLowerCase().includes(plannerRecipeQuery.trim().toLowerCase())
+      : true,
+  );
   const chooseRecipeOptions = recipeOptions.filter((recipe) =>
     chooseRecipeQuery.trim()
       ? recipe.name.toLowerCase().includes(chooseRecipeQuery.trim().toLowerCase())
@@ -678,6 +707,10 @@ export default function MealsPage() {
         subtitle="Dinner plan for the week"
         action={
           <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
+              <Calculator className="w-4 h-4 mr-2" />
+              Macro Calculator
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setPantryOpen(true)}>
               What Can I Make?
             </Button>
@@ -919,6 +952,10 @@ export default function MealsPage() {
                 </option>
               ))}
             </select>
+            <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
+              <Calculator className="w-4 h-4 mr-1.5" />
+              Macro Calculator
+            </Button>
           </div>
         </div>
 
@@ -983,14 +1020,20 @@ export default function MealsPage() {
             </select>
           </div>
           <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              placeholder="Search recipes for planner..."
+              value={plannerRecipeQuery}
+              onChange={(event) => setPlannerRecipeQuery(event.target.value)}
+            />
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={plannerForm.recipeId}
+              disabled={recipesLoading}
               onChange={(event) => {
                 const recipeId = event.target.value;
                 const recipe = recipeOptions.find((entry) => entry.id === recipeId);
                 if (!recipe) {
-                  setPlannerForm((prev) => ({ ...prev, recipeId, name: '' }));
+                  setPlannerForm((prev) => ({ ...prev, recipeId }));
                   return;
                 }
                 setPlannerForm((prev) => ({
@@ -1008,12 +1051,17 @@ export default function MealsPage() {
               }}
             >
               <option value="">Optional: choose from recipes</option>
-              {recipeOptions.map((recipe) => (
+              {plannerRecipeOptions.map((recipe) => (
                 <option key={recipe.id} value={recipe.id}>
                   {recipe.name}
                 </option>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground md:col-span-2">
+              {recipesLoading
+                ? 'Loading recipes...'
+                : `Showing ${plannerRecipeOptions.length} recipe${plannerRecipeOptions.length !== 1 ? 's' : ''}.`}
+            </p>
             <Input
               placeholder="Item name (ex: 3 eggs and toast)"
               value={plannerForm.name}
@@ -1101,6 +1149,19 @@ export default function MealsPage() {
             const shouldShowDinnerBase =
               Boolean(dinnerBase) &&
               (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
+            const calorieProgress = metricProgress(projected.calories, macroTarget.calories);
+            const proteinProgress = metricProgress(projected.protein_g, macroTarget.protein_g);
+            const carbsProgress = metricProgress(projected.carbs_g, macroTarget.carbs_g);
+            const fatProgress = metricProgress(projected.fat_g, macroTarget.fat_g);
+            const proteinCals = Math.max(0, projected.protein_g * 4);
+            const carbsCals = Math.max(0, projected.carbs_g * 4);
+            const fatCals = Math.max(0, projected.fat_g * 9);
+            const macroCalTotal = proteinCals + carbsCals + fatCals;
+            const proteinDeg = macroCalTotal > 0 ? (proteinCals / macroCalTotal) * 360 : 0;
+            const carbsDeg = macroCalTotal > 0 ? (carbsCals / macroCalTotal) * 360 : 0;
+            const macroPie = macroCalTotal > 0
+              ? `conic-gradient(#2f7d5b 0 ${proteinDeg}deg, #d28f2a ${proteinDeg}deg ${proteinDeg + carbsDeg}deg, #b4506d ${proteinDeg + carbsDeg}deg 360deg)`
+              : 'conic-gradient(#d1d5db 0 360deg)';
 
             return (
               <div key={row.date} className="rounded-lg border border-border p-3">
@@ -1116,6 +1177,50 @@ export default function MealsPage() {
                   Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
                   {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
                 </p>
+                <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <div className="space-y-2">
+                      {[
+                        { label: 'Calories', current: projected.calories, target: macroTarget.calories, progress: calorieProgress, color: 'bg-primary' },
+                        { label: 'Protein', current: projected.protein_g, target: macroTarget.protein_g, progress: proteinProgress, color: 'bg-emerald-500' },
+                        { label: 'Carbs', current: projected.carbs_g, target: macroTarget.carbs_g, progress: carbsProgress, color: 'bg-amber-500' },
+                        { label: 'Fat', current: projected.fat_g, target: macroTarget.fat_g, progress: fatProgress, color: 'bg-rose-500' },
+                      ].map((metric) => (
+                        <div key={metric.label}>
+                          <div className="mb-1 flex items-center justify-between text-xs">
+                            <span>{metric.label}</span>
+                            <span className="text-muted-foreground">
+                              {Math.round(metric.current)}/{Math.round(metric.target)}
+                            </span>
+                          </div>
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={cn('h-2 rounded-full transition-all', metric.color)}
+                              style={{ width: `${Math.min(metric.progress, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-col items-center justify-center">
+                      <div
+                        className="relative h-20 w-20 rounded-full border border-border"
+                        style={{ background: macroPie }}
+                        aria-label="Macro split chart"
+                      >
+                        <div className="absolute inset-3 rounded-full bg-background" />
+                        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
+                          {macroCalTotal > 0 ? 'Split' : 'No data'}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[10px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
+                        <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
+                        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="mt-3 space-y-2">
                   {shouldShowDinnerBase && dinnerBase && (
@@ -1399,13 +1504,23 @@ export default function MealsPage() {
                 <p className="text-sm mb-1">Type a recipe title or pick one</p>
                 <Input
                   value={chooseRecipeQuery}
-                  onChange={(e) => setChooseRecipeQuery(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setChooseRecipeQuery(value);
+                    const exact = recipeOptions.find((recipe) => recipe.name.toLowerCase() === value.trim().toLowerCase());
+                    if (exact) {
+                      setSelectedRecipeId(exact.id);
+                    } else if (!value.trim()) {
+                      setSelectedRecipeId('');
+                    }
+                  }}
                   placeholder="Search recipe title..."
                 />
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={selectedRecipeId}
                   onChange={(e) => setSelectedRecipeId(e.target.value)}
+                  disabled={recipesLoading}
                 >
                   <option value="">Select recipe...</option>
                   {chooseRecipeOptions.map((recipe) => (
@@ -1415,7 +1530,9 @@ export default function MealsPage() {
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  Showing {chooseRecipeOptions.length} recipe{chooseRecipeOptions.length !== 1 ? 's' : ''}.
+                  {recipesLoading
+                    ? 'Loading recipes...'
+                    : `Showing ${chooseRecipeOptions.length} recipe${chooseRecipeOptions.length !== 1 ? 's' : ''}.`}
                 </p>
               </div>
             )}
@@ -1458,13 +1575,23 @@ export default function MealsPage() {
           <div className="space-y-3">
             <Input
               value={manualRecipeQuery}
-              onChange={(event) => setManualRecipeQuery(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setManualRecipeQuery(value);
+                const exact = recipeOptions.find((recipe) => recipe.name.toLowerCase() === value.trim().toLowerCase());
+                if (exact) {
+                  setManualRecipeId(exact.id);
+                } else if (!value.trim()) {
+                  setManualRecipeId('');
+                }
+              }}
               placeholder="Search recipes..."
             />
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={manualRecipeId}
               onChange={(event) => setManualRecipeId(event.target.value)}
+              disabled={recipesLoading}
             >
               <option value="">Select recipe...</option>
               {manualRecipeOptions.map((recipe) => (
@@ -1474,7 +1601,9 @@ export default function MealsPage() {
               ))}
             </select>
             <p className="text-xs text-muted-foreground">
-              Showing {manualRecipeOptions.length} recipe{manualRecipeOptions.length !== 1 ? 's' : ''}.
+              {recipesLoading
+                ? 'Loading recipes...'
+                : `Showing ${manualRecipeOptions.length} recipe${manualRecipeOptions.length !== 1 ? 's' : ''}.`}
             </p>
           </div>
           <div className="flex justify-end gap-2">
@@ -1586,6 +1715,12 @@ export default function MealsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <MacroGoalDialog
+        personId={plannerDashboardId}
+        open={macroDialogOpen}
+        onOpenChange={setMacroDialogOpen}
+      />
     </AppLayout>
   );
 }
