@@ -10,7 +10,6 @@ import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { useToast } from '@/hooks/use-toast';
 import { setPlanRules } from '@/lib/mealPrefs';
 import { getPostAuthRoute } from '@/lib/billing';
-import { sendWelcomeEmail } from '@/lib/api/emails';
 import {
   clearOnboardingDraft,
   loadOnboardingDraft,
@@ -799,12 +798,6 @@ export default function OnboardingPage() {
         },
         `onboarding_complete:${user.id}`,
       );
-
-      try {
-        await sendWelcomeEmail();
-      } catch (emailError) {
-        console.error('Failed sending welcome email:', emailError);
-      }
 
       clearOnboardingDraft(user.id);
 

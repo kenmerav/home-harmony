@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { stashPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { getPostAuthRoute } from '@/lib/billing';
+import { sendWelcomeEmail } from '@/lib/api/emails';
 
 export default function AuthPage() {
   const { user, isSubscribed, isProfileComplete, signIn, signUp, requestPasswordReset } = useAuth();
@@ -70,6 +71,11 @@ export default function AuthPage() {
           householdName,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
+        try {
+          await sendWelcomeEmail();
+        } catch (emailError) {
+          console.error('Failed sending signup welcome email:', emailError);
+        }
         await trackGrowthEventSafe(
           'signup_submitted',
           {
