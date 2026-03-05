@@ -10,18 +10,23 @@ import { useToast } from '@/hooks/use-toast';
 import { fetchMealsForWeek, DbPlannedMeal } from '@/lib/api/meals';
 import { getMealMultipliers } from '@/lib/mealPrefs';
 import {
+  WEEKLY_AD_STORES,
   GROCERY_STORES,
   GroceryOrderReminderSettings,
+  buildWeeklyAdUrl,
   buildStoreSearchUrl,
   getItemStoreOverrides,
   getLastOrderCompletedAt,
   getOrderReminderSettings,
   getPreferredGroceryStoreId,
+  getWeeklyAdStoreIds,
+  getWeeklyAdZip,
   getStoreIdForItem,
   isGroceryOrderReminderDue,
   markGroceryOrderCompleted,
   setOrderReminderSettings,
   setPreferredGroceryStoreId,
+  setWeeklyAdPrefs,
   setStoreIdForItem,
   toIngredientKey,
 } from '@/lib/groceryPrefs';
@@ -350,6 +355,8 @@ export default function GroceryPage() {
     time: '10:00',
   });
   const [lastOrderCompletedAt, setLastOrderCompletedAt] = useState<string | null>(null);
+  const [weeklyAdZip, setWeeklyAdZipState] = useState('');
+  const [weeklyAdStoreIds, setWeeklyAdStoreIdsState] = useState<string[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -357,6 +364,8 @@ export default function GroceryPage() {
     setItemStoreOverrides(getItemStoreOverrides());
     setOrderReminder(getOrderReminderSettings());
     setLastOrderCompletedAt(getLastOrderCompletedAt());
+    setWeeklyAdZipState(getWeeklyAdZip());
+    setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
     loadGroceryList();
   }, []);
 
@@ -437,6 +446,29 @@ export default function GroceryPage() {
     toast({ title: 'Order marked complete', description: 'Reminder will wait until next scheduled window.' });
   };
 
+  const toggleWeeklyAdStore = (storeId: string) => {
+    setWeeklyAdStoreIdsState((prev) => {
+      if (prev.includes(storeId)) {
+        return prev.filter((id) => id !== storeId);
+      }
+      return [...prev, storeId];
+    });
+  };
+
+  const saveWeeklyAdPreferences = () => {
+    const cleanedZip = weeklyAdZip.replace(/[^\d]/g, '').slice(0, 5);
+    setWeeklyAdZipState(cleanedZip);
+    setWeeklyAdPrefs(cleanedZip, weeklyAdStoreIds);
+    toast({
+      title: 'Weekly ad links updated',
+      description: cleanedZip
+        ? `Using ZIP ${cleanedZip} for selected stores.`
+        : 'Saved selected stores. Add a ZIP anytime.',
+    });
+  };
+
+  const selectedWeeklyAdStores = WEEKLY_AD_STORES.filter((store) => weeklyAdStoreIds.includes(store.id));
+
   const reminderDue = isGroceryOrderReminderDue();
 
   return (
@@ -469,6 +501,68 @@ export default function GroceryPage() {
           </div>
         </div>
       )}
+
+      <div className="mb-6 rounded-xl border border-border bg-card p-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-medium">Weekly ad links</h2>
+            <p className="text-xs text-muted-foreground">
+              Set your ZIP and stores to quickly open each weekly ad.
+            </p>
+          </div>
+          <Button size="sm" onClick={saveWeeklyAdPreferences}>
+            Save ad settings
+          </Button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">ZIP code</p>
+            <Input
+              placeholder="85340"
+              inputMode="numeric"
+              maxLength={5}
+              value={weeklyAdZip}
+              onChange={(event) => setWeeklyAdZipState(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Stores</p>
+            <div className="grid grid-cols-2 gap-2">
+              {WEEKLY_AD_STORES.map((store) => (
+                <label
+                  key={store.id}
+                  className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs"
+                >
+                  <Checkbox
+                    checked={weeklyAdStoreIds.includes(store.id)}
+                    onCheckedChange={() => toggleWeeklyAdStore(store.id)}
+                  />
+                  <span>{store.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {selectedWeeklyAdStores.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {selectedWeeklyAdStores.map((store) => (
+              <Button
+                key={store.id}
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
+              >
+                {store.label} ad
+                <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">Choose at least one store to show ad links.</p>
+        )}
+      </div>
 
       {reminderDue && (
         <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3">

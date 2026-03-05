@@ -11,11 +11,27 @@ export interface GroceryStoreOption {
 export const GROCERY_STORES: GroceryStoreOption[] = [
   { id: 'walmart', label: 'Walmart', searchUrl: 'https://www.walmart.com/search?q=' },
   { id: 'target', label: 'Target', searchUrl: 'https://www.target.com/s?searchTerm=' },
+  { id: 'frys', label: "Fry's", searchUrl: 'https://www.frysfood.com/search?query=' },
   { id: 'kroger', label: 'Kroger', searchUrl: 'https://www.kroger.com/search?query=' },
   { id: 'costco', label: 'Costco', searchUrl: 'https://www.costco.com/CatalogSearch?keyword=' },
   { id: 'whole-foods', label: 'Whole Foods', searchUrl: 'https://www.amazon.com/s?k=' },
   { id: 'instacart', label: 'Instacart', searchUrl: 'https://www.instacart.com/store/search_v3/' },
   { id: 'aldi', label: 'ALDI', searchUrl: 'https://new.aldi.us/results?q=' },
+];
+
+export interface WeeklyAdStoreOption {
+  id: string;
+  label: string;
+}
+
+export const WEEKLY_AD_STORES: WeeklyAdStoreOption[] = [
+  { id: 'frys', label: "Fry's" },
+  { id: 'safeway', label: 'Safeway' },
+  { id: 'whole-foods', label: 'Whole Foods' },
+  { id: 'kroger', label: 'Kroger' },
+  { id: 'target', label: 'Target' },
+  { id: 'walmart', label: 'Walmart' },
+  { id: 'aldi', label: 'ALDI' },
 ];
 
 export interface GroceryOrderReminderSettings {
@@ -29,6 +45,8 @@ interface GroceryPrefsState {
   itemStoreOverrides: Record<string, string>;
   orderReminder: GroceryOrderReminderSettings;
   lastOrderCompletedAt: string | null;
+  weeklyAdZip: string;
+  weeklyAdStoreIds: string[];
 }
 
 const defaultState: GroceryPrefsState = {
@@ -40,6 +58,8 @@ const defaultState: GroceryPrefsState = {
     time: '10:00',
   },
   lastOrderCompletedAt: null,
+  weeklyAdZip: '',
+  weeklyAdStoreIds: ['frys', 'safeway', 'whole-foods'],
 };
 
 function canUseStorage() {
@@ -72,6 +92,17 @@ function readState(): GroceryPrefsState {
       },
       lastOrderCompletedAt:
         typeof parsed.lastOrderCompletedAt === 'string' ? parsed.lastOrderCompletedAt : null,
+      weeklyAdZip:
+        typeof parsed.weeklyAdZip === 'string'
+          ? parsed.weeklyAdZip.replace(/[^\d]/g, '').slice(0, 5)
+          : '',
+      weeklyAdStoreIds:
+        Array.isArray(parsed.weeklyAdStoreIds)
+          ? parsed.weeklyAdStoreIds.filter(
+              (value): value is string =>
+                typeof value === 'string' && WEEKLY_AD_STORES.some((store) => store.id === value),
+            )
+          : defaultState.weeklyAdStoreIds,
     };
   } catch {
     return defaultState;
@@ -143,6 +174,27 @@ export function getLastOrderCompletedAt(): string | null {
   return readState().lastOrderCompletedAt;
 }
 
+export function getWeeklyAdZip(): string {
+  return readState().weeklyAdZip;
+}
+
+export function getWeeklyAdStoreIds(): string[] {
+  return readState().weeklyAdStoreIds;
+}
+
+export function setWeeklyAdPrefs(zip: string, storeIds: string[]) {
+  const cleanedZip = String(zip || '').replace(/[^\d]/g, '').slice(0, 5);
+  const allowedIds = new Set(WEEKLY_AD_STORES.map((store) => store.id));
+  const cleanedStoreIds = Array.from(
+    new Set(storeIds.filter((id) => typeof id === 'string' && allowedIds.has(id))),
+  );
+  updateState((current) => ({
+    ...current,
+    weeklyAdZip: cleanedZip,
+    weeklyAdStoreIds: cleanedStoreIds,
+  }));
+}
+
 function dayIndex(day: DayOfWeek): number {
   switch (day) {
     case 'sunday':
@@ -187,4 +239,42 @@ export function isGroceryOrderReminderDue(now = new Date()): boolean {
 export function buildStoreSearchUrl(storeId: string, itemName: string): string {
   const store = GROCERY_STORES.find((s) => s.id === storeId) || GROCERY_STORES[0];
   return `${store.searchUrl}${encodeURIComponent(itemName)}`;
+}
+
+export function buildWeeklyAdUrl(storeId: string, zipCode: string): string {
+  const zip = String(zipCode || '').replace(/[^\d]/g, '').slice(0, 5);
+  const encodedZip = encodeURIComponent(zip);
+
+  switch (storeId) {
+    case 'frys':
+      return zip
+        ? `https://www.frysfood.com/weeklyad?zipCode=${encodedZip}`
+        : 'https://www.frysfood.com/weeklyad';
+    case 'safeway':
+      return zip
+        ? `https://www.safeway.com/weeklyad?zipcode=${encodedZip}`
+        : 'https://www.safeway.com/weeklyad';
+    case 'whole-foods':
+      return zip
+        ? `https://www.wholefoodsmarket.com/sales-flyer?zip=${encodedZip}`
+        : 'https://www.wholefoodsmarket.com/sales-flyer';
+    case 'kroger':
+      return zip
+        ? `https://www.kroger.com/savings/weeklyad?zipCode=${encodedZip}`
+        : 'https://www.kroger.com/savings/weeklyad';
+    case 'target':
+      return zip
+        ? `https://www.target.com/c/weekly-ad/-/N-4x0oc?zipcode=${encodedZip}`
+        : 'https://www.target.com/c/weekly-ad/-/N-4x0oc';
+    case 'walmart':
+      return zip
+        ? `https://www.walmart.com/shop/deals?zipcode=${encodedZip}`
+        : 'https://www.walmart.com/shop/deals';
+    case 'aldi':
+      return zip
+        ? `https://new.aldi.us/weekly-specials?zip=${encodedZip}`
+        : 'https://new.aldi.us/weekly-specials';
+    default:
+      return 'https://www.google.com';
+  }
 }

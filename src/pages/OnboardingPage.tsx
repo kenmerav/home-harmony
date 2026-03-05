@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
+import { seedStarterRecipesIfEmpty } from '@/lib/api/recipes';
 import { useToast } from '@/hooks/use-toast';
 import { setPlanRules } from '@/lib/mealPrefs';
 import { getPostAuthRoute } from '@/lib/billing';
@@ -39,6 +40,7 @@ const MEAL_OPTIONS = [
   'Just generate grocery lists',
   'No meal planning',
 ] as const;
+const DIET_PREFERENCE_OPTIONS = ['Paleo', 'Vegetarian', 'Macro Friendly', 'Organic'] as const;
 const GROCERY_MODE_OPTIONS = ['Pickup', 'Delivery', 'In-store', 'Mix'] as const;
 const GROCERY_STORE_OPTIONS = ['Walmart', 'Instacart', 'Amazon', 'Target', "Kroger/Fry's", 'Other'] as const;
 const CHORE_OPTIONS = ['Rotating schedule', 'Fixed responsibilities', "I'll set it up later"] as const;
@@ -68,6 +70,7 @@ type KidCount = (typeof KID_COUNT_OPTIONS)[number];
 type RoleType = (typeof ROLE_OPTIONS)[number];
 type RoutineIntensity = (typeof INTENSITY_OPTIONS)[number];
 type MealPreference = (typeof MEAL_OPTIONS)[number];
+type DietPreference = (typeof DIET_PREFERENCE_OPTIONS)[number];
 type GroceryMode = (typeof GROCERY_MODE_OPTIONS)[number];
 type GroceryStore = (typeof GROCERY_STORE_OPTIONS)[number];
 type ChoreStyle = (typeof CHORE_OPTIONS)[number];
@@ -90,6 +93,7 @@ type StepId =
   | 'role'
   | 'intensity'
   | 'meal'
+  | 'dietPreferences'
   | 'groceryMode'
   | 'groceryStore'
   | 'chores'
@@ -117,6 +121,7 @@ interface OnboardingAnswers {
   role: RoleType | null;
   routineIntensity: RoutineIntensity | null;
   mealPreference: MealPreference | null;
+  dietPreferences: DietPreference[];
   groceryMode: GroceryMode | null;
   groceryStore: GroceryStore | null;
   choreStyle: ChoreStyle | null;
@@ -159,6 +164,7 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   role: null,
   routineIntensity: null,
   mealPreference: null,
+  dietPreferences: [],
   groceryMode: null,
   groceryStore: null,
   choreStyle: null,
@@ -205,7 +211,7 @@ function buildSteps(onboarding: OnboardingAnswers): StepId[] {
     steps.push('kidCount');
   }
 
-  steps.push('role', 'intensity', 'meal', 'groceryMode');
+  steps.push('role', 'intensity', 'meal', 'dietPreferences', 'groceryMode');
 
   if (needsStoreStep(onboarding)) {
     steps.push('groceryStore');
@@ -237,6 +243,7 @@ function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardi
         role: current.role || 'Primary planner',
         routineIntensity: 'Balanced',
         mealPreference: 'Plan weeknights only',
+        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly'],
         groceryMode: 'Pickup',
         groceryStore: current.groceryStore || 'Walmart',
         reminderStyle: 'Normal',
@@ -249,6 +256,7 @@ function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardi
         primaryGoals: ['Fitness & workouts', 'Meals & groceries'],
         routineIntensity: 'Highly organized',
         mealPreference: 'Plan the whole week',
+        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly'],
         reminderStyle: 'Persistent (keep nudging me)',
         fitnessLevel: current.fitnessLevel || 'Intermediate',
         workoutFrequency: '3-5',
@@ -266,6 +274,7 @@ function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardi
         choreStyle: 'Rotating schedule',
         reminderStyle: 'Persistent (keep nudging me)',
         mealPreference: current.mealPreference || 'Plan weeknights only',
+        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Organic'],
       };
     case 'balanced-all-in':
       return {
@@ -273,6 +282,7 @@ function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardi
         primaryGoals: ['All of the above', ...PRIMARY_GOAL_OPTIONS.filter((option) => option !== 'All of the above')],
         routineIntensity: 'Balanced',
         mealPreference: 'Plan weeknights only',
+        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly', 'Organic'],
         groceryMode: 'Mix',
         groceryStore: current.groceryStore || 'Instacart',
         choreStyle: 'Rotating schedule',
@@ -525,6 +535,8 @@ function isStepComplete(step: StepId, onboarding: OnboardingAnswers): boolean {
       return onboarding.routineIntensity !== null;
     case 'meal':
       return onboarding.mealPreference !== null;
+    case 'dietPreferences':
+      return onboarding.dietPreferences.length > 0;
     case 'groceryMode':
       return onboarding.groceryMode !== null;
     case 'groceryStore':
@@ -589,12 +601,15 @@ function humanizeEmail(email?: string | null): string {
 
 function deriveDietaryPreferences(onboarding: OnboardingAnswers): string[] {
   const choices = new Set<string>();
+  for (const preference of onboarding.dietPreferences) {
+    choices.add(preference);
+  }
   if (onboarding.householdType === 'Family') choices.add('Kid Friendly');
   if (hasFitnessGoal(onboarding) || onboarding.nutritionTracking === 'Track protein only' || onboarding.nutritionTracking === 'Track full macros') {
-    choices.add('High Protein');
+    choices.add('Macro Friendly');
   }
   if (onboarding.mealPreference === 'No meal planning') choices.add('Low Carb');
-  if (choices.size === 0) choices.add('Kid Friendly');
+  if (choices.size === 0) choices.add('Macro Friendly');
   return Array.from(choices);
 }
 
@@ -610,6 +625,7 @@ function buildGoalsText(onboarding: OnboardingAnswers, plan: PersonalizedPlan): 
   const groceryLine = onboarding.groceryMode ? `Groceries: ${onboarding.groceryMode}${onboarding.groceryStore ? ` via ${onboarding.groceryStore}` : ''}.` : '';
   const structureLine = onboarding.routineIntensity ? `Structure: ${onboarding.routineIntensity}.` : '';
   const nutritionLine = onboarding.nutritionTracking ? `Nutrition: ${onboarding.nutritionTracking}.` : '';
+  const preferenceLine = onboarding.dietPreferences.length ? `Food preferences: ${onboarding.dietPreferences.join(', ')}.` : '';
   const lifestyleLine = [
     onboarding.hydrationTracking ? `Water: ${onboarding.hydrationTracking}` : null,
     onboarding.stepGoal ? `Steps: ${onboarding.stepGoal}` : null,
@@ -619,7 +635,7 @@ function buildGoalsText(onboarding: OnboardingAnswers, plan: PersonalizedPlan): 
     .filter(Boolean)
     .join(', ');
 
-  return `Priorities: ${coreGoal}. ${mealLine} ${groceryLine} ${structureLine} ${nutritionLine} ${lifestyleLine ? `Lifestyle: ${lifestyleLine}.` : ''} Modules: ${plan.enabledModules.join(', ')}.`
+  return `Priorities: ${coreGoal}. ${mealLine} ${preferenceLine} ${groceryLine} ${structureLine} ${nutritionLine} ${lifestyleLine ? `Lifestyle: ${lifestyleLine}.` : ''} Modules: ${plan.enabledModules.join(', ')}.`
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -717,6 +733,21 @@ export default function OnboardingPage() {
     });
   };
 
+  const toggleDietPreference = (preference: DietPreference) => {
+    setOnboarding((prev) => {
+      if (prev.dietPreferences.includes(preference)) {
+        return {
+          ...prev,
+          dietPreferences: prev.dietPreferences.filter((value) => value !== preference),
+        };
+      }
+      return {
+        ...prev,
+        dietPreferences: [...prev.dietPreferences, preference],
+      };
+    });
+  };
+
   const setSingle = <K extends keyof OnboardingAnswers>(key: K, value: OnboardingAnswers[K]) => {
     setOnboarding((prev) => ({ ...prev, [key]: value }));
   };
@@ -780,6 +811,14 @@ export default function OnboardingPage() {
           maxCookMinutes: onboarding.onboardingPreset === 'busy-family' ? 30 : null,
           dayLocks: {},
         });
+      }
+
+      if (personalizedPlan.enabledModules.includes('meals')) {
+        try {
+          await seedStarterRecipesIfEmpty(dietaryPreferences, 18);
+        } catch (seedError) {
+          console.error('Starter recipe seeding failed:', seedError);
+        }
       }
 
       await trackGrowthEventSafe(
@@ -1013,6 +1052,31 @@ export default function OnboardingPage() {
       );
 
       footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('meal', onboarding)} />;
+      break;
+    }
+
+    case 'dietPreferences': {
+      content = (
+        <QuestionScreen
+          title="What food preferences should we plan around?"
+          helper="Pick at least one. We'll use this to build your starter recipe library."
+        >
+          <OptionList
+            options={DIET_PREFERENCE_OPTIONS}
+            selected={onboarding.dietPreferences}
+            onToggle={toggleDietPreference}
+            multi
+          />
+        </QuestionScreen>
+      );
+
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('dietPreferences', onboarding)}
+        />
+      );
       break;
     }
 

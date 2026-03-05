@@ -3,6 +3,7 @@ import { extractPdfText } from '@/lib/pdfParser';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
+import { buildStarterDinnerRecipes } from '@/data/starterDinnerRecipes';
 
 export interface ExtractedRecipe {
   name: string;
@@ -800,6 +801,28 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
   }
 
   return data || [];
+}
+
+export async function seedStarterRecipesIfEmpty(
+  dietaryPreferences: string[] = [],
+  targetCount = 18,
+): Promise<{ inserted: number; skipped: boolean }> {
+  const existing = await fetchRecipes();
+  if (existing.length > 0) {
+    return { inserted: 0, skipped: true };
+  }
+
+  const starters = buildStarterDinnerRecipes(dietaryPreferences, targetCount).map((recipe) => ({
+    name: recipe.name,
+    servings: recipe.servings,
+    ingredients: recipe.ingredients,
+    ingredientsRaw: recipe.ingredients.join('\n'),
+    instructions: recipe.instructions,
+    macrosPerServing: recipe.macrosPerServing,
+  }));
+
+  const inserted = await saveRecipes(starters);
+  return { inserted: inserted.length, skipped: false };
 }
 
 export async function updateRecipe(id: string, updates: {
