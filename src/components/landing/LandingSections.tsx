@@ -20,7 +20,7 @@ interface SignupSectionProps {
 const heroModules = [
   '🍽️ Meal Planning',
   '🧹 Chore Manager',
-  '💰 Family Budget',
+  '✅ Tasks & Reminders',
   '📅 Shared Calendar',
   '🛒 Smart Shopping',
   '📁 Home Docs',
@@ -44,12 +44,12 @@ const dashboardPanels = [
     footer: '🏆 Family leaderboard updates as chores are completed',
   },
   {
-    id: 'budget',
-    emoji: '💰',
-    label: 'Budget',
-    title: 'April snapshot',
-    rows: ['Groceries: $340 / $500', 'Dining out: $180 / $200', 'Household: $122 / $180', 'Remaining total: $1,558'],
-    footer: '📈 Weekly spending trend and category alerts',
+    id: 'tasks',
+    emoji: '✅',
+    label: 'Tasks',
+    title: 'Priority tasks this week',
+    rows: ['Morning routine checklist', 'School forms due Friday', 'Call pediatrician office', 'Prep lunches Sunday'],
+    footer: '🔔 Smart reminders and due-date nudges',
   },
   {
     id: 'shopping',
@@ -80,7 +80,7 @@ const dashboardPanels = [
 const proofStats = [
   { value: '12K+', label: 'families organized' },
   { value: '6', label: 'modules in one app' },
-  { value: '$80', label: 'average monthly savings' },
+  { value: '3 hrs', label: 'saved weekly on planning' },
   { value: '4.9 ★', label: 'family rating' },
   { value: '~10 min', label: 'to get set up' },
 ];
@@ -103,12 +103,12 @@ const moduleCards = [
     href: '/chore-systems',
   },
   {
-    emoji: '💰',
-    title: 'Family Budget',
+    emoji: '✅',
+    title: 'Tasks & Reminders',
     description:
-      'Track budget categories and household spending trends so everyone sees what is spent, what is left, and where to adjust.',
-    tag: 'More visibility',
-    href: '/macro-plans',
+      'Capture household to-dos, assign ownership, and send reminders so important tasks stop slipping through the cracks.',
+    tag: 'Fewer missed tasks',
+    href: '/task-systems',
   },
   {
     emoji: '📅',
@@ -170,7 +170,7 @@ const testimonials = [
   },
   {
     quote:
-      'The budget and calendar together changed everything. We are on the same page and there are way fewer surprises.',
+      'Tasks and calendar together changed everything. We are on the same page and there are way fewer surprises.',
     name: 'Jessica R.',
     detail: 'Mom of 2 · Austin, TX',
     avatar: '👩',
@@ -187,7 +187,7 @@ const testimonials = [
 const signupPerks = [
   'Meal planning + grocery lists',
   'Chore assignment + tracking',
-  'Family budget + spend visibility',
+  'Tasks + reminders',
   'Shared calendar + reminders',
   'Smart shopping + quantity rollups',
   'Household templates + routines',
@@ -260,7 +260,7 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
             like clockwork.
           </h1>
           <p className="mt-5 max-w-xl text-base text-muted-foreground md:text-lg md:leading-relaxed">
-            Home Harmony brings <strong className="text-foreground">meals, chores, budgets, shopping, schedules, and family docs</strong>{' '}
+            Home Harmony brings <strong className="text-foreground">meals, chores, tasks, shopping, schedules, and family docs</strong>{' '}
             into one calm, beautiful hub. Less chaos. More together.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">

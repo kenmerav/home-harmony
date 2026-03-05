@@ -33,7 +33,7 @@ export default function LandingPage() {
   useSeoMeta({
     title: 'Home Harmony HQ | Your Home, Finally Running Like Clockwork',
     description:
-      'Home Harmony brings meals, chores, budgets, shopping, schedules, and family routines into one calm system for modern households.',
+      'Home Harmony brings meals, chores, tasks, shopping, schedules, and family routines into one calm system for modern households.',
     keywords: [
       'family schedule app',
       'meal planning app for families',
