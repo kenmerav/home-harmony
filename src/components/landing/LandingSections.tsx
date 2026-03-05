@@ -15,6 +15,42 @@ interface CTAProps {
   startHref: string;
 }
 
+const seoFooterGroups = [
+  {
+    title: 'Planning Guides',
+    links: [
+      { label: 'Meal Plan Frameworks', href: '/meal-plans' },
+      { label: 'Grocery List Guides', href: '/grocery-lists' },
+      { label: 'Pantry Meal Guides', href: '/pantry-meals' },
+      { label: 'Recipe Collections', href: '/recipe-collections' },
+      { label: 'Household Templates', href: '/household-templates' },
+      { label: 'Macro Plan Guides', href: '/macro-plans' },
+    ],
+  },
+  {
+    title: 'Home Systems',
+    links: [
+      { label: 'Chore Systems', href: '/chore-systems' },
+      { label: 'Task Systems', href: '/task-systems' },
+      { label: 'Workout Tracking', href: '/workout-tracking' },
+      { label: 'Lifestyle Tracking', href: '/lifestyle-tracking' },
+      { label: 'Template Library', href: '/templates' },
+      { label: 'All Resources', href: '/resources' },
+    ],
+  },
+  {
+    title: 'Free Tools',
+    links: [
+      { label: 'Family Meal Plan Generator', href: '/free-tools/family-meal-plan-generator' },
+      { label: 'Grocery List Combiner', href: '/free-tools/grocery-list-combiner' },
+      { label: 'Macro and Protein Calculator', href: '/free-tools/macro-and-protein-calculator' },
+      { label: 'Family Routine Builder', href: '/free-tools/family-routine-builder' },
+      { label: 'Compare Home Harmony', href: '/compare' },
+      { label: 'All Free Tools', href: '/free-tools' },
+    ],
+  },
+];
+
 const problemBullets = [
   'Dinner planning happens at the last second.',
   'Schedules live in five different places.',
@@ -239,3 +275,32 @@ export function CTA({ startHref }: CTAProps) {
   );
 }
 
+export function SeoFooterLinks() {
+  return (
+    <footer className="border-t border-border/60 bg-card/30">
+      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
+        <h2 className="font-display text-2xl md:text-3xl">Explore more family planning resources</h2>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          Practical guides and tools to improve planning, reduce stress, and keep your household organized.
+        </p>
+
+        <nav aria-label="SEO resource links" className="mt-6 grid gap-6 md:grid-cols-3">
+          {seoFooterGroups.map((group) => (
+            <div key={group.title} className="rounded-xl border border-border bg-background p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{group.title}</h3>
+              <ul className="mt-3 space-y-2">
+                {group.links.map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="text-sm text-foreground underline-offset-4 hover:text-primary hover:underline">
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </div>
+    </footer>
+  );
+}
