@@ -25,6 +25,7 @@ export default function FamilyPage() {
   const { profile } = useAuth();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
+  const inviteRolePrefill = searchParams.get('role');
 
   const [dashboard, setDashboard] = useState<HouseholdDashboard>(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,12 @@ export default function FamilyPage() {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (inviteRolePrefill === 'kid' || inviteRolePrefill === 'spouse') {
+      setInviteRole(inviteRolePrefill);
+    }
+  }, [inviteRolePrefill]);
 
   const canInvite = useMemo(
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),

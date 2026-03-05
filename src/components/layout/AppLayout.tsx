@@ -55,10 +55,11 @@ const adminNavItem = { to: '/admin', icon: Shield, label: 'Admin' };
 export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, isAdmin } = useAuth();
+  const { signOut, isAdmin, user, profile } = useAuth();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const [dashboards, setDashboards] = useState(() => listDashboardProfiles());
   const [mobileDashboardsOpen, setMobileDashboardsOpen] = useState(false);
+  const [familySetupOpen, setFamilySetupOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('homehub:sidebar-collapsed') === '1';
@@ -76,6 +77,15 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   useEffect(() => {
     window.localStorage.setItem('homehub:sidebar-collapsed', isSidebarCollapsed ? '1' : '0');
   }, [isSidebarCollapsed]);
+
+  useEffect(() => {
+    if (!user?.id || typeof window === 'undefined') return;
+    const key = `homehub.family-setup-prompt.v1:${user.id}`;
+    const seen = window.localStorage.getItem(key) === '1';
+    if (!seen) {
+      setFamilySetupOpen(true);
+    }
+  }, [user?.id]);
 
   const activeDashboardId = useMemo(() => {
     const match = location.pathname.match(/^\/dashboard\/([^/]+)/);
@@ -108,6 +118,18 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const handleOpenDashboard = (dashboardId: string) => {
     navigate(`/dashboard/${dashboardId}`);
     setMobileDashboardsOpen(false);
+  };
+
+  const closeFamilySetup = () => {
+    if (user?.id && typeof window !== 'undefined') {
+      window.localStorage.setItem(`homehub.family-setup-prompt.v1:${user.id}`, '1');
+    }
+    setFamilySetupOpen(false);
+  };
+
+  const openFamilySetupPath = (path: string) => {
+    closeFamilySetup();
+    navigate(path);
   };
 
   return (
@@ -306,6 +328,53 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               <Plus className="w-4 h-4 mr-2" />
               Add Dashboard
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={familySetupOpen} onOpenChange={(open) => !open && closeFamilySetup()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Set up your family workspace</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {`Welcome${profile?.fullName ? `, ${profile.fullName}` : ''}.`} Do this once so meals, chores, tasks, and reminders are shared correctly.
+          </p>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => openFamilySetupPath('/family?role=spouse')}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted/40"
+            >
+              Invite spouse/partner
+            </button>
+            <button
+              type="button"
+              onClick={() => openFamilySetupPath('/family?role=kid')}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted/40"
+            >
+              Invite kids
+            </button>
+            <button
+              type="button"
+              onClick={() => openFamilySetupPath('/family?role=kid')}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted/40"
+            >
+              Add kids to dashboards and chores
+            </button>
+            <button
+              type="button"
+              onClick={() => openFamilySetupPath('/recipes')}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted/40"
+            >
+              Add recipes to start planning
+            </button>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => openFamilySetupPath('/getting-started')}>
+              Full setup guide
+            </Button>
+            <Button onClick={closeFamilySetup}>I&apos;ll do this later</Button>
           </div>
         </DialogContent>
       </Dialog>
