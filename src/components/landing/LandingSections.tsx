@@ -19,6 +19,8 @@ interface SignupSectionProps {
 
 const heroModules = [
   '🍽️ Meal Planning',
+  '🥗 Meal & Macro Tracker',
+  '🏋️ Workout Tracker',
   '🧹 Chore Manager',
   '✅ Tasks & Reminders',
   '📅 Shared Calendar',
@@ -65,7 +67,7 @@ const dashboardPanels = [
     label: 'Calendar',
     title: 'Family week at a glance',
     rows: ['Mon 3:00 PM · Soccer practice', 'Tue 9:00 AM · Dentist appointment', 'Wed 7:00 PM · Date night', 'Sat 10:00 AM · Grocery pickup'],
-    footer: '🔔 Optional SMS reminders for key events and prep times',
+    footer: '📲 Daily schedule text + reminders before key events',
   },
   {
     id: 'docs',
@@ -79,10 +81,10 @@ const dashboardPanels = [
 
 const proofStats = [
   { value: '12K+', label: 'families organized' },
-  { value: '6', label: 'modules in one app' },
+  { value: '8', label: 'modules in one app' },
   { value: '3 hrs', label: 'saved weekly on planning' },
   { value: '4.9 ★', label: 'family rating' },
-  { value: '~10 min', label: 'to get set up' },
+  { value: 'Daily SMS', label: 'schedule + event reminders' },
 ];
 
 const moduleCards = [
@@ -93,6 +95,22 @@ const moduleCards = [
       'Plan dinners and lunches in minutes, then auto-build grocery lists with rolled-up quantities and fewer duplicates.',
     tag: 'Lower grocery stress',
     href: '/meal-plans',
+  },
+  {
+    emoji: '🥗',
+    title: 'Meal & Calorie Tracker',
+    description:
+      'Log meals, servings, calories, and macros so each day is easy to track against your nutrition targets.',
+    tag: 'Stay on target',
+    href: '/macro-plans',
+  },
+  {
+    emoji: '🏋️',
+    title: 'Workout Tracker',
+    description:
+      'Build workouts, log sessions, and track progress so fitness goals stay consistent with your family schedule.',
+    tag: 'Keep momentum',
+    href: '/workout-tracking',
   },
   {
     emoji: '🧹',
@@ -114,7 +132,7 @@ const moduleCards = [
     emoji: '📅',
     title: 'Shared Calendar',
     description:
-      'Keep school, practice, appointments, and meal timing in one planner view with reminders before important events.',
+      'Keep school, practice, appointments, and meal timing in one planner view with daily schedule texts and pre-event reminders.',
     tag: 'Fewer conflicts',
     href: '/task-systems',
   },
@@ -122,7 +140,7 @@ const moduleCards = [
     emoji: '🛒',
     title: 'Smart Shopping',
     description:
-      'Generate cleaner grocery lists from meal plans and household staples, then sort by store and aisle for faster ordering.',
+      'Generate cleaner grocery lists, then open each needed item at your preferred grocery store with quick add-to-cart flow.',
     tag: 'Faster checkout',
     href: '/grocery-lists',
   },
@@ -186,10 +204,12 @@ const testimonials = [
 
 const signupPerks = [
   'Meal planning + grocery lists',
+  'Meal + calorie/macro tracking',
+  'Workout tracker + progress history',
   'Chore assignment + tracking',
   'Tasks + reminders',
-  'Shared calendar + reminders',
-  'Smart shopping + quantity rollups',
+  'Daily schedule SMS + pre-event reminders',
+  'One-click grocery items at preferred store + quick add to cart',
   'Household templates + routines',
   'Invite your family with no extra setup',
 ];
@@ -260,8 +280,9 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
             like clockwork.
           </h1>
           <p className="mt-5 max-w-xl text-base text-muted-foreground md:text-lg md:leading-relaxed">
-            Home Harmony brings <strong className="text-foreground">meals, chores, tasks, shopping, schedules, and family docs</strong>{' '}
-            into one calm, beautiful hub. Less chaos. More together.
+            Home Harmony brings{' '}
+            <strong className="text-foreground">meals, calorie tracking, workouts, chores, shopping, and schedules</strong> into
+            one calm, beautiful hub. Less chaos. More together.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {heroModules.map((module) => (
@@ -394,7 +415,7 @@ export function ModulesSection({ startHref }: ModulesSectionProps) {
         <div className="mx-auto max-w-3xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Everything under one roof</p>
           <h2 className="mt-3 font-display text-4xl leading-tight md:text-5xl">
-            Six modules. <span className="italic text-primary">One calm home.</span>
+            All your modules. <span className="italic text-primary">One calm home.</span>
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">
             Every tool a family needs to run a home, working together in one place instead of scattered across different

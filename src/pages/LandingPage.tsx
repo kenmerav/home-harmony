@@ -33,7 +33,7 @@ export default function LandingPage() {
   useSeoMeta({
     title: 'Home Harmony HQ | Your Home, Finally Running Like Clockwork',
     description:
-      'Home Harmony brings meals, chores, tasks, shopping, schedules, and family routines into one calm system for modern households.',
+      'Home Harmony combines meal planning, calorie and macro tracking, workout tracking, daily schedule SMS reminders, and preferred-store grocery quick-add in one family system.',
     keywords: [
       'family schedule app',
       'meal planning app for families',
@@ -41,6 +41,9 @@ export default function LandingPage() {
       'household routine app',
       'family organizer app',
       'home management app for families',
+      'calorie tracker for families',
+      'workout tracker app',
+      'sms event reminders',
     ],
     image: '/landing/hero-family.jpg',
     imageAlt: 'Family playing a board game together in a cozy living room',
