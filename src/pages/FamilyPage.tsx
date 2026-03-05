@@ -22,7 +22,7 @@ const EMPTY_DASHBOARD: HouseholdDashboard = {
 };
 
 export default function FamilyPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
   const inviteRolePrefill = searchParams.get('role');
@@ -63,7 +63,7 @@ export default function FamilyPage() {
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),
     [dashboard.members],
   );
-  const familyLeaderboard = getFamilyLeaderboard();
+  const familyLeaderboard = getFamilyLeaderboard(new Date(), user?.id);
 
   const onCreateHousehold = async () => {
     setCreatingHousehold(true);

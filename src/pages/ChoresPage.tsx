@@ -5,7 +5,6 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { mockChildren } from '@/data/mockData';
 import { DayOfWeek } from '@/types';
 import { Plus, RotateCcw, CheckCircle2, X, PiggyBank, Wallet, Clock3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,8 +23,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
-const CHORES_STATE_KEY = 'homehub.choresEconomyState.v2';
+const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -99,39 +99,18 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function toBaseChildren(): ChildEconomy[] {
-  return mockChildren.map((child) => ({
-    id: child.id,
-    name: child.name,
-    dailyChores: child.dailyChores.map((chore, idx) => ({
-      id: chore.id || `daily-${idx}`,
-      name: chore.name,
-      isCompleted: chore.isCompleted,
-      reward: 1,
-    })),
-    weeklyChores: child.weeklyChores.map((chore, idx) => ({
-      id: chore.id || `weekly-${idx}`,
-      name: chore.name,
-      day: chore.day,
-      isCompleted: chore.isCompleted,
-      reward: 3,
-    })),
-    extraChores: [],
-    piggyBank: 0,
-    lifetimeEarned: 0,
-    lifetimePenalties: 0,
-    cashedOut: 0,
-  }));
+function choresStateKey(userId?: string | null): string {
+  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
 }
 
 function defaultState(): ChoresState {
-  return { children: toBaseChildren(), availableExtraChores: [] };
+  return { children: [], availableExtraChores: [] };
 }
 
-function loadState(): ChoresState {
+function loadState(userId?: string | null): ChoresState {
   if (!canUseStorage()) return defaultState();
   try {
-    const raw = window.localStorage.getItem(CHORES_STATE_KEY);
+    const raw = window.localStorage.getItem(choresStateKey(userId));
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw) as Partial<ChoresState> | ChildEconomy[];
 
@@ -141,7 +120,7 @@ function loadState(): ChoresState {
     }
 
     return {
-      children: Array.isArray(parsed.children) ? parsed.children : toBaseChildren(),
+      children: Array.isArray(parsed.children) ? parsed.children : [],
       availableExtraChores: Array.isArray(parsed.availableExtraChores)
         ? parsed.availableExtraChores
         : [],
@@ -151,9 +130,9 @@ function loadState(): ChoresState {
   }
 }
 
-function saveState(state: ChoresState) {
+function saveState(state: ChoresState, userId?: string | null) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(CHORES_STATE_KEY, JSON.stringify(state));
+  window.localStorage.setItem(choresStateKey(userId), JSON.stringify(state));
 }
 
 function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[]; changed: boolean } {
@@ -188,7 +167,9 @@ function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[];
 }
 
 export default function ChoresPage() {
-  const [state, setState] = useState<ChoresState>(() => loadState());
+  const { user } = useAuth();
+  const [state, setState] = useState<ChoresState>(() => defaultState());
+  const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
   const [addChildOpen, setAddChildOpen] = useState(false);
   const [newChildName, setNewChildName] = useState('');
   const [addChoreOpen, setAddChoreOpen] = useState(false);
@@ -205,13 +186,20 @@ export default function ChoresPage() {
   const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
   const currentDay = getCurrentDay();
   const { toast } = useToast();
+  const activeKey = user?.id || 'anon';
 
   const children = state.children;
   const availableExtraChores = state.availableExtraChores;
 
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    setState(loadState(user?.id));
+    setLoadedForKey(activeKey);
+  }, [user?.id, activeKey]);
+
+  useEffect(() => {
+    if (loadedForKey !== activeKey) return;
+    saveState(state, user?.id);
+  }, [state, user?.id, loadedForKey, activeKey]);
 
   useEffect(() => {
     const firstPass = markOverdueExtras(children);

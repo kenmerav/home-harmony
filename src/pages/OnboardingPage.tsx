@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
-import { generateMeals, MealGenerationOptions } from '@/lib/api/meals';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { useToast } from '@/hooks/use-toast';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -775,18 +774,12 @@ export default function OnboardingPage() {
       await saveOnboardingResult(user.id, payload);
 
       if (personalizedPlan.enabledModules.includes('meals') || personalizedPlan.enabledModules.includes('groceries')) {
-        const initialMealRules: MealGenerationOptions = {
+        setPlanRules({
           preferFavorites: true,
           preferKidFriendly: onboarding.householdType === 'Family',
           maxCookMinutes: onboarding.onboardingPreset === 'busy-family' ? 30 : null,
           dayLocks: {},
-        };
-        setPlanRules(initialMealRules);
-        try {
-          await generateMeals(0, undefined, initialMealRules);
-        } catch (bootstrapError) {
-          console.error('Initial meal generation after onboarding failed:', bootstrapError);
-        }
+        });
       }
 
       await trackGrowthEventSafe(

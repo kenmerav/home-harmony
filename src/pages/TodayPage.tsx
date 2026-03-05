@@ -7,15 +7,13 @@ import { MacroBar } from '@/components/ui/MacroBar';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { mockMealPlan, mockChildren } from '@/data/mockData';
+import { mockMealPlan } from '@/data/mockData';
 import { DayOfWeek, MealLog } from '@/types';
 import {
   UtensilsCrossed,
   Check,
   SkipForward,
   Plus,
-  User,
-  Users,
   Droplets,
   Wine,
   Trophy,
@@ -37,9 +35,9 @@ import {
   addWater,
   getDailyScore,
   getFamilyLeaderboard,
-  getMealLogs,
   getProfiles,
   getCurrentStreak,
+  listDashboardProfiles,
 } from '@/lib/macroGame';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { loadTasks } from '@/lib/taskStore';
@@ -51,7 +49,38 @@ const getCurrentDay = (): DayOfWeek => {
 };
 
 const LEADERBOARD_PRIZE_KEY = 'homehub.leaderboardPrizeByWeek.v1';
+const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const DEFAULT_WEEKLY_PRIZE = 'Winner gets M&Ms in their popcorn during family movie night.';
+
+interface ChildChoreSummary {
+  id: string;
+  name: string;
+  completed: number;
+  total: number;
+}
+
+function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(`${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as {
+      children?: Array<{ id?: string; name?: string; dailyChores?: Array<{ isCompleted?: boolean }> }>;
+    };
+    const children = Array.isArray(parsed.children) ? parsed.children : [];
+    return children.map((child, idx) => {
+      const daily = Array.isArray(child.dailyChores) ? child.dailyChores : [];
+      return {
+        id: String(child.id || `child-${idx}`),
+        name: String(child.name || 'Child'),
+        completed: daily.filter((chore) => !!chore?.isCompleted).length,
+        total: daily.length,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
 
 export default function TodayPage() {
   const { user } = useAuth();
@@ -74,7 +103,7 @@ export default function TodayPage() {
     protein: '',
     carbs: '',
     fat: '',
-    person: 'both' as 'me' | 'wife' | 'both',
+    person: 'all',
   });
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -111,18 +140,27 @@ export default function TodayPage() {
     }
   }, [weekKey]);
 
+  useEffect(() => {
+    const handleMacroStateUpdated = () => setRefreshTick((prev) => prev + 1);
+    window.addEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+    return () => window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+  }, []);
+
   const refresh = () => setRefreshTick((prev) => prev + 1);
   const profiles = useMemo(() => getProfiles(), [refreshTick]);
-  const mealLogs = useMemo(() => getMealLogs(), [refreshTick]);
-  const todaysLogs = mealLogs.filter((log) => log.date === todayKey);
-  const myLogs = todaysLogs.filter((log) => log.person === 'me');
-  const wifeLogs = todaysLogs.filter((log) => log.person === 'wife');
-
-  const myScore = useMemo(() => getDailyScore('me', todayKey), [refreshTick, todayKey]);
-  const wifeScore = useMemo(() => getDailyScore('wife', todayKey), [refreshTick, todayKey]);
-  const myStreak = useMemo(() => getCurrentStreak('me'), [refreshTick]);
-  const wifeStreak = useMemo(() => getCurrentStreak('wife'), [refreshTick]);
-  const leaderboard = useMemo(() => getFamilyLeaderboard(), [refreshTick]);
+  const dashboards = useMemo(() => listDashboardProfiles(), [refreshTick]);
+  const todaysScores = useMemo(
+    () =>
+      dashboards.map((dashboard) => ({
+        id: dashboard.id,
+        label: dashboard.name,
+        score: getDailyScore(dashboard.id, todayKey),
+        streak: getCurrentStreak(dashboard.id),
+      })),
+    [dashboards, todayKey, refreshTick],
+  );
+  const leaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+  const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
 
   const todaysTasks = loadTasks(user?.id)
     .filter((task) => task.frequency === 'once' || task.day === currentDay)
@@ -152,7 +190,7 @@ export default function TodayPage() {
     return Math.min(4, Math.max(0.25, parsed));
   };
 
-  const logMeal = (person: 'me' | 'wife' | 'both') => {
+  const logMeal = (person: string | 'all') => {
     if (!todaysMeal) return;
     const servings = parseServings(mealServings);
     const scaledMacros = {
@@ -165,7 +203,7 @@ export default function TodayPage() {
         : undefined,
     };
 
-    const createLog = (target: 'me' | 'wife'): MealLog => ({
+    const createLog = (target: string): MealLog => ({
       id: `log-${Date.now()}-${target}`,
       recipeId: todaysMeal.recipeId,
       recipeName: todaysMeal.recipe.name,
@@ -177,14 +215,17 @@ export default function TodayPage() {
       createdAt: new Date(),
     });
 
-    if (person === 'both') {
-      addMealLog(createLog('me'));
-      addMealLog(createLog('wife'));
-      toast({ title: 'Logged for both', description: `${todaysMeal.recipe.name} • ${servings} servings each` });
+    if (person === 'all') {
+      dashboards.forEach((dashboard) => addMealLog(createLog(dashboard.id)));
+      toast({
+        title: dashboards.length > 1 ? 'Logged for all dashboards' : 'Logged meal',
+        description: `${todaysMeal.recipe.name} • ${servings} servings`,
+      });
     } else {
       addMealLog(createLog(person));
+      const targetName = dashboards.find((dashboard) => dashboard.id === person)?.name || profiles[person]?.name || 'Dashboard';
       toast({
-        title: `Logged for ${person === 'me' ? profiles.me.name : profiles.wife.name}`,
+        title: `Logged for ${targetName}`,
         description: `${todaysMeal.recipe.name} • ${servings} servings`,
       });
     }
@@ -202,7 +243,7 @@ export default function TodayPage() {
       return;
     }
 
-    const createLog = (target: 'me' | 'wife'): MealLog => ({
+    const createLog = (target: string): MealLog => ({
       id: `quickadd-${Date.now()}-${target}`,
       recipeName: quickAddData.name || 'Quick Add',
       date: todayKey,
@@ -213,9 +254,8 @@ export default function TodayPage() {
       createdAt: new Date(),
     });
 
-    if (quickAddData.person === 'both') {
-      addMealLog(createLog('me'));
-      addMealLog(createLog('wife'));
+    if (quickAddData.person === 'all') {
+      dashboards.forEach((dashboard) => addMealLog(createLog(dashboard.id)));
     } else {
       addMealLog(createLog(quickAddData.person));
     }
@@ -226,16 +266,16 @@ export default function TodayPage() {
     });
 
     setQuickAddOpen(false);
-    setQuickAddData({ name: '', calories: '', protein: '', carbs: '', fat: '', person: 'both' });
+    setQuickAddData({ name: '', calories: '', protein: '', carbs: '', fat: '', person: 'all' });
     refresh();
   };
 
-  const adjustWater = (person: 'me' | 'wife', deltaOz: number) => {
+  const adjustWater = (person: string, deltaOz: number) => {
     addWater(person, deltaOz, todayKey);
     refresh();
   };
 
-  const adjustAlcohol = (person: 'me' | 'wife', deltaDrinks: number) => {
+  const adjustAlcohol = (person: string, deltaDrinks: number) => {
     addAlcohol(person, deltaDrinks, todayKey);
     refresh();
   };
@@ -318,19 +358,23 @@ export default function TodayPage() {
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <Button size="sm" className="flex-1" onClick={() => logMeal('both')}>
+              <div className="space-y-2 pt-1">
+                <Button size="sm" className="w-full" onClick={() => logMeal('all')}>
                   <Check className="w-4 h-4 mr-2" />
-                  Log for Both (+points)
+                  {dashboards.length > 1 ? 'Log for all dashboards (+points)' : 'Log meal (+points)'}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => logMeal('me')}>
-                  <User className="w-4 h-4 mr-1" />
-                  Me
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => logMeal('wife')}>
-                  <Users className="w-4 h-4 mr-1" />
-                  Wife
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {dashboards.map((dashboard) => (
+                    <Button
+                      key={dashboard.id}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => logMeal(dashboard.id)}
+                    >
+                      {dashboard.name}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
@@ -343,10 +387,7 @@ export default function TodayPage() {
 
         <SectionCard title="Macro Game">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {([
-              { id: 'me' as const, label: profiles.me.name, score: myScore, streak: myStreak },
-              { id: 'wife' as const, label: profiles.wife.name, score: wifeScore, streak: wifeStreak },
-            ]).map((entry) => (
+            {todaysScores.map((entry) => (
               <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="font-medium">{entry.label}</p>
@@ -426,50 +467,33 @@ export default function TodayPage() {
           </div>
         </SectionCard>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Link to="/me" className="block">
-            <SectionCard className="card-hover">
-              <div className="text-center mb-3">
-                <p className="text-sm text-muted-foreground">{profiles.me.name}</p>
-                <p className="text-2xl font-display font-semibold">{Math.round(myScore.calories)}</p>
-                <p className="text-xs text-muted-foreground">calories today</p>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Protein</span>
-                  <span className="font-medium">{Math.round(myScore.protein_g)}g</span>
-                </div>
-                <div className="h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full"
-                    style={{ width: `${Math.min((myScore.protein_g / profiles.me.macroPlan.protein_g) * 100, 100)}%` }}
-                  />
-                </div>
-              </div>
-            </SectionCard>
-          </Link>
-
-          <Link to="/wife" className="block">
-            <SectionCard className="card-hover">
-              <div className="text-center mb-3">
-                <p className="text-sm text-muted-foreground">{profiles.wife.name}</p>
-                <p className="text-2xl font-display font-semibold">{Math.round(wifeScore.calories)}</p>
-                <p className="text-xs text-muted-foreground">calories today</p>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Protein</span>
-                  <span className="font-medium">{Math.round(wifeScore.protein_g)}g</span>
-                </div>
-                <div className="h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full"
-                    style={{ width: `${Math.min((wifeScore.protein_g / profiles.wife.macroPlan.protein_g) * 100, 100)}%` }}
-                  />
-                </div>
-              </div>
-            </SectionCard>
-          </Link>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {todaysScores.map((entry) => {
+            const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
+            return (
+              <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
+                <SectionCard className="card-hover">
+                  <div className="text-center mb-3">
+                    <p className="text-sm text-muted-foreground">{entry.label}</p>
+                    <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
+                    <p className="text-xs text-muted-foreground">calories today</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Protein</span>
+                      <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
+                    </div>
+                    <div className="h-1 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full"
+                        style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </SectionCard>
+              </Link>
+            );
+          })}
         </div>
 
         <SectionCard
@@ -480,20 +504,20 @@ export default function TodayPage() {
             </Link>
           }
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mockChildren.map((child) => {
-              const completed = child.dailyChores.filter((c) => c.isCompleted).length;
-              const total = child.dailyChores.length;
-              return (
+          {childChores.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No kids added yet. Add a child in Chores to get started.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {childChores.map((child) => (
                 <div key={child.id}>
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{child.name}</span>
-                    <span className="text-sm text-muted-foreground">{completed}/{total}</span>
+                    <span className="text-sm text-muted-foreground">{child.completed}/{child.total}</span>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -580,17 +604,16 @@ export default function TodayPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Log for</label>
-              <div className="flex gap-2">
-                {(['both', 'me', 'wife'] as const).map((option) => (
+              <div className="flex flex-wrap gap-2">
+                {[{ id: 'all', label: dashboards.length > 1 ? 'All dashboards' : 'This dashboard' }, ...dashboards.map((dashboard) => ({ id: dashboard.id, label: dashboard.name }))].map((option) => (
                   <Button
-                    key={option}
+                    key={option.id}
                     type="button"
-                    variant={quickAddData.person === option ? 'default' : 'outline'}
+                    variant={quickAddData.person === option.id ? 'default' : 'outline'}
                     size="sm"
-                    className="flex-1"
-                    onClick={() => setQuickAddData((prev) => ({ ...prev, person: option }))}
+                    onClick={() => setQuickAddData((prev) => ({ ...prev, person: option.id }))}
                   >
-                    {option === 'both' ? 'Both' : option === 'me' ? 'Me' : 'Wife'}
+                    {option.label}
                   </Button>
                 ))}
               </div>

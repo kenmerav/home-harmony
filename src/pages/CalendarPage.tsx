@@ -49,14 +49,13 @@ import {
   GoogleCalendarPrefs,
   setGoogleCalendarPrefs,
 } from '@/lib/calendarStore';
-import { mockChildren } from '@/data/mockData';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 
-const CHORES_STATE_KEY = 'homehub.choresEconomyState.v2';
+const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
 
@@ -108,6 +107,10 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function choresStateKey(userId?: string | null): string {
+  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+}
+
 function inRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
   return !isBefore(date, rangeStart) && !isAfter(date, rangeEnd);
 }
@@ -155,16 +158,12 @@ function normalizeDay(raw: unknown): DayOfWeek | null {
   return days.includes(value) ? value : null;
 }
 
-function loadChoreState(): ChildChoreState[] {
-  if (!canUseStorage()) {
-    return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
-  }
+function loadChoreState(userId?: string | null): ChildChoreState[] {
+  if (!canUseStorage()) return [];
 
   try {
-    const raw = window.localStorage.getItem(CHORES_STATE_KEY);
-    if (!raw) {
-      return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
-    }
+    const raw = window.localStorage.getItem(choresStateKey(userId));
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as { children?: unknown[] };
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children
@@ -199,7 +198,7 @@ function loadChoreState(): ChildChoreState[] {
       })
       .filter((child) => child.weeklyChores.length > 0 || child.extraChores.length > 0);
   } catch {
-    return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
+    return [];
   }
 }
 
@@ -413,7 +412,7 @@ export default function CalendarPage() {
         }
       });
 
-      const choreState = loadChoreState();
+      const choreState = loadChoreState(user?.id);
       choreState.forEach((child) => {
         child.weeklyChores
           .filter((chore) => !chore.isCompleted)
@@ -536,6 +535,16 @@ export default function CalendarPage() {
 
   useEffect(() => {
     void refreshEvents();
+  }, [refreshEvents]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handler = () => {
+      void refreshEvents();
+    };
+    window.addEventListener('homehub:calendar-events-updated', handler);
+    return () => window.removeEventListener('homehub:calendar-events-updated', handler);
   }, [refreshEvents]);
 
   const filteredEvents = useMemo(

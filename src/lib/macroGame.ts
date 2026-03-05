@@ -10,7 +10,7 @@ export type GoalPace = 'slow' | 'moderate' | 'aggressive';
 export type BodyUnitSystem = 'imperial' | 'metric';
 
 const STORAGE_KEY = 'homehub.macroGameState.v1';
-const CHORES_STATE_KEY = 'homehub.choresEconomyState.v2';
+const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 
 interface StoredMealLog extends Omit<MealLog, 'createdAt'> {
   createdAt: string;
@@ -138,6 +138,10 @@ const defaultQuestionnaire = (id: AdultId, name?: string): MacroQuestionnaire =>
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function choresStateKey(userId?: string | null): string {
+  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
 }
 
 function toStoredMealLog(log: MealLog): StoredMealLog {
@@ -516,10 +520,10 @@ export function getWeekPoints(personId: AdultId, date = new Date()): number {
   return points;
 }
 
-function getKidEntries(): LeaderboardEntry[] {
+function getKidEntries(userId?: string | null): LeaderboardEntry[] {
   if (!canUseStorage()) return [];
   try {
-    const raw = window.localStorage.getItem(CHORES_STATE_KEY);
+    const raw = window.localStorage.getItem(choresStateKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as {
       children?: Array<{
@@ -559,7 +563,7 @@ function getKidEntries(): LeaderboardEntry[] {
   }
 }
 
-export function getFamilyLeaderboard(date = new Date()): LeaderboardEntry[] {
+export function getFamilyLeaderboard(date = new Date(), userId?: string | null): LeaderboardEntry[] {
   const profiles = listDashboardProfiles();
   const adults: LeaderboardEntry[] = profiles.map(({ id, name }) => {
     const today = getDailyScore(id, format(date, 'yyyy-MM-dd'));
@@ -580,5 +584,5 @@ export function getFamilyLeaderboard(date = new Date()): LeaderboardEntry[] {
     };
   });
 
-  return [...adults, ...getKidEntries()].sort((a, b) => b.weekPoints - a.weekPoints);
+  return [...adults, ...getKidEntries(userId)].sort((a, b) => b.weekPoints - a.weekPoints);
 }

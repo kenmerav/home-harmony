@@ -21,9 +21,8 @@ import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { loadTasks } from '@/lib/taskStore';
 import { getManualCalendarEvents, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
-import { mockChildren } from '@/data/mockData';
 
-const CHORES_STATE_KEY = 'homehub.choresEconomyState.v2';
+const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
 
@@ -79,6 +78,10 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function choresStateKey(userId?: string | null): string {
+  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+}
+
 function dayToIndexMonday(day: DayOfWeek): number {
   switch (day) {
     case 'monday':
@@ -129,16 +132,12 @@ function weeklyDatesInRange(rangeStart: Date, rangeEnd: Date, day: DayOfWeek): D
   return dates;
 }
 
-function loadChoreState(): ChildChoreState[] {
-  if (!canUseStorage()) {
-    return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
-  }
+function loadChoreState(userId?: string | null): ChildChoreState[] {
+  if (!canUseStorage()) return [];
 
   try {
-    const raw = window.localStorage.getItem(CHORES_STATE_KEY);
-    if (!raw) {
-      return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
-    }
+    const raw = window.localStorage.getItem(choresStateKey(userId));
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as { children?: unknown[] };
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children
@@ -173,7 +172,7 @@ function loadChoreState(): ChildChoreState[] {
       })
       .filter((child) => child.weeklyChores.length > 0 || child.extraChores.length > 0);
   } catch {
-    return mockChildren.map((child) => ({ name: child.name, weeklyChores: child.weeklyChores, extraChores: [] }));
+    return [];
   }
 }
 
@@ -330,7 +329,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     }
   });
 
-  const choreState = loadChoreState();
+  const choreState = loadChoreState(userId);
   choreState.forEach((child) => {
     child.weeklyChores
       .filter((chore) => !chore.isCompleted)
