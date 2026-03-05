@@ -133,7 +133,7 @@ export function Hero({ startHref, onSeeHowItWorks }: HeroProps) {
           {/* TODO: replace with real Home Harmony lifestyle image */}
           <img
             src="/landing/hero-family.jpg"
-            alt="Organized family breakfast table in a calm home kitchen"
+            alt="Family playing a board game together in a cozy living room"
             className="h-full min-h-[280px] w-full object-cover"
             loading="eager"
           />
