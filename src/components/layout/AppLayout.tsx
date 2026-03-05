@@ -16,7 +16,9 @@ import {
   LogOut,
   User,
   Plus,
-  Pencil
+  Pencil,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -57,6 +59,10 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const [dashboards, setDashboards] = useState(() => listDashboardProfiles());
   const [mobileDashboardsOpen, setMobileDashboardsOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('homehub:sidebar-collapsed') === '1';
+  });
 
   const refreshDashboards = () => setDashboards(listDashboardProfiles());
 
@@ -66,6 +72,10 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
     window.addEventListener('homehub:macro-state-updated', onMacroStateUpdated);
     return () => window.removeEventListener('homehub:macro-state-updated', onMacroStateUpdated);
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('homehub:sidebar-collapsed', isSidebarCollapsed ? '1' : '0');
+  }, [isSidebarCollapsed]);
 
   const activeDashboardId = useMemo(() => {
     const match = location.pathname.match(/^\/dashboard\/([^/]+)/);
@@ -103,7 +113,12 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
-      <main className="pb-20 md:pb-6 md:pl-64">
+      <main
+        className={cn(
+          'pb-20 md:pb-6 transition-[padding-left] duration-200',
+          isSidebarCollapsed ? 'md:pl-20' : 'md:pl-64',
+        )}
+      >
         <div className={cn(contentWidthClassName || "max-w-4xl", "mx-auto p-4 md:p-6")}>
           <div className="mb-4 flex items-center justify-between">
             <Button
@@ -125,12 +140,28 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
       </main>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-full w-64 flex-col border-r border-border bg-sidebar">
-        <div className="p-6">
-          <h1 className="font-display text-xl font-semibold text-sidebar-foreground">
-            Home Hub
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Family management</p>
+      <aside
+        className={cn(
+          'hidden md:flex fixed left-0 top-0 h-full flex-col border-r border-border bg-sidebar transition-[width] duration-200',
+          isSidebarCollapsed ? 'w-20' : 'w-64',
+        )}
+      >
+        <div className={cn('p-4 flex items-start', isSidebarCollapsed ? 'justify-center' : 'justify-between')}>
+          <div className={cn(isSidebarCollapsed ? 'hidden' : 'block')}>
+            <h1 className="font-display text-xl font-semibold text-sidebar-foreground">
+              Home Hub
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">Family management</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
         </div>
         
         <nav className="flex-1 px-3 space-y-1">
@@ -142,22 +173,26 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-gentle",
+                  "flex items-center rounded-lg text-sm font-medium transition-gentle",
+                  isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
                   isActive 
                     ? "bg-sidebar-primary text-sidebar-primary-foreground" 
                     : "text-sidebar-foreground hover:bg-sidebar-accent"
                 )}
+                title={isSidebarCollapsed ? item.label : undefined}
               >
                 <item.icon className="w-5 h-5" />
-                {item.label}
+                {!isSidebarCollapsed && item.label}
               </NavLink>
             );
           })}
           
-          <div className="pt-4 pb-2 px-3 flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Dashboards
-            </p>
+          <div className={cn('pt-4 pb-2 flex items-center', isSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-3')}>
+            {!isSidebarCollapsed && (
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Dashboards
+              </p>
+            )}
             <button
               type="button"
               onClick={handleAddDashboard}
@@ -177,24 +212,28 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
                 <NavLink
                   to={to}
                   className={cn(
-                    "flex flex-1 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-gentle",
+                    "flex flex-1 items-center rounded-lg text-sm font-medium transition-gentle",
+                    isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
                     isActive 
                       ? "bg-sidebar-primary text-sidebar-primary-foreground" 
                       : "text-sidebar-foreground hover:bg-sidebar-accent"
                   )}
+                  title={isSidebarCollapsed ? dashboard.name : undefined}
                 >
                   <User className="w-5 h-5" />
-                  {dashboard.name}
+                  {!isSidebarCollapsed && dashboard.name}
                 </NavLink>
-                <button
-                  type="button"
-                  onClick={() => handleRenameDashboard(dashboard.id, dashboard.name)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                  aria-label={`Rename ${dashboard.name}`}
-                  title={`Rename ${dashboard.name}`}
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
+                {!isSidebarCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => handleRenameDashboard(dashboard.id, dashboard.name)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    aria-label={`Rename ${dashboard.name}`}
+                    title={`Rename ${dashboard.name}`}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             );
           })}
