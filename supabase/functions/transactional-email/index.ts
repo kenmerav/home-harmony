@@ -2,13 +2,25 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
-type Action = "send_welcome" | "send_family_invite";
+type Action = "send_welcome" | "send_family_invite" | "send_onboarding_preview";
 
 interface SendEmailArgs {
   to: string;
   subject: string;
   html: string;
   text: string;
+}
+
+const DEFAULT_ADMIN_EMAILS = ["kroberts035@gmail.com"];
+
+function parseAdminEmails(raw: string | null): Set<string> {
+  if (!raw) return new Set(DEFAULT_ADMIN_EMAILS);
+  const parsed = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  if (!parsed.length) return new Set(DEFAULT_ADMIN_EMAILS);
+  return new Set([...parsed, ...DEFAULT_ADMIN_EMAILS]);
 }
 
 function escapeHtml(value: string): string {
@@ -121,6 +133,52 @@ function familyInviteTemplate(args: {
   };
 }
 
+function onboardingPreviewTemplate(args: { userName: string; appUrl: string }) {
+  const safeName = escapeHtml(args.userName || "there");
+  const base = args.appUrl.replace(/\/$/, "");
+  const familyUrl = `${base}/family`;
+  const recipesUrl = `${base}/recipes`;
+  const mealsUrl = `${base}/meals`;
+  const groceryUrl = `${base}/grocery`;
+  const settingsUrl = `${base}/settings`;
+  const workoutsUrl = `${base}/workouts`;
+
+  return {
+    subject: "Welcome to Home Harmony - your setup starts here",
+    text:
+      `Hi ${args.userName || "there"},\n\n` +
+      `Welcome to Home Harmony.\n\n` +
+      `Fast setup path:\n` +
+      `1) Set up household and invite spouse/kids: ${familyUrl}\n` +
+      `2) Add recipes: ${recipesUrl}\n` +
+      `3) Build this week's meal plan: ${mealsUrl}\n` +
+      `4) Confirm grocery list: ${groceryUrl}\n` +
+      `5) Add phone number for SMS reminders: ${settingsUrl}\n` +
+      `6) Optional: set macro goals and workout tracking: ${workoutsUrl}\n\n` +
+      `Open app: ${base}\n`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1f2937;">
+        <h1 style="font-size:24px;margin:0 0 12px;">Welcome to Home Harmony, ${safeName}</h1>
+        <p style="margin:0 0 16px;line-height:1.55;">
+          Welcome aboard. Here is the fastest path to get real value in your first week.
+        </p>
+        <ol style="margin:0 0 20px;padding-left:18px;line-height:1.7;">
+          <li><a href="${familyUrl}">Set up your household</a> and invite spouse/kids.</li>
+          <li><a href="${recipesUrl}">Add recipes</a> so planning uses your real meals.</li>
+          <li><a href="${mealsUrl}">Build this week's meal plan</a> (generate or assign manually).</li>
+          <li><a href="${groceryUrl}">Confirm grocery list</a> with rolled-up quantities.</li>
+          <li><a href="${settingsUrl}">Add your phone number</a> to enable SMS reminders.</li>
+          <li>Optional: track macros/workouts and family progress in one place.</li>
+        </ol>
+        <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Open Home Harmony</a>
+        <p style="margin:18px 0 0;color:#6b7280;font-size:13px;">
+          Reply to this email anytime if you want help with setup.
+        </p>
+      </div>
+    `,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -129,26 +187,32 @@ serve(async (req) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     if (!supabaseUrl || !supabaseAnonKey) return json({ error: "Missing Supabase env vars." }, 500);
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Missing Authorization header." }, 401);
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authData.user) return json({ error: "Unauthorized." }, 401);
-
     const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = (payload.action || "") as Action;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Missing Authorization header." }, 401);
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const serviceRoleToken = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
+    const isServiceRoleAuth = Boolean(serviceRoleToken && bearerToken === serviceRoleToken);
+
+    let authUser: { email?: string | null; user_metadata?: Record<string, unknown> } | null = null;
+    if (!isServiceRoleAuth) {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authData.user) return json({ error: "Unauthorized." }, 401);
+      authUser = authData.user;
+    }
+
     const appUrl = appUrlFromPayload(payload);
     const inviterName =
-      typeof authData.user.user_metadata?.full_name === "string" && authData.user.user_metadata.full_name.trim()
-        ? authData.user.user_metadata.full_name.trim()
-        : authData.user.email || "Home Harmony user";
+      typeof authUser?.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()
+        ? authUser.user_metadata.full_name.trim()
+        : authUser?.email || "Home Harmony user";
 
     if (action === "send_welcome") {
-      const recipient = authData.user.email || "";
+      const recipient = authUser?.email || "";
       if (!recipient) return json({ error: "No email found for signed-in user." }, 400);
 
       const template = welcomeTemplate(inviterName, appUrl);
@@ -179,6 +243,28 @@ serve(async (req) => {
         householdName,
       });
 
+      const provider = await sendViaResend({
+        to: recipientEmail,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_onboarding_preview") {
+      const recipientEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : "there";
+      if (!recipientEmail) return json({ error: "Recipient email is required." }, 400);
+      if (!isServiceRoleAuth) {
+        const allowedRecipients = parseAdminEmails(Deno.env.get("ADMIN_EMAILS"));
+        if (!allowedRecipients.has(recipientEmail)) {
+          return json({ error: "Forbidden." }, 403);
+        }
+      }
+
+      const template = onboardingPreviewTemplate({ userName, appUrl });
       const provider = await sendViaResend({
         to: recipientEmail,
         subject: template.subject,
