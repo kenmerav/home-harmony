@@ -6,13 +6,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSeoMeta } from '@/lib/seo';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import {
-  CTA,
-  Features,
   Hero,
   HowItWorks,
-  LifestyleBand,
-  ProblemSection,
+  ModulesSection,
+  ProofBar,
   SeoFooterLinks,
+  SignupSection,
   Testimonials,
 } from '@/components/landing/LandingSections';
 
@@ -20,8 +19,8 @@ export default function LandingPage() {
   const { user, isDemoUser } = useAuth();
   const startFreeHref = user ? '/onboarding?force=1' : '/signin?onboarding=1';
 
-  const scrollToHowItWorks = () => {
-    const section = document.getElementById('how-it-works');
+  const scrollToSection = (sectionId: string) => {
+    const section = document.getElementById(sectionId);
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -32,18 +31,19 @@ export default function LandingPage() {
   }, [user?.id, isDemoUser]);
 
   useSeoMeta({
-    title: 'Bring Calm to Family Life | Home Harmony',
+    title: 'Home Harmony HQ | Your Home, Finally Running Like Clockwork',
     description:
-      'Home Harmony keeps meals, schedules, and routines in one simple place so your week runs smoother and your home feels lighter.',
+      'Home Harmony brings meals, chores, budgets, shopping, schedules, and family routines into one calm system for modern households.',
     keywords: [
       'family schedule app',
       'meal planning app for families',
       'shared grocery list app',
       'household routine app',
       'family organizer app',
+      'home management app for families',
     ],
     image: '/landing/hero-family.jpg',
-    imageAlt: 'Calm family breakfast table in a cozy kitchen',
+    imageAlt: 'Family playing a board game together in a cozy living room',
     type: 'website',
     breadcrumbs: [{ name: 'Home', url: '/' }],
   });
@@ -54,29 +54,50 @@ export default function LandingPage() {
 
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
-          <HomeHarmonyLogo />
+          <HomeHarmonyLogo compact />
+
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Landing navigation">
+            <Button variant="ghost" onClick={() => scrollToSection('modules')} aria-label="View feature modules">
+              Features
+            </Button>
+            <Button variant="ghost" onClick={() => scrollToSection('how')} aria-label="View how it works">
+              How it works
+            </Button>
+            <Button variant="ghost" onClick={() => scrollToSection('testimonials')} aria-label="View customer stories">
+              Stories
+            </Button>
+          </nav>
+
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={scrollToHowItWorks} className="hidden sm:inline-flex" aria-label="See how Home Harmony works">
+            <Button
+              variant="ghost"
+              onClick={() => scrollToSection('how')}
+              className="hidden sm:inline-flex md:hidden"
+              aria-label="See how Home Harmony works"
+            >
               See How It Works
             </Button>
             <Link to="/signin">
               <Button variant="ghost">Sign In</Button>
             </Link>
             <Link to={startFreeHref}>
-              <Button>Start Free</Button>
+              <Button>Get Started Free</Button>
             </Link>
           </div>
         </div>
       </header>
 
       <main className="pb-24 md:pb-0">
-        <Hero startHref={startFreeHref} onSeeHowItWorks={scrollToHowItWorks} />
-        <ProblemSection />
-        <Features startHref={startFreeHref} />
-        <LifestyleBand />
-        <Testimonials />
+        <Hero
+          startHref={startFreeHref}
+          onSeeHowItWorks={() => scrollToSection('how')}
+          onExploreFeatures={() => scrollToSection('modules')}
+        />
+        <ProofBar />
+        <ModulesSection startHref={startFreeHref} />
         <HowItWorks />
-        <CTA startHref={startFreeHref} />
+        <Testimonials />
+        <SignupSection startHref={startFreeHref} />
         <SeoFooterLinks />
       </main>
 
@@ -87,7 +108,12 @@ export default function LandingPage() {
               Start Free
             </Button>
           </Link>
-          <Button variant="outline" className="flex-1" onClick={scrollToHowItWorks} aria-label="See how Home Harmony works">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => scrollToSection('how')}
+            aria-label="See how Home Harmony works"
+          >
             See How It Works
           </Button>
         </div>
