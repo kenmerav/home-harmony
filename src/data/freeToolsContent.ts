@@ -17,7 +17,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'family-meal-plan-generator',
     title: 'Free Family Meal Plan Generator',
     description: 'Build a weekly family meal structure in minutes based on household size, prep time, and nutrition priorities.',
-    heroImage: '/seo/meal-plans.jpg',
+    heroImage: '/seo/unique/family-meal-plan-generator.jpg',
     heroAlt: 'Family meal plan generator interface with weekly schedule',
     searchIntent: ['weekly meal plan for family', 'family meal planner app', 'kid friendly dinner plan'],
     whatItDoes: [
@@ -50,7 +50,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'grocery-list-combiner',
     title: 'Free Grocery List Combiner',
     description: 'Merge multiple grocery lists into one clean list with duplicates removed and quantities rolled up.',
-    heroImage: '/seo/grocery-lists.jpg',
+    heroImage: '/seo/unique/grocery-list-combiner.jpg',
     heroAlt: 'Combined grocery list with deduplicated ingredients and quantities',
     searchIntent: ['combine grocery lists', 'shared grocery list app', 'grocery list from meal plan'],
     whatItDoes: [
@@ -83,7 +83,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'macro-and-protein-calculator',
     title: 'Free Macro and Protein Calculator',
     description: 'A goal-based calorie and macro calculator with protein-only mode for simpler tracking.',
-    heroImage: '/seo/macro-plans.jpg',
+    heroImage: '/seo/unique/macro-and-protein-calculator.jpg',
     heroAlt: 'Macro and protein calculator showing calorie and macro targets',
     searchIntent: ['macro calculator', 'protein goal calculator', 'calorie and macro tracker'],
     whatItDoes: [
@@ -109,7 +109,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'chore-reward-calculator',
     title: 'Free Chore Reward Calculator',
     description: 'Set chore payouts, penalties, and weekly prize structures with built-in fairness rules.',
-    heroImage: '/seo/chore-systems.jpg',
+    heroImage: '/seo/unique/chore-reward-calculator.jpg',
     heroAlt: 'Chore reward calculator with point and payout settings',
     searchIntent: ['chore chart with rewards', 'kids chore app', 'family chore points system'],
     whatItDoes: [
@@ -135,7 +135,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'pantry-meal-finder',
     title: 'Free Pantry Meal Finder',
     description: 'Input what you already have and get a realistic meal framework with minimal fill-in items.',
-    heroImage: '/seo/pantry-meals.jpg',
+    heroImage: '/seo/unique/pantry-meal-finder.jpg',
     heroAlt: 'Pantry meal finder suggesting meals from available ingredients',
     searchIntent: ['what can i make with these ingredients', 'pantry meal ideas', 'cook from pantry'],
     whatItDoes: [
@@ -161,7 +161,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'dinner-start-time-calculator',
     title: 'Free Dinner Start Time Calculator',
     description: 'Set your preferred dinner time and meal duration to get exact prep start reminders.',
-    heroImage: '/seo/meal-plans.jpg',
+    heroImage: '/seo/unique/dinner-start-time-calculator.jpg',
     heroAlt: 'Dinner start time calculator with prep reminders',
     searchIntent: ['when to start dinner', 'dinner prep reminder app', 'meal prep timing calculator'],
     whatItDoes: [
@@ -187,7 +187,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'family-routine-builder',
     title: 'Free Family Routine Builder',
     description: 'Build morning, after-school, and evening routines with clear ownership and reminders.',
-    heroImage: '/seo/household-templates.jpg',
+    heroImage: '/seo/unique/family-routine-builder.jpg',
     heroAlt: 'Family routine builder with morning and evening checklists',
     searchIntent: ['family routine planner', 'morning routine checklist for kids', 'household routine app'],
     whatItDoes: [
@@ -213,7 +213,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'weekly-home-reset-checklist-generator',
     title: 'Free Weekly Home Reset Checklist Generator',
     description: 'Generate a weekly home reset checklist tailored to household size, pets, and schedule.',
-    heroImage: '/seo/task-systems.jpg',
+    heroImage: '/seo/unique/weekly-home-reset-checklist-generator.jpg',
     heroAlt: 'Weekly home reset checklist organized by room and priority',
     searchIntent: ['weekly house reset checklist', 'home maintenance checklist', 'family home organization planner'],
     whatItDoes: [
@@ -239,7 +239,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'shared-household-task-priority-planner',
     title: 'Free Shared Household Task Priority Planner',
     description: 'Turn scattered household tasks into a ranked weekly priority board with clear ownership.',
-    heroImage: '/seo/task-systems.jpg',
+    heroImage: '/seo/unique/shared-household-task-priority-planner.jpg',
     heroAlt: 'Shared household task priority planner with priority lanes',
     searchIntent: ['household task management', 'shared family to do list', 'family organizer tasks'],
     whatItDoes: [
@@ -265,7 +265,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'family-workout-schedule-builder',
     title: 'Free Family Workout Schedule Builder',
     description: 'Create a realistic weekly workout schedule that fits school, work, and meal timing constraints.',
-    heroImage: '/seo/workout-tracking.jpg',
+    heroImage: '/seo/unique/family-workout-schedule-builder.jpg',
     heroAlt: 'Family workout schedule builder with days and session types',
     searchIntent: ['workout planner app', 'family fitness schedule', 'weekly workout plan generator'],
     whatItDoes: [
@@ -291,7 +291,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'family-budget-dinner-planner',
     title: 'Free Family Budget Dinner Planner',
     description: 'Plan a full week of family dinners around a target budget without sacrificing nutrition or prep speed.',
-    heroImage: '/seo/meal-plans.jpg',
+    heroImage: '/seo/unique/family-budget-dinner-planner.jpg',
     heroAlt: 'Family budget dinner planner with weekly cost targets',
     searchIntent: ['family dinner budget planner', 'cheap healthy family dinners', 'weekly dinner budget calculator'],
     whatItDoes: [
@@ -317,7 +317,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: 'kids-lunchbox-rotation-builder',
     title: 'Free Kids Lunchbox Rotation Builder',
     description: 'Create a repeatable, kid-friendly lunchbox rotation to reduce weekday decision fatigue.',
-    heroImage: '/seo/household-templates.jpg',
+    heroImage: '/seo/unique/kids-lunchbox-rotation-builder.jpg',
     heroAlt: 'Kids lunchbox rotation builder with weekday lunch themes',
     searchIntent: ['kids lunchbox planner', 'school lunch rotation', 'easy kid lunch ideas weekly'],
     whatItDoes: [
@@ -343,7 +343,7 @@ export const freeToolPages: FreeToolPage[] = [
     slug: '15-minute-school-night-dinner-filter',
     title: 'Free 15-Minute School Night Dinner Filter',
     description: 'Find realistic dinner options for high-chaos school nights with tight time windows.',
-    heroImage: '/seo/meal-plans.jpg',
+    heroImage: '/seo/unique/15-minute-school-night-dinner-filter.jpg',
     heroAlt: '15-minute school night dinner filter with fast dinner options',
     searchIntent: ['15 minute family dinners', 'quick school night meals', 'fast dinners for busy families'],
     whatItDoes: [
