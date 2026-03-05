@@ -34,6 +34,7 @@ async function sendViaResend(args: SendEmailArgs) {
   }
 
   const from = (Deno.env.get("EMAIL_FROM") || "Home Harmony <no-reply@homeharmony.app>").trim();
+  const replyTo = (Deno.env.get("EMAIL_REPLY_TO") || "").trim();
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -46,6 +47,7 @@ async function sendViaResend(args: SendEmailArgs) {
       subject: args.subject,
       html: args.html,
       text: args.text,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
 
