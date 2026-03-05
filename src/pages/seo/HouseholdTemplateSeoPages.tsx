@@ -356,7 +356,7 @@ export function HouseholdTemplateHubPage() {
       'weekly chore chart family',
       'family operations template',
     ],
-    image: '/seo/household-templates.png',
+    image: '/seo/household-templates.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -448,7 +448,7 @@ export function HouseholdTemplateDetailPage() {
     description: page?.description || 'Household operations template from Home Harmony.',
     // Unique keywords per page matched to specific household type and search intent
     keywords: meta?.keywords || ['family household template', 'chore chart family', 'weekly routine template'],
-    image: page?.heroImage.replace('.svg', '.png') || '/seo/household-templates.png',
+    image: page?.heroImage || '/seo/household-templates.jpg',
     publishedTime: meta?.publishedAt || '2026-02-21',
     modifiedTime: meta?.modifiedAt || '2026-02-21',
     breadcrumbs: page

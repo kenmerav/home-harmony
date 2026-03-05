@@ -84,7 +84,7 @@ export function RecipeCollectionHubPage() {
     title: 'Recipe Collections | Kid-Friendly, High-Protein, and Fast Dinners | Home Harmony',
     description: 'Explore recipe collections organized by household use-case: kid-friendly, high-protein prep, and under-30-minute dinners.',
     keywords: ['recipe collections', 'kid friendly recipes', 'high protein recipes'],
-    image: '/seo/recipe-collections.svg',
+    image: '/seo/recipe-collections.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },

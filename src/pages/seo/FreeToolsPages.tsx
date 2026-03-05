@@ -352,7 +352,7 @@ export function FreeToolsHubPage() {
       'free macro calculator',
       'free home management tools',
     ],
-    image: '/seo/meal-plans.svg',
+    image: '/seo/meal-plans.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -524,7 +524,7 @@ export function FreeToolsDetailPage() {
     title: tool ? `${tool.title} | Home Harmony` : 'Free Tool | Home Harmony',
     description: tool?.description || 'Free household planning tool from Home Harmony.',
     keywords: tool?.searchIntent || ['free family planning tool'],
-    image: tool?.heroImage || '/seo/meal-plans.svg',
+    image: tool?.heroImage || '/seo/meal-plans.jpg',
     breadcrumbs: tool
       ? [
           { name: 'Home', url: '/' },

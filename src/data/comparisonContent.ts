@@ -19,7 +19,7 @@ export const comparisonPages: ComparisonPage[] = [
     title: 'Home Harmony vs Cozi for Family Operations',
     description:
       'Compare Home Harmony and Cozi for meal planning, grocery automation, chores, task ownership, and fitness-nutrition workflows.',
-    heroImage: '/seo/task-systems.svg',
+    heroImage: '/seo/task-systems.jpg',
     heroAlt: 'Comparison table of Home Harmony and Cozi features',
     bestForHomeHarmony: [
       'Families wanting meals, grocery, chores, and wellness in one connected workflow.',
@@ -57,7 +57,7 @@ export const comparisonPages: ComparisonPage[] = [
     title: 'Home Harmony vs AnyList for Meal and Grocery Execution',
     description:
       'Compare Home Harmony and AnyList for grocery quality, weekly planning workflows, and household coordination beyond shopping.',
-    heroImage: '/seo/grocery-lists.svg',
+    heroImage: '/seo/grocery-lists.jpg',
     heroAlt: 'Home Harmony and AnyList grocery planning comparison',
     bestForHomeHarmony: [
       'Families that want grocery planning tied to full weekly operations.',
@@ -95,7 +95,7 @@ export const comparisonPages: ComparisonPage[] = [
     title: 'Home Harmony vs Todoist for Family Task and Routine Systems',
     description:
       'Compare Home Harmony and Todoist for household task ownership, recurring routines, meal integration, and family engagement.',
-    heroImage: '/seo/chore-systems.svg',
+    heroImage: '/seo/chore-systems.jpg',
     heroAlt: 'Task and routine management comparison between Home Harmony and Todoist',
     bestForHomeHarmony: [
       'Families who need task systems integrated with food, chores, and wellness routines.',

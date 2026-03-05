@@ -356,7 +356,7 @@ export function GroceryHubPage() {
       'grocery list rollup by meal plan',
       'family shopping list planner',
     ],
-    image: '/seo/grocery-lists.png',
+    image: '/seo/grocery-lists.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -448,7 +448,7 @@ export function GroceryDetailPage() {
     description: page?.description || 'Consolidated grocery rollup guide from Home Harmony.',
     // Unique keywords per page matched to specific search intent
     keywords: meta?.keywords || ['family grocery list', 'weekly shopping list', 'meal prep grocery list'],
-    image: page?.heroImage.replace('.svg', '.png') || '/seo/grocery-lists.png',
+    image: page?.heroImage || '/seo/grocery-lists.jpg',
     publishedTime: meta?.publishedAt || '2026-02-21',
     modifiedTime: meta?.modifiedAt || '2026-02-21',
     breadcrumbs: page

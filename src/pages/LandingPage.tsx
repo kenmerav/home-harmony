@@ -63,17 +63,17 @@ const useCases = [
   {
     title: 'Busy Parents',
     body: 'Plan dinners in minutes, keep grocery runs predictable, and reduce nightly decision fatigue.',
-    image: '/landing/usecase-family.svg',
+    image: '/landing/usecase-family.jpg',
   },
   {
     title: 'Meal Prep Households',
     body: 'Double recipes for the week, generate bulk shopping lists, and keep nutrition on track.',
-    image: '/landing/usecase-mealprep.svg',
+    image: '/landing/usecase-mealprep.jpg',
   },
   {
     title: 'Wellness-Focused Families',
     body: 'Track calories/macros now, with sleep, period, alcohol, and workouts converging into one home system.',
-    image: '/landing/usecase-wellness.svg',
+    image: '/landing/usecase-wellness.jpg',
   },
 ];
 
@@ -137,7 +137,7 @@ export default function LandingPage() {
       'sleep habit tracker',
       'period tracking planner',
     ],
-    image: '/landing/hero-family.svg',
+    image: '/landing/hero-family.jpg',
     type: 'website',
     faq: landingFaq,
     breadcrumbs: [{ name: 'Home', url: '/' }],
@@ -238,7 +238,7 @@ export default function LandingPage() {
               <div className="absolute -bottom-8 -right-8 h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
               <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft-lg">
                 <img
-                  src="/landing/hero-family.svg"
+                  src="/landing/hero-family.jpg"
                   alt="Home Harmony family operations overview"
                   className="h-[420px] w-full object-cover"
                 />

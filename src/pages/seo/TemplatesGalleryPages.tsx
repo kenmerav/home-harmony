@@ -81,7 +81,7 @@ export function TemplatesHubPage() {
       'chore chart templates',
       'household checklist templates',
     ],
-    image: '/seo/household-templates.svg',
+    image: '/seo/household-templates.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -210,7 +210,7 @@ export function TemplateDetailPage() {
     title: pack ? `${pack.title} Template | Home Harmony` : 'Template | Home Harmony',
     description: pack?.description || 'Family workflow template from Home Harmony.',
     keywords: pack ? [pack.title.toLowerCase(), 'family system template', 'home management template'] : ['family template'],
-    image: '/seo/household-templates.svg',
+    image: '/seo/household-templates.jpg',
     breadcrumbs: pack
       ? [
           { name: 'Home', url: '/' },

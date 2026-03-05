@@ -356,7 +356,7 @@ export function MacroHubPage() {
       'muscle gain macro plan',
       'macro framework weekly family meals',
     ],
-    image: '/seo/macro-plans.png',
+    image: '/seo/macro-plans.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -448,7 +448,7 @@ export function MacroDetailPage() {
     description: page?.description || 'Macro planning framework from Home Harmony.',
     // Unique keywords per page matched to specific calorie target and goal intent
     keywords: meta?.keywords || ['macro meal plan', 'calorie planning family', 'high protein macro plan'],
-    image: page?.heroImage.replace('.svg', '.png') || '/seo/macro-plans.png',
+    image: page?.heroImage || '/seo/macro-plans.jpg',
     publishedTime: meta?.publishedAt || '2026-02-21',
     modifiedTime: meta?.modifiedAt || '2026-02-21',
     breadcrumbs: page

@@ -24,7 +24,7 @@ export default function SeoResourcesPage() {
     description:
       'Explore practical family operations resources: meal plans, grocery strategy, pantry guides, recipe collections, chores, task systems, workout tracking, lifestyle tracking, and macro planning.',
     keywords: ['family planner app', 'meal planning', 'chore systems', 'task systems', 'workout tracking', 'lifestyle tracking'],
-    image: '/seo/meal-plans.svg',
+    image: '/seo/meal-plans.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },

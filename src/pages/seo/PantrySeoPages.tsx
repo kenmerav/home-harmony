@@ -84,7 +84,7 @@ export function PantryHubPage() {
     title: 'Pantry Meal Ideas | What Can I Make With What I Have? | Home Harmony',
     description: 'Practical pantry meal pages that map common ingredient sets to usable meals and quick fill-in items.',
     keywords: ['pantry meal ideas', 'what can i make', 'cook with what i have'],
-    image: '/seo/pantry-meals.svg',
+    image: '/seo/pantry-meals.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },

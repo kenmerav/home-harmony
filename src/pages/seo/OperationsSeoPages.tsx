@@ -566,7 +566,7 @@ function OperationsHub({ config }: { config: OperationsConfig }) {
     title: config.hubMetaTitle,
     description: config.hubMetaDescription,
     keywords: config.hubKeywords,
-    image: config.heroImage.replace('.svg', '.png'),
+    image: config.heroImage,
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -633,7 +633,7 @@ function OperationsDetail({ config }: { config: OperationsConfig }) {
     description: page?.description || `${config.hubLabel} guide from Home Harmony.`,
     // Each detail page gets its own unique keywords — not the hub-level keywords
     keywords: meta?.keywords || config.hubKeywords,
-    image: page?.heroImage.replace('.svg', '.png') || config.heroImage.replace('.svg', '.png'),
+    image: page?.heroImage || config.heroImage,
     publishedTime: meta?.publishedAt || '2026-02-21',
     modifiedTime: meta?.modifiedAt || '2026-02-21',
     breadcrumbs: page
@@ -780,7 +780,7 @@ const choreConfig: OperationsConfig = {
   hubLabel: 'Chore Systems',
   notFoundLabel: 'Chore guide',
   pages: choreSystemPages,
-  heroImage: '/seo/chore-systems.svg',
+  heroImage: '/seo/chore-systems.jpg',
   primerTitle: 'How to Roll Out a Chore System That Actually Sticks',
   primerIntro:
     'Chore systems fail when assignments are vague, ownership is shared without being named, or the system is launched all at once. Start with clear ownership, visible completion standards, and one weekly reset ritual.',
@@ -826,7 +826,7 @@ const taskConfig: OperationsConfig = {
   hubLabel: 'Task Systems',
   notFoundLabel: 'Task guide',
   pages: taskSystemPages,
-  heroImage: '/seo/task-systems.svg',
+  heroImage: '/seo/task-systems.jpg',
   primerTitle: 'How to Build a Family Task System That Reduces Mental Load',
   primerIntro:
     'Task systems work when priority, ownership, and deadlines are visible at a glance. The goal is not a comprehensive list — it is a system where everyone knows what matters most this week without asking.',
@@ -872,7 +872,7 @@ const workoutConfig: OperationsConfig = {
   hubLabel: 'Workout Tracking',
   notFoundLabel: 'Workout guide',
   pages: workoutTrackingPages,
-  heroImage: '/seo/workout-tracking.svg',
+  heroImage: '/seo/workout-tracking.jpg',
   primerTitle: 'How to Keep Training Consistent Around a Family Schedule',
   primerIntro:
     'Workout consistency with a family schedule comes from designing for your worst week, not your best one. Build the minimum viable training template first, then scale volume when availability allows.',
@@ -918,7 +918,7 @@ const lifestyleConfig: OperationsConfig = {
   hubLabel: 'Lifestyle Tracking',
   notFoundLabel: 'Lifestyle guide',
   pages: lifestyleTrackingPages,
-  heroImage: '/seo/lifestyle-tracking.svg',
+  heroImage: '/seo/lifestyle-tracking.jpg',
   primerTitle: 'How to Track Lifestyle Habits Without Burnout',
   primerIntro:
     'Lifestyle tracking works when it focuses on a small number of high-impact habits and uses weekly review rather than daily pressure. Start narrow, measure trends, and adjust deliberately.',

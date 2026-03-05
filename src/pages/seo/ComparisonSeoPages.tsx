@@ -53,7 +53,7 @@ export function ComparisonHubPage() {
       'home harmony vs todoist',
       'best family organizer app',
     ],
-    image: '/seo/task-systems.svg',
+    image: '/seo/task-systems.jpg',
     type: 'website',
     breadcrumbs: [
       { name: 'Home', url: '/' },
@@ -132,7 +132,7 @@ export function ComparisonDetailPage() {
     title: page ? `${page.title} | Home Harmony` : 'Comparison | Home Harmony',
     description: page?.description || 'Family software comparison guide from Home Harmony.',
     keywords: page ? [page.title.toLowerCase(), 'family app comparison', 'home management app comparison'] : ['family app comparison'],
-    image: page?.heroImage || '/seo/task-systems.svg',
+    image: page?.heroImage || '/seo/task-systems.jpg',
     breadcrumbs: page
       ? [
           { name: 'Home', url: '/' },
