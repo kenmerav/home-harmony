@@ -36,6 +36,7 @@ export function useSeoMeta(input: {
   description: string;
   keywords?: string[];
   image?: string;
+  imageAlt?: string;
   type?: 'article' | 'website';
   publishedTime?: string;
   modifiedTime?: string;
@@ -51,6 +52,7 @@ export function useSeoMeta(input: {
         ? input.image
         : `${window.location.origin}${input.image}`
       : undefined;
+    const imageAlt = input.imageAlt || input.title;
 
     document.title = input.title;
     upsertMeta('description', input.description);
@@ -60,11 +62,17 @@ export function useSeoMeta(input: {
     upsertOg('og:type', input.type || 'article');
     upsertOg('og:url', canonicalHref);
     upsertOg('og:site_name', 'Home Harmony');
-    if (imageUrl) upsertOg('og:image', imageUrl);
+    if (imageUrl) {
+      upsertOg('og:image', imageUrl);
+      upsertOg('og:image:alt', imageAlt);
+    }
     upsertMeta('twitter:card', 'summary_large_image');
     upsertMeta('twitter:title', input.title);
     upsertMeta('twitter:description', input.description);
-    if (imageUrl) upsertMeta('twitter:image', imageUrl);
+    if (imageUrl) {
+      upsertMeta('twitter:image', imageUrl);
+      upsertMeta('twitter:image:alt', imageAlt);
+    }
     upsertMeta('robots', 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1');
 
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
