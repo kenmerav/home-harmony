@@ -546,18 +546,23 @@ export default function GroceryPage() {
         </div>
 
         {selectedWeeklyAdStores.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {selectedWeeklyAdStores.map((store) => (
-              <Button
-                key={store.id}
-                variant="outline"
-                size="sm"
-                onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
-              >
-                {store.label} ad
-                <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
-              </Button>
-            ))}
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              {selectedWeeklyAdStores.map((store) => (
+                <Button
+                  key={store.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
+                >
+                  {store.label} ad
+                  <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Fry&apos;s, Safeway, and Whole Foods first open a ZIP-filtered store finder so your local ad/location is correct.
+            </p>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">Choose at least one store to show ad links.</p>
