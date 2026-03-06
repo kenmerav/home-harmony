@@ -262,6 +262,143 @@ function normalizePreference(value: string): StarterDietPreference | null {
   return null;
 }
 
+export interface StarterRecipeProfile {
+  dietPreferences?: string[];
+  mealStylePreferences?: string[];
+  foodRestrictions?: string[];
+  avoidFoods?: string[];
+  weeklyRhythm?: string[];
+  kidsCount?: number;
+}
+
+interface StarterRecipeMeta {
+  cookMinutes: number;
+  kidFriendly: boolean;
+  budgetFriendly: boolean;
+  proteinForward: boolean;
+  containsBeef: boolean;
+  containsPork: boolean;
+  containsFish: boolean;
+  containsDairy: boolean;
+  containsGluten: boolean;
+  containsNuts: boolean;
+  containsShellfish: boolean;
+}
+
+const COST_RANK: Record<CostTier, number> = {
+  budget: 0,
+  standard: 1,
+  premium: 2,
+};
+
+const PREVIEW_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+
+const normalizeToken = (value: string): string =>
+  value.trim().toLowerCase().replace(/[/-]/g, ' ').replace(/\s+/g, ' ');
+
+const parseAvoidFoods = (items: string[] = []): string[] =>
+  items.map(normalizeToken).filter((value) => value.length > 1);
+
+const hasAnyToken = (source: string, tokens: string[]): boolean =>
+  tokens.some((token) => source.includes(token));
+
+const inferRecipeMeta = (recipe: StarterDinnerRecipe): StarterRecipeMeta => {
+  const ingredientsText = recipe.ingredients.join(' ').toLowerCase();
+  const nameText = recipe.name.toLowerCase();
+  const source = `${nameText} ${ingredientsText}`;
+
+  return {
+    cookMinutes: recipe.effort === 'easy' ? 30 : 45,
+    kidFriendly:
+      !hasAnyToken(source, ['curry paste', 'chili powder']) &&
+      !hasAnyToken(nameText, ['curry']),
+    budgetFriendly: recipe.cost === 'budget',
+    proteinForward: recipe.macrosPerServing.protein_g >= 35 || recipe.tags.includes('Macro Friendly'),
+    containsBeef: hasAnyToken(source, ['beef', 'steak']),
+    containsPork: hasAnyToken(source, ['pork', 'sausage', 'bacon']),
+    containsFish: hasAnyToken(source, ['salmon', 'cod', 'fish']),
+    containsDairy: hasAnyToken(source, ['milk', 'cheese', 'cream', 'feta', 'parmesan', 'yogurt', 'butter']),
+    containsGluten: hasAnyToken(source, ['pasta', 'rigatoni', 'ravioli', 'orzo', 'breadcrumbs']),
+    containsNuts: hasAnyToken(source, ['peanut', 'almond', 'cashew']),
+    containsShellfish: hasAnyToken(source, ['shrimp']),
+  };
+};
+
+function recipeMatchesProfile(recipe: StarterDinnerRecipe, profile: StarterRecipeProfile): boolean {
+  const meta = inferRecipeMeta(recipe);
+  const dietPrefs = new Set((profile.dietPreferences || []).map(normalizeToken));
+  const restrictions = new Set((profile.foodRestrictions || []).map(normalizeToken));
+  const avoidFoods = parseAvoidFoods(profile.avoidFoods || []);
+  const recipeText = `${recipe.name} ${recipe.ingredients.join(' ')}`.toLowerCase();
+
+  if (avoidFoods.some((token) => recipeText.includes(token))) return false;
+
+  if (restrictions.has('no pork') && meta.containsPork) return false;
+  if (restrictions.has('no beef') && meta.containsBeef) return false;
+  if ((restrictions.has('vegetarian') || dietPrefs.has('vegetarian')) && (meta.containsBeef || meta.containsPork || meta.containsFish || meta.containsShellfish)) return false;
+  if (dietPrefs.has('pescatarian') && (meta.containsBeef || meta.containsPork)) return false;
+  if ((restrictions.has('dairy free') || dietPrefs.has('dairy free')) && meta.containsDairy) return false;
+  if ((restrictions.has('gluten free') || dietPrefs.has('gluten free')) && meta.containsGluten) return false;
+  if ((restrictions.has('low carb') || dietPrefs.has('low carb')) && recipe.macrosPerServing.carbs_g > 35) return false;
+  if ((dietPrefs.has('paleo') || restrictions.has('paleo')) && !recipe.tags.includes('Paleo')) return false;
+
+  if (restrictions.has('allergy aware') && (meta.containsNuts || meta.containsShellfish)) return false;
+
+  return true;
+}
+
+function scoreRecipe(recipe: StarterDinnerRecipe, profile: StarterRecipeProfile): number {
+  const dietPrefs = new Set((profile.dietPreferences || []).map(normalizeToken));
+  const mealStyles = new Set((profile.mealStylePreferences || []).map(normalizeToken));
+  const rhythms = new Set((profile.weeklyRhythm || []).map(normalizeToken));
+  const meta = inferRecipeMeta(recipe);
+
+  let score = 0;
+
+  for (const tag of recipe.tags) {
+    if (dietPrefs.has(normalizeToken(tag))) score += 3;
+  }
+  if (dietPrefs.has('mix of everything')) score += 1;
+  if (mealStyles.has('high protein') && meta.proteinForward) score += 3;
+  if ((mealStyles.has('family friendly') || mealStyles.has('kid friendly')) && meta.kidFriendly) score += 3;
+  if (mealStyles.has('quick meals') && meta.cookMinutes <= 30) score += 3;
+  if (mealStyles.has('budget friendly') && meta.budgetFriendly) score += 3;
+  if (mealStyles.has('healthy clean eating') && recipe.tags.includes('Organic')) score += 2;
+  if (mealStyles.has('comfort food') && (recipe.flavor === 'Comfort' || recipe.flavor === 'Italian' || recipe.flavor === 'American')) score += 2;
+
+  if (rhythms.has('sports heavy week') || rhythms.has('fast paced work week') || rhythms.has('unpredictable schedule')) {
+    score += meta.cookMinutes <= 30 ? 2 : 0;
+  }
+
+  if ((profile.kidsCount || 0) > 0 && meta.kidFriendly) score += 2;
+
+  return score;
+}
+
+function pickWithVariety(pool: StarterDinnerRecipe[], targetCount: number): StarterDinnerRecipe[] {
+  const selected: StarterDinnerRecipe[] = [];
+  const flavorCounts = new Map<FlavorProfile, number>();
+  const maxPerFlavor = 3;
+
+  for (const recipe of pool) {
+    if (selected.length >= targetCount) break;
+    const current = flavorCounts.get(recipe.flavor) || 0;
+    if (current >= maxPerFlavor) continue;
+    selected.push(recipe);
+    flavorCounts.set(recipe.flavor, current + 1);
+  }
+
+  if (selected.length < targetCount) {
+    for (const recipe of pool) {
+      if (selected.length >= targetCount) break;
+      if (selected.some((item) => item.name === recipe.name)) continue;
+      selected.push(recipe);
+    }
+  }
+
+  return selected;
+}
+
 export function buildStarterDinnerRecipes(preferences: string[] = [], targetCount = 18): StarterDinnerRecipe[] {
   const normalizedPrefs = new Set(
     preferences
@@ -269,43 +406,71 @@ export function buildStarterDinnerRecipes(preferences: string[] = [], targetCoun
       .filter((value): value is StarterDietPreference => value !== null),
   );
 
-  const scored = STARTER_DINNER_CATALOG.map((recipe) => {
-    const tagMatches = recipe.tags.reduce((count, tag) => count + (normalizedPrefs.has(tag) ? 1 : 0), 0);
-    const macroBias = normalizedPrefs.has('Macro Friendly') && recipe.tags.includes('Macro Friendly') ? 1 : 0;
-    return {
-      recipe,
-      score: tagMatches * 3 + macroBias,
-    };
+  const profile: StarterRecipeProfile = {
+    dietPreferences: Array.from(normalizedPrefs),
+    mealStylePreferences: normalizedPrefs.has('Macro Friendly') ? ['High Protein'] : [],
+    foodRestrictions: [],
+    avoidFoods: [],
+    weeklyRhythm: [],
+    kidsCount: 0,
+  };
+
+  return buildPersonalizedStarterRecipes(profile, targetCount);
+}
+
+export function buildPersonalizedStarterRecipes(
+  profile: StarterRecipeProfile,
+  targetCount = 18,
+): StarterDinnerRecipe[] {
+  const matched = STARTER_DINNER_CATALOG.filter((recipe) => recipeMatchesProfile(recipe, profile));
+  const pool = matched.length > 0 ? matched : STARTER_DINNER_CATALOG;
+
+  const scored = [...pool].sort((a, b) => {
+    const diff = scoreRecipe(b, profile) - scoreRecipe(a, profile);
+    if (diff !== 0) return diff;
+    if (a.cost !== b.cost) return COST_RANK[a.cost] - COST_RANK[b.cost];
+    return a.name.localeCompare(b.name);
   });
 
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.recipe.cost !== b.recipe.cost) {
-      const costRank: Record<CostTier, number> = { budget: 0, standard: 1, premium: 2 };
-      return costRank[a.recipe.cost] - costRank[b.recipe.cost];
-    }
-    return a.recipe.name.localeCompare(b.recipe.name);
-  });
-
-  const selected: StarterDinnerRecipe[] = [];
-  const flavorCounts = new Map<FlavorProfile, number>();
-  const maxPerFlavor = 3;
-
-  for (const { recipe } of scored) {
-    if (selected.length >= targetCount) break;
-    const currentFlavorCount = flavorCounts.get(recipe.flavor) || 0;
-    if (currentFlavorCount >= maxPerFlavor) continue;
-    selected.push(recipe);
-    flavorCounts.set(recipe.flavor, currentFlavorCount + 1);
-  }
-
-  if (selected.length < targetCount) {
-    for (const recipe of STARTER_DINNER_CATALOG) {
-      if (selected.length >= targetCount) break;
-      if (selected.some((item) => item.name === recipe.name)) continue;
-      selected.push(recipe);
-    }
-  }
-
+  const selected = pickWithVariety(scored, Math.min(targetCount, STARTER_DINNER_CATALOG.length));
   return selected.slice(0, Math.min(targetCount, STARTER_DINNER_CATALOG.length));
+}
+
+export function buildPersonalizedDinnerWeek(
+  profile: StarterRecipeProfile,
+  dayCount = 5,
+): Array<{ day: string; recipe: StarterDinnerRecipe; cookMinutes: number }> {
+  const recipes = buildPersonalizedStarterRecipes(profile, Math.max(dayCount, 7));
+  const picked = recipes.slice(0, Math.max(1, Math.min(dayCount, 7)));
+
+  return picked.map((recipe, index) => ({
+    day: PREVIEW_DAYS[index],
+    recipe,
+    cookMinutes: inferRecipeMeta(recipe).cookMinutes,
+  }));
+}
+
+export function buildPersonalizedGroceryPreview(
+  recipes: StarterDinnerRecipe[],
+  limit = 12,
+): string[] {
+  const counts = new Map<string, number>();
+
+  for (const recipe of recipes) {
+    for (const ingredient of recipe.ingredients) {
+      const cleaned = ingredient
+        .toLowerCase()
+        .replace(/^\d+([./]\d+)?\s*(lb|oz|cups?|cup|tbsp|tsp)?\s*/g, '')
+        .replace(/[()]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!cleaned) continue;
+      counts.set(cleaned, (counts.get(cleaned) || 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([name]) => name.replace(/\b\w/g, (char) => char.toUpperCase()));
 }

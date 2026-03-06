@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Sparkles } from 'lucide-react';
+import { CalendarDays, HeartHandshake, ShoppingBasket, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { seedStarterRecipesIfEmpty } from '@/lib/api/recipes';
+import {
+  buildPersonalizedDinnerWeek,
+  buildPersonalizedGroceryPreview,
+  type StarterRecipeProfile,
+} from '@/data/starterDinnerRecipes';
 import { useToast } from '@/hooks/use-toast';
+import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
-import { getPostAuthRoute } from '@/lib/billing';
 import {
   clearOnboardingDraft,
   loadOnboardingDraft,
@@ -22,549 +28,224 @@ import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
 import { OptionList } from '@/components/onboarding/OptionList';
 import { QuestionScreen } from '@/components/onboarding/QuestionScreen';
 
-const PRIMARY_GOAL_OPTIONS = [
-  'Meals & groceries',
-  'Chores & routines',
-  'Family calendar & tasks',
-  'Fitness & workouts',
-  'All of the above',
+const PAIN_POINT_OPTIONS = [
+  'Figuring out dinner every night',
+  'Keeping up with the family schedule',
+  'Grocery planning and follow-through',
+  'Reducing the mental load',
+  'Managing sports/school/activity logistics',
+  'Building better routines',
 ] as const;
 
-const HOUSEHOLD_OPTIONS = ['Just me', 'Me + partner', 'Family', 'Roommates'] as const;
-const KID_COUNT_OPTIONS = ['1', '2', '3', '4', '5+'] as const;
-const ROLE_OPTIONS = ['Primary planner', 'Shared planner', 'I need structure', 'I just want reminders'] as const;
-const INTENSITY_OPTIONS = ['Light touch', 'Balanced', 'Highly organized'] as const;
-const MEAL_OPTIONS = [
-  'Plan weeknights only',
-  'Plan the whole week',
-  'Just generate grocery lists',
-  'No meal planning',
-] as const;
-const DIET_PREFERENCE_OPTIONS = ['Paleo', 'Vegetarian', 'Macro Friendly', 'Organic'] as const;
-const GROCERY_MODE_OPTIONS = ['Pickup', 'Delivery', 'In-store', 'Mix'] as const;
-const GROCERY_STORE_OPTIONS = ['Walmart', 'Instacart', 'Amazon', 'Target', "Kroger/Fry's", 'Other'] as const;
-const CHORE_OPTIONS = ['Rotating schedule', 'Fixed responsibilities', "I'll set it up later"] as const;
-const REMINDER_STYLE_OPTIONS = ['Minimal', 'Normal', 'Persistent (keep nudging me)'] as const;
-const FITNESS_LEVEL_OPTIONS = ['Beginner', 'Intermediate', 'Advanced'] as const;
-const WORKOUT_FREQ_OPTIONS = ['0-2', '3-5', '6+'] as const;
-const WORKOUT_LOCATION_OPTIONS = ['Home', 'Gym', 'Both'] as const;
-const NUTRITION_TRACKING_OPTIONS = [
-  'Track full macros',
-  'Track protein only',
-  'Track calories only',
-  'Skip nutrition tracking',
-] as const;
-const HYDRATION_OPTIONS = ['Daily water goal', 'Casual water tracking', 'Not now'] as const;
-const STEP_GOAL_OPTIONS = ['5,000', '8,000', '10,000', '12,000+', 'No step goal'] as const;
-const SLEEP_GOAL_OPTIONS = ['7 hours', '8 hours', '9+ hours', 'No sleep target'] as const;
-const ALCOHOL_GOAL_OPTIONS = [
-  'Not tracking',
-  'Limit to weekends',
-  'Limit drinks per week',
-  'Reduce as much as possible',
+const WEEKLY_RHYTHM_OPTIONS = [
+  'Sports-heavy week',
+  'After-school activities most days',
+  'Mostly home in evenings',
+  'Unpredictable schedule',
+  'Fast-paced work week',
 ] as const;
 
-type PrimaryGoal = (typeof PRIMARY_GOAL_OPTIONS)[number];
-type HouseholdType = (typeof HOUSEHOLD_OPTIONS)[number];
-type KidCount = (typeof KID_COUNT_OPTIONS)[number];
-type RoleType = (typeof ROLE_OPTIONS)[number];
-type RoutineIntensity = (typeof INTENSITY_OPTIONS)[number];
-type MealPreference = (typeof MEAL_OPTIONS)[number];
-type DietPreference = (typeof DIET_PREFERENCE_OPTIONS)[number];
-type GroceryMode = (typeof GROCERY_MODE_OPTIONS)[number];
-type GroceryStore = (typeof GROCERY_STORE_OPTIONS)[number];
-type ChoreStyle = (typeof CHORE_OPTIONS)[number];
-type ReminderStyle = (typeof REMINDER_STYLE_OPTIONS)[number];
-type FitnessLevel = (typeof FITNESS_LEVEL_OPTIONS)[number];
-type WorkoutFrequency = (typeof WORKOUT_FREQ_OPTIONS)[number];
-type WorkoutLocation = (typeof WORKOUT_LOCATION_OPTIONS)[number];
-type NutritionTracking = (typeof NUTRITION_TRACKING_OPTIONS)[number];
-type HydrationTracking = (typeof HYDRATION_OPTIONS)[number];
-type StepGoal = (typeof STEP_GOAL_OPTIONS)[number];
-type SleepGoal = (typeof SLEEP_GOAL_OPTIONS)[number];
-type AlcoholGoal = (typeof ALCOHOL_GOAL_OPTIONS)[number];
+const MEAL_STYLE_OPTIONS = [
+  'High protein',
+  'Family-friendly',
+  'Quick meals',
+  'Budget-friendly',
+  'Healthy / clean eating',
+  'Comfort food',
+  'Kid-friendly',
+  'Mix of everything',
+] as const;
 
-type StepId =
-  | 'welcome'
-  | 'preset'
-  | 'primaryGoals'
-  | 'household'
-  | 'kidCount'
-  | 'role'
-  | 'intensity'
-  | 'meal'
-  | 'dietPreferences'
-  | 'groceryMode'
-  | 'groceryStore'
-  | 'chores'
-  | 'reminderStyle'
-  | 'fitnessLevel'
-  | 'workoutFrequency'
-  | 'workoutLocation'
-  | 'nutritionTracking'
-  | 'hydrationTracking'
-  | 'stepGoal'
-  | 'sleepGoal'
-  | 'alcoholGoal'
-  | 'notifications'
-  | 'value'
-  | 'plan';
+const DIET_PREFERENCE_OPTIONS = [
+  'Paleo',
+  'Low carb',
+  'Gluten free',
+  'Dairy free',
+  'Vegetarian',
+  'Pescatarian',
+  'Organic',
+  'Mix of everything',
+] as const;
 
-type PlanModule = 'meals' | 'groceries' | 'chores' | 'tasks' | 'workouts';
-type ReminderProfile = 'minimal' | 'normal' | 'persistent';
+const FOOD_RESTRICTION_OPTIONS = ['No pork', 'No beef', 'Allergy-aware'] as const;
 
-interface OnboardingAnswers {
-  onboardingPreset: 'busy-family' | 'fitness-focused' | 'chores-first' | 'balanced-all-in' | null;
-  primaryGoals: PrimaryGoal[];
-  householdType: HouseholdType | null;
-  kidCount: KidCount | null;
-  role: RoleType | null;
-  routineIntensity: RoutineIntensity | null;
-  mealPreference: MealPreference | null;
-  dietPreferences: DietPreference[];
-  groceryMode: GroceryMode | null;
-  groceryStore: GroceryStore | null;
-  choreStyle: ChoreStyle | null;
-  reminderStyle: ReminderStyle | null;
-  fitnessLevel: FitnessLevel | null;
-  workoutFrequency: WorkoutFrequency | null;
-  workoutLocation: WorkoutLocation | null;
-  nutritionTracking: NutritionTracking | null;
-  hydrationTracking: HydrationTracking | null;
-  stepGoal: StepGoal | null;
-  sleepGoal: SleepGoal | null;
-  alcoholGoal: AlcoholGoal | null;
-  reminderToggles: {
-    tasks: boolean;
-    groceries: boolean;
-    meals: boolean;
-    chores: boolean;
-    workouts: boolean;
-  };
-  notificationsOptIn: boolean | null;
-}
+const KID_AGE_RANGE_OPTIONS = ['0-4', '5-8', '9-12', '13-17'] as const;
 
-interface PersonalizedPlan {
-  enabledModules: PlanModule[];
-  defaultSchedules: {
-    intensity: 'light' | 'balanced' | 'high';
-    planningCadence: string;
-    reminderMoments: string[];
-    defaultWorkoutDays: number;
-  };
-  suggestedLists: string[];
-  reminderProfile: ReminderProfile;
-}
+const GROCERY_STORE_OPTIONS = [
+  "Fry's",
+  'Safeway',
+  'Whole Foods',
+  'Kroger',
+  'Target',
+  'Walmart',
+  'Costco',
+  'Instacart',
+] as const;
 
-const DEFAULT_ONBOARDING: OnboardingAnswers = {
-  onboardingPreset: null,
-  primaryGoals: [],
-  householdType: null,
-  kidCount: null,
-  role: null,
-  routineIntensity: null,
-  mealPreference: null,
-  dietPreferences: [],
-  groceryMode: null,
-  groceryStore: null,
-  choreStyle: null,
-  reminderStyle: null,
-  fitnessLevel: null,
-  workoutFrequency: null,
-  workoutLocation: null,
-  nutritionTracking: null,
-  hydrationTracking: null,
-  stepGoal: null,
-  sleepGoal: null,
-  alcoholGoal: null,
-  reminderToggles: {
-    tasks: true,
-    groceries: true,
-    meals: true,
-    chores: true,
-    workouts: true,
-  },
-  notificationsOptIn: null,
-};
+const GROCERY_MODE_OPTIONS = ['In-store', 'Pickup', 'Delivery', 'Mix'] as const;
 
-const ONBOARDING_PRESET_OPTIONS = [
-  'Busy family',
-  'Fitness focused',
-  'Chores first',
-  'Balanced all-in',
+const PLANNING_STYLE_OPTIONS = [
+  'Suggest meals for me',
+  'Let me choose from ideas',
+  'I mostly build my own plan',
+] as const;
+
+const DESIRED_OUTCOME_OPTIONS = [
+  'Calmer evenings',
+  'Less decision fatigue',
+  'Easier dinners',
+  'More organized weeks',
+  'Smoother school/sports logistics',
 ] as const;
 
 const PENDING_TEMPLATE_KEY = 'homehub.pendingTemplate.v1';
 
-function hasFitnessGoal(onboarding: OnboardingAnswers): boolean {
-  return onboarding.primaryGoals.includes('Fitness & workouts') || onboarding.primaryGoals.includes('All of the above');
+type MainPainPoint = (typeof PAIN_POINT_OPTIONS)[number];
+type WeeklyRhythm = (typeof WEEKLY_RHYTHM_OPTIONS)[number];
+type MealStylePreference = (typeof MEAL_STYLE_OPTIONS)[number];
+type DietPreference = (typeof DIET_PREFERENCE_OPTIONS)[number];
+type FoodRestriction = (typeof FOOD_RESTRICTION_OPTIONS)[number];
+type KidAgeRange = (typeof KID_AGE_RANGE_OPTIONS)[number];
+type GroceryStorePreference = (typeof GROCERY_STORE_OPTIONS)[number];
+type GroceryMode = (typeof GROCERY_MODE_OPTIONS)[number];
+type PlanningStyle = (typeof PLANNING_STYLE_OPTIONS)[number];
+type DesiredOutcome = (typeof DESIRED_OUTCOME_OPTIONS)[number];
+
+type StepId =
+  | 'welcome'
+  | 'painPoint'
+  | 'aha'
+  | 'household'
+  | 'kidAgeRanges'
+  | 'weeklyRhythm'
+  | 'mealStyles'
+  | 'dietPreferences'
+  | 'foodRestrictions'
+  | 'avoidFoods'
+  | 'planningStyle'
+  | 'groceryPreferences'
+  | 'desiredOutcome'
+  | 'mirror'
+  | 'experience'
+  | 'commitment'
+  | 'paywallPrep';
+
+type PlanModule = 'meals' | 'groceries' | 'chores' | 'tasks';
+
+interface OnboardingAnswers {
+  adultsCount: number;
+  kidsCount: number;
+  kidAgeRanges: KidAgeRange[];
+  mainPainPoint: MainPainPoint | null;
+  weeklyRhythm: WeeklyRhythm[];
+  mealStylePreferences: MealStylePreference[];
+  dietPreferences: DietPreference[];
+  foodRestrictions: FoodRestriction[];
+  avoidFoods: string;
+  mealDietNotes: string;
+  groceryStorePreferences: GroceryStorePreference[];
+  groceryShoppingMode: GroceryMode | null;
+  planningStyle: PlanningStyle | null;
+  desiredOutcome: DesiredOutcome | null;
+  commitmentConfirmed: boolean;
 }
 
-function needsStoreStep(onboarding: OnboardingAnswers): boolean {
-  return onboarding.groceryMode === 'Pickup' || onboarding.groceryMode === 'Delivery' || onboarding.groceryMode === 'Mix';
+interface PersonalizedPlan {
+  enabledModules: PlanModule[];
+  suggestedLists: string[];
+  weeklyPreview: {
+    dinners: Array<{ day: string; recipe: string; cookMinutes: number }>;
+    groceryPreview: string[];
+  };
+  summary: string;
 }
 
-function buildSteps(onboarding: OnboardingAnswers): StepId[] {
-  const steps: StepId[] = ['welcome', 'preset', 'primaryGoals', 'household'];
+const DEFAULT_ONBOARDING: OnboardingAnswers = {
+  adultsCount: 2,
+  kidsCount: 0,
+  kidAgeRanges: [],
+  mainPainPoint: null,
+  weeklyRhythm: [],
+  mealStylePreferences: [],
+  dietPreferences: [],
+  foodRestrictions: [],
+  avoidFoods: '',
+  mealDietNotes: '',
+  groceryStorePreferences: ["Fry's"],
+  groceryShoppingMode: null,
+  planningStyle: null,
+  desiredOutcome: null,
+  commitmentConfirmed: false,
+};
 
-  if (onboarding.householdType === 'Family') {
-    steps.push('kidCount');
+const parseAvoidFoods = (raw: string): string[] =>
+  raw
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+function buildSteps(answers: OnboardingAnswers): StepId[] {
+  const steps: StepId[] = [
+    'welcome',
+    'painPoint',
+    'aha',
+    'household',
+  ];
+
+  if (answers.kidsCount > 0) {
+    steps.push('kidAgeRanges');
   }
 
-  steps.push('role', 'intensity', 'meal', 'dietPreferences', 'groceryMode');
-
-  if (needsStoreStep(onboarding)) {
-    steps.push('groceryStore');
-  }
-
-  steps.push('chores', 'reminderStyle', 'nutritionTracking', 'hydrationTracking', 'stepGoal', 'sleepGoal', 'alcoholGoal');
-
-  if (hasFitnessGoal(onboarding)) {
-    steps.push('fitnessLevel', 'workoutFrequency', 'workoutLocation');
-  }
-
-  steps.push('notifications', 'value', 'plan');
+  steps.push(
+    'weeklyRhythm',
+    'mealStyles',
+    'dietPreferences',
+    'foodRestrictions',
+    'avoidFoods',
+    'planningStyle',
+    'groceryPreferences',
+    'desiredOutcome',
+    'mirror',
+    'experience',
+    'commitment',
+    'paywallPrep',
+  );
 
   return steps;
 }
 
-function applyPresetToOnboarding(preset: NonNullable<OnboardingAnswers['onboardingPreset']>, current: OnboardingAnswers): OnboardingAnswers {
-  const base: OnboardingAnswers = {
-    ...current,
-    onboardingPreset: preset,
-  };
-
-  switch (preset) {
-    case 'busy-family':
-      return {
-        ...base,
-        primaryGoals: ['Meals & groceries', 'Family calendar & tasks'],
-        householdType: current.householdType || 'Family',
-        role: current.role || 'Primary planner',
-        routineIntensity: 'Balanced',
-        mealPreference: 'Plan weeknights only',
-        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly'],
-        groceryMode: 'Pickup',
-        groceryStore: current.groceryStore || 'Walmart',
-        reminderStyle: 'Normal',
-        nutritionTracking: current.nutritionTracking || 'Track protein only',
-        hydrationTracking: current.hydrationTracking || 'Daily water goal',
-      };
-    case 'fitness-focused':
-      return {
-        ...base,
-        primaryGoals: ['Fitness & workouts', 'Meals & groceries'],
-        routineIntensity: 'Highly organized',
-        mealPreference: 'Plan the whole week',
-        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly'],
-        reminderStyle: 'Persistent (keep nudging me)',
-        fitnessLevel: current.fitnessLevel || 'Intermediate',
-        workoutFrequency: '3-5',
-        workoutLocation: 'Both',
-        nutritionTracking: 'Track full macros',
-        hydrationTracking: 'Daily water goal',
-        stepGoal: '10,000',
-        sleepGoal: '8 hours',
-      };
-    case 'chores-first':
-      return {
-        ...base,
-        primaryGoals: ['Chores & routines', 'Family calendar & tasks'],
-        routineIntensity: 'Highly organized',
-        choreStyle: 'Rotating schedule',
-        reminderStyle: 'Persistent (keep nudging me)',
-        mealPreference: current.mealPreference || 'Plan weeknights only',
-        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Organic'],
-      };
-    case 'balanced-all-in':
-      return {
-        ...base,
-        primaryGoals: ['All of the above', ...PRIMARY_GOAL_OPTIONS.filter((option) => option !== 'All of the above')],
-        routineIntensity: 'Balanced',
-        mealPreference: 'Plan weeknights only',
-        dietPreferences: current.dietPreferences.length ? current.dietPreferences : ['Macro Friendly', 'Organic'],
-        groceryMode: 'Mix',
-        groceryStore: current.groceryStore || 'Instacart',
-        choreStyle: 'Rotating schedule',
-        reminderStyle: 'Normal',
-        fitnessLevel: current.fitnessLevel || 'Beginner',
-        workoutFrequency: '3-5',
-        workoutLocation: 'Both',
-        nutritionTracking: current.nutritionTracking || 'Track protein only',
-        hydrationTracking: current.hydrationTracking || 'Daily water goal',
-      };
-    default:
-      return base;
-  }
-}
-
-function applyTemplateToOnboarding(templateSlug: string, current: OnboardingAnswers): OnboardingAnswers {
-  switch (templateSlug) {
-    case 'busy-family-weeknight-system':
-      return applyPresetToOnboarding('busy-family', {
-        ...current,
-        mealPreference: 'Plan weeknights only',
-        nutritionTracking: 'Track protein only',
-      });
-    case 'lean-grocery-budget-mode':
-      return {
-        ...current,
-        primaryGoals: ['Meals & groceries'],
-        groceryMode: 'Pickup',
-        groceryStore: 'Walmart',
-        mealPreference: 'Plan weeknights only',
-      };
-    case 'kids-chores-points-loop':
-      return {
-        ...current,
-        primaryGoals: ['Chores & routines', 'Family calendar & tasks'],
-        choreStyle: 'Rotating schedule',
-        reminderStyle: 'Persistent (keep nudging me)',
-      };
-    case 'family-weekly-reset-board':
-      return {
-        ...current,
-        primaryGoals: ['Family calendar & tasks', 'Chores & routines'],
-        routineIntensity: 'Highly organized',
-      };
-    case 'three-day-family-fitness':
-      return {
-        ...current,
-        primaryGoals: ['Fitness & workouts', 'Meals & groceries'],
-        fitnessLevel: 'Beginner',
-        workoutFrequency: '3-5',
-        workoutLocation: 'Both',
-      };
-    case 'protein-water-consistency':
-      return {
-        ...current,
-        nutritionTracking: 'Track protein only',
-        hydrationTracking: 'Daily water goal',
-        stepGoal: current.stepGoal || '8,000',
-      };
-    default:
-      return current;
-  }
-}
-
-function parseKids(kids: KidCount | null): number {
-  if (!kids) return 0;
-  if (kids === '5+') return 5;
-  return Number.parseInt(kids, 10) || 0;
-}
-
-function getFamilySize(onboarding: OnboardingAnswers): number {
-  switch (onboarding.householdType) {
-    case 'Just me':
-      return 1;
-    case 'Me + partner':
-      return 2;
-    case 'Roommates':
-      return 3;
-    case 'Family':
-      return Math.max(2, 2 + parseKids(onboarding.kidCount));
-    default:
-      return 1;
-  }
-}
-
-function mapReminderProfile(style: ReminderStyle | null): ReminderProfile {
-  if (style === 'Minimal') return 'minimal';
-  if (style === 'Persistent (keep nudging me)') return 'persistent';
-  return 'normal';
-}
-
-function buildEnabledModules(onboarding: OnboardingAnswers): PlanModule[] {
-  const modules = new Set<PlanModule>();
-
-  if (onboarding.primaryGoals.includes('All of the above')) {
-    modules.add('meals');
-    modules.add('groceries');
-    modules.add('chores');
-    modules.add('tasks');
-    modules.add('workouts');
-  } else {
-    if (onboarding.primaryGoals.includes('Meals & groceries')) {
-      modules.add('meals');
-      modules.add('groceries');
-    }
-    if (onboarding.primaryGoals.includes('Chores & routines')) {
-      modules.add('chores');
-    }
-    if (onboarding.primaryGoals.includes('Family calendar & tasks')) {
-      modules.add('tasks');
-    }
-    if (onboarding.primaryGoals.includes('Fitness & workouts')) {
-      modules.add('workouts');
-    }
-  }
-
-  if (onboarding.mealPreference === 'No meal planning') {
-    modules.delete('meals');
-  }
-  if (onboarding.mealPreference === 'Just generate grocery lists') {
-    modules.delete('meals');
-    modules.add('groceries');
-  }
-
-  if (onboarding.reminderToggles.tasks) modules.add('tasks');
-  if (onboarding.reminderToggles.groceries) modules.add('groceries');
-  if (onboarding.reminderToggles.meals && onboarding.mealPreference !== 'No meal planning') modules.add('meals');
-  if (onboarding.reminderToggles.chores) modules.add('chores');
-  if (onboarding.reminderToggles.workouts && hasFitnessGoal(onboarding)) modules.add('workouts');
-
-  const order: PlanModule[] = ['meals', 'groceries', 'chores', 'tasks', 'workouts'];
-  return order.filter((module) => modules.has(module));
-}
-
-function buildSuggestedLists(onboarding: OnboardingAnswers, enabledModules: PlanModule[]): string[] {
-  const items: string[] = [];
-
-  if (enabledModules.includes('meals') && enabledModules.includes('groceries')) {
-    items.push("This week's meal plan + grocery list");
-  } else if (enabledModules.includes('groceries')) {
-    items.push('Weekly grocery staples list');
-  }
-
-  if (enabledModules.includes('chores')) {
-    items.push(
-      onboarding.choreStyle === 'Rotating schedule'
-        ? 'Chore schedule (rotating)'
-        : onboarding.choreStyle === 'Fixed responsibilities'
-        ? 'Chore schedule (fixed responsibilities)'
-        : 'Starter chores board (set up later)',
-    );
-  }
-
-  if (enabledModules.includes('tasks')) {
-    items.push('Top 5 tasks to set up');
-  }
-
-  if (enabledModules.includes('workouts')) {
-    const freq = onboarding.workoutFrequency || '3-5';
-    items.push(`Workout plan (${freq} days/week)`);
-  }
-
-  if (onboarding.nutritionTracking === 'Track full macros') {
-    items.push('Macro targets dashboard (calories, protein, carbs, fats)');
-  } else if (onboarding.nutritionTracking === 'Track protein only') {
-    items.push('Protein-first scoreboard and streaks');
-  } else if (onboarding.nutritionTracking === 'Track calories only') {
-    items.push('Daily calorie budget tracker');
-  }
-
-  if (onboarding.hydrationTracking === 'Daily water goal') {
-    items.push('Daily hydration target reminder');
-  }
-  if (onboarding.stepGoal && onboarding.stepGoal !== 'No step goal') {
-    items.push(`Step goal tracker (${onboarding.stepGoal} per day)`);
-  }
-  if (onboarding.sleepGoal && onboarding.sleepGoal !== 'No sleep target') {
-    items.push(`Sleep target check-in (${onboarding.sleepGoal})`);
-  }
-  if (onboarding.alcoholGoal && onboarding.alcoholGoal !== 'Not tracking') {
-    items.push(`Alcohol habit target (${onboarding.alcoholGoal})`);
-  }
-
-  if (items.length < 3) {
-    items.push('Morning routine checklist');
-  }
-  if (items.length < 4) {
-    items.push('Evening reset checklist');
-  }
-
-  return items.slice(0, 5);
-}
-
-function buildPersonalizedPlan(onboarding: OnboardingAnswers): PersonalizedPlan {
-  const enabledModules = buildEnabledModules(onboarding);
-
-  const intensity = onboarding.routineIntensity === 'Light touch'
-    ? 'light'
-    : onboarding.routineIntensity === 'Highly organized'
-    ? 'high'
-    : 'balanced';
-
-  const workoutDays = onboarding.workoutFrequency === '0-2' ? 2 : onboarding.workoutFrequency === '6+' ? 6 : 4;
-
-  const schedules =
-    intensity === 'light'
-      ? {
-          intensity,
-          planningCadence: 'Weekly check-in every Sunday evening',
-          reminderMoments: ['8:00 AM', '6:00 PM'],
-          defaultWorkoutDays: workoutDays,
-        }
-      : intensity === 'high'
-      ? {
-          intensity,
-          planningCadence: 'Weekly planning + midweek adjustment',
-          reminderMoments: ['7:30 AM', '12:00 PM', '6:00 PM'],
-          defaultWorkoutDays: workoutDays,
-        }
-      : {
-          intensity,
-          planningCadence: 'Weekly planning block on Sunday',
-          reminderMoments: ['8:00 AM', '6:00 PM', '8:30 PM'],
-          defaultWorkoutDays: workoutDays,
-        };
-
-  return {
-    enabledModules,
-    defaultSchedules: schedules,
-    suggestedLists: buildSuggestedLists(onboarding, enabledModules),
-    reminderProfile: mapReminderProfile(onboarding.reminderStyle),
-  };
-}
-
-function isStepComplete(step: StepId, onboarding: OnboardingAnswers): boolean {
+function isStepComplete(step: StepId, answers: OnboardingAnswers): boolean {
   switch (step) {
     case 'welcome':
+    case 'aha':
+    case 'mirror':
+    case 'experience':
+    case 'paywallPrep':
       return true;
-    case 'preset':
-      return onboarding.onboardingPreset !== null;
-    case 'primaryGoals':
-      return onboarding.primaryGoals.length > 0;
+    case 'painPoint':
+      return answers.mainPainPoint !== null;
     case 'household':
-      return onboarding.householdType !== null;
-    case 'kidCount':
-      return onboarding.kidCount !== null;
-    case 'role':
-      return onboarding.role !== null;
-    case 'intensity':
-      return onboarding.routineIntensity !== null;
-    case 'meal':
-      return onboarding.mealPreference !== null;
+      return answers.adultsCount > 0 && answers.kidsCount >= 0;
+    case 'kidAgeRanges':
+      return answers.kidsCount === 0 || answers.kidAgeRanges.length > 0;
+    case 'weeklyRhythm':
+      return answers.weeklyRhythm.length > 0;
+    case 'mealStyles':
+      return answers.mealStylePreferences.length > 0;
     case 'dietPreferences':
-      return onboarding.dietPreferences.length > 0;
-    case 'groceryMode':
-      return onboarding.groceryMode !== null;
-    case 'groceryStore':
-      return onboarding.groceryStore !== null;
-    case 'chores':
-      return onboarding.choreStyle !== null;
-    case 'reminderStyle':
-      return onboarding.reminderStyle !== null;
-    case 'fitnessLevel':
-      return onboarding.fitnessLevel !== null;
-    case 'workoutFrequency':
-      return onboarding.workoutFrequency !== null;
-    case 'workoutLocation':
-      return onboarding.workoutLocation !== null;
-    case 'nutritionTracking':
-      return onboarding.nutritionTracking !== null;
-    case 'hydrationTracking':
-      return onboarding.hydrationTracking !== null;
-    case 'stepGoal':
-      return onboarding.stepGoal !== null;
-    case 'sleepGoal':
-      return onboarding.sleepGoal !== null;
-    case 'alcoholGoal':
-      return onboarding.alcoholGoal !== null;
-    case 'notifications':
-    case 'value':
-    case 'plan':
+      return answers.dietPreferences.length > 0;
+    case 'foodRestrictions':
       return true;
+    case 'avoidFoods':
+      return true;
+    case 'planningStyle':
+      return answers.planningStyle !== null;
+    case 'groceryPreferences':
+      return answers.groceryShoppingMode !== null && answers.groceryStorePreferences.length > 0;
+    case 'desiredOutcome':
+      return answers.desiredOutcome !== null;
+    case 'commitment':
+      return answers.commitmentConfirmed;
     default:
       return false;
   }
@@ -574,70 +255,64 @@ function singleSelection<T extends string>(value: T | null): T[] {
   return value ? [value] : [];
 }
 
-function presetFromOption(option: (typeof ONBOARDING_PRESET_OPTIONS)[number]): NonNullable<OnboardingAnswers['onboardingPreset']> {
-  if (option === 'Busy family') return 'busy-family';
-  if (option === 'Fitness focused') return 'fitness-focused';
-  if (option === 'Chores first') return 'chores-first';
-  return 'balanced-all-in';
-}
-
-function presetToOption(preset: OnboardingAnswers['onboardingPreset']): (typeof ONBOARDING_PRESET_OPTIONS)[number] | null {
-  if (preset === 'busy-family') return 'Busy family';
-  if (preset === 'fitness-focused') return 'Fitness focused';
-  if (preset === 'chores-first') return 'Chores first';
-  if (preset === 'balanced-all-in') return 'Balanced all-in';
-  return null;
-}
-
-function humanizeEmail(email?: string | null): string {
-  if (!email) return 'Home Harmony User';
-  const prefix = email.split('@')[0] || 'Home Harmony User';
-  return prefix
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function deriveDietaryPreferences(onboarding: OnboardingAnswers): string[] {
-  const choices = new Set<string>();
-  for (const preference of onboarding.dietPreferences) {
-    choices.add(preference);
+function toggleWithMix<T extends string>(values: T[], incoming: T, mixLabel: T): T[] {
+  if (incoming === mixLabel) {
+    return values.includes(mixLabel) ? [] : [mixLabel];
   }
-  if (onboarding.householdType === 'Family') choices.add('Kid Friendly');
-  if (hasFitnessGoal(onboarding) || onboarding.nutritionTracking === 'Track protein only' || onboarding.nutritionTracking === 'Track full macros') {
-    choices.add('Macro Friendly');
+
+  const withoutMix = values.filter((item) => item !== mixLabel);
+  if (withoutMix.includes(incoming)) {
+    return withoutMix.filter((item) => item !== incoming);
   }
-  if (onboarding.mealPreference === 'No meal planning') choices.add('Low Carb');
-  if (choices.size === 0) choices.add('Macro Friendly');
-  return Array.from(choices);
+  return [...withoutMix, incoming];
 }
 
-function buildGoalsText(onboarding: OnboardingAnswers, plan: PersonalizedPlan): string {
-  const goals = onboarding.primaryGoals
-    .filter((goal) => goal !== 'All of the above')
-    .slice(0, 3)
-    .join(', ')
-    .toLowerCase();
+function toggleValue<T extends string>(values: T[], incoming: T): T[] {
+  return values.includes(incoming)
+    ? values.filter((item) => item !== incoming)
+    : [...values, incoming];
+}
 
-  const coreGoal = goals || 'home routines';
-  const mealLine = onboarding.mealPreference ? `Meals: ${onboarding.mealPreference}.` : '';
-  const groceryLine = onboarding.groceryMode ? `Groceries: ${onboarding.groceryMode}${onboarding.groceryStore ? ` via ${onboarding.groceryStore}` : ''}.` : '';
-  const structureLine = onboarding.routineIntensity ? `Structure: ${onboarding.routineIntensity}.` : '';
-  const nutritionLine = onboarding.nutritionTracking ? `Nutrition: ${onboarding.nutritionTracking}.` : '';
-  const preferenceLine = onboarding.dietPreferences.length ? `Food preferences: ${onboarding.dietPreferences.join(', ')}.` : '';
-  const lifestyleLine = [
-    onboarding.hydrationTracking ? `Water: ${onboarding.hydrationTracking}` : null,
-    onboarding.stepGoal ? `Steps: ${onboarding.stepGoal}` : null,
-    onboarding.sleepGoal ? `Sleep: ${onboarding.sleepGoal}` : null,
-    onboarding.alcoholGoal ? `Alcohol: ${onboarding.alcoholGoal}` : null,
+function householdSummary(answers: OnboardingAnswers): string {
+  const adults = `${answers.adultsCount} adult${answers.adultsCount === 1 ? '' : 's'}`;
+  const kids = answers.kidsCount > 0 ? `${answers.kidsCount} kid${answers.kidsCount === 1 ? '' : 's'}` : 'no kids';
+  const ageText = answers.kidAgeRanges.length > 0 ? ` (${answers.kidAgeRanges.join(', ')})` : '';
+  return `${adults}, ${kids}${ageText}`;
+}
+
+function normalizeDietaryPreferences(answers: OnboardingAnswers): string[] {
+  const combined = [
+    ...answers.dietPreferences,
+    ...answers.mealStylePreferences,
+    ...answers.foodRestrictions,
+  ];
+
+  if (answers.kidsCount > 0 && !combined.includes('Kid-friendly')) {
+    combined.push('Kid-friendly');
+  }
+
+  return Array.from(new Set(combined));
+}
+
+function buildGoalsText(answers: OnboardingAnswers): string {
+  const rhythm = answers.weeklyRhythm.join(', ').toLowerCase();
+  const meals = answers.mealStylePreferences.join(', ').toLowerCase();
+  const diets = answers.dietPreferences.join(', ').toLowerCase();
+  const stores = answers.groceryStorePreferences.join(', ');
+  const avoid = parseAvoidFoods(answers.avoidFoods);
+
+  return [
+    `Main pressure: ${answers.mainPainPoint || 'not provided'}.`,
+    `Desired outcome: ${answers.desiredOutcome || 'calmer week'}.`,
+    `Weekly rhythm: ${rhythm || 'not provided'}.`,
+    `Meal style: ${meals || 'not provided'}.`,
+    `Diet focus: ${diets || 'not provided'}.`,
+    answers.mealDietNotes.trim() ? `Extra meal/diet notes: ${answers.mealDietNotes.trim()}.` : null,
+    `Shopping: ${answers.groceryShoppingMode || 'not set'} at ${stores}.`,
+    avoid.length ? `Avoid foods: ${avoid.join(', ')}.` : null,
   ]
     .filter(Boolean)
-    .join(', ');
-
-  return `Priorities: ${coreGoal}. ${mealLine} ${preferenceLine} ${groceryLine} ${structureLine} ${nutritionLine} ${lifestyleLine ? `Lifestyle: ${lifestyleLine}.` : ''} Modules: ${plan.enabledModules.join(', ')}.`
-    .replace(/\s+/g, ' ')
-    .trim();
+    .join(' ');
 }
 
 export default function OnboardingPage() {
@@ -648,7 +323,7 @@ export default function OnboardingPage() {
   const { toast } = useToast();
 
   const draft = useMemo(() => loadOnboardingDraft(user?.id), [user?.id]);
-  const [onboarding, setOnboarding] = useState<OnboardingAnswers>(
+  const [answers, setAnswers] = useState<OnboardingAnswers>(
     draft?.onboarding ? ({ ...DEFAULT_ONBOARDING, ...draft.onboarding } as OnboardingAnswers) : DEFAULT_ONBOARDING,
   );
   const [currentStepId, setCurrentStepId] = useState<StepId>(
@@ -657,10 +332,49 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const steps = useMemo(() => buildSteps(onboarding), [onboarding]);
+  const steps = useMemo(() => buildSteps(answers), [answers]);
   const stepIndex = Math.max(0, steps.indexOf(currentStepId));
   const progress = (stepIndex + 1) / steps.length;
-  const personalizedPlan = useMemo(() => buildPersonalizedPlan(onboarding), [onboarding]);
+
+  const recipeProfile: StarterRecipeProfile = useMemo(
+    () => ({
+      dietPreferences: answers.dietPreferences,
+      mealStylePreferences: answers.mealStylePreferences,
+      foodRestrictions: answers.foodRestrictions,
+      avoidFoods: parseAvoidFoods(answers.avoidFoods),
+      weeklyRhythm: answers.weeklyRhythm,
+      kidsCount: answers.kidsCount,
+    }),
+    [answers],
+  );
+
+  const previewWeek = useMemo(() => buildPersonalizedDinnerWeek(recipeProfile, 5), [recipeProfile]);
+  const groceryPreview = useMemo(
+    () => buildPersonalizedGroceryPreview(previewWeek.map((item) => item.recipe), 10),
+    [previewWeek],
+  );
+
+  const personalizedPlan = useMemo<PersonalizedPlan>(
+    () => ({
+      enabledModules: ['meals', 'groceries', 'tasks', 'chores'],
+      suggestedLists: [
+        'This week\'s dinner plan (auto-matched)',
+        'Grocery list grouped by store run',
+        'Busy-night fallback meal list',
+        'Weekly reset checklist',
+      ],
+      weeklyPreview: {
+        dinners: previewWeek.map((item) => ({
+          day: item.day,
+          recipe: item.recipe.name,
+          cookMinutes: item.cookMinutes,
+        })),
+        groceryPreview,
+      },
+      summary: `Built for ${householdSummary(answers)} with ${answers.mealStylePreferences.join(', ').toLowerCase()} meals and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`,
+    }),
+    [answers, groceryPreview, previewWeek],
+  );
 
   useEffect(() => {
     if (forceOnboarding || profileLoading || !isProfileComplete) return;
@@ -669,16 +383,16 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!steps.includes(currentStepId)) {
-      setCurrentStepId('notifications');
+      setCurrentStepId(steps[steps.length - 1] || 'paywallPrep');
     }
   }, [currentStepId, steps]);
 
   useEffect(() => {
     saveOnboardingDraft(user?.id, {
-      onboarding: onboarding as unknown as Record<string, unknown>,
+      onboarding: answers as unknown as Record<string, unknown>,
       stepId: currentStepId,
     });
-  }, [currentStepId, onboarding, user?.id]);
+  }, [answers, currentStepId, user?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -687,8 +401,16 @@ export default function OnboardingPage() {
 
     try {
       const parsed = JSON.parse(raw) as { slug?: string };
-      if (parsed?.slug) {
-        setOnboarding((prev) => applyTemplateToOnboarding(parsed.slug || '', prev));
+      if (parsed?.slug === 'busy-family-weeknight-system') {
+        setAnswers((prev) => ({
+          ...prev,
+          mainPainPoint: 'Figuring out dinner every night',
+          weeklyRhythm: ['After-school activities most days', 'Fast-paced work week'],
+          mealStylePreferences: ['Quick meals', 'Family-friendly', 'Kid-friendly'],
+          dietPreferences: ['Organic'],
+          planningStyle: 'Suggest meals for me',
+          desiredOutcome: 'Calmer evenings',
+        }));
       }
     } catch {
       // ignore malformed template payload
@@ -713,53 +435,8 @@ export default function OnboardingPage() {
     if (next) setCurrentStepId(next);
   };
 
-  const togglePrimaryGoal = (goal: PrimaryGoal) => {
-    setOnboarding((prev) => {
-      if (goal === 'All of the above') {
-        if (prev.primaryGoals.includes(goal)) {
-          return { ...prev, primaryGoals: [] };
-        }
-        return { ...prev, primaryGoals: [...PRIMARY_GOAL_OPTIONS] };
-      }
-
-      const withoutAll = prev.primaryGoals.filter((item) => item !== 'All of the above');
-      if (withoutAll.includes(goal)) {
-        return { ...prev, primaryGoals: withoutAll.filter((item) => item !== goal) };
-      }
-      if (withoutAll.length >= 3) {
-        return prev;
-      }
-      return { ...prev, primaryGoals: [...withoutAll, goal] };
-    });
-  };
-
-  const toggleDietPreference = (preference: DietPreference) => {
-    setOnboarding((prev) => {
-      if (prev.dietPreferences.includes(preference)) {
-        return {
-          ...prev,
-          dietPreferences: prev.dietPreferences.filter((value) => value !== preference),
-        };
-      }
-      return {
-        ...prev,
-        dietPreferences: [...prev.dietPreferences, preference],
-      };
-    });
-  };
-
   const setSingle = <K extends keyof OnboardingAnswers>(key: K, value: OnboardingAnswers[K]) => {
-    setOnboarding((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const toggleReminder = (key: keyof OnboardingAnswers['reminderToggles']) => {
-    setOnboarding((prev) => ({
-      ...prev,
-      reminderToggles: {
-        ...prev.reminderToggles,
-        [key]: !prev.reminderToggles[key],
-      },
-    }));
+    setAnswers((prev) => ({ ...prev, [key]: value }));
   };
 
   const completeOnboarding = async () => {
@@ -767,26 +444,23 @@ export default function OnboardingPage() {
       navigate('/signin', { replace: true });
       return;
     }
+
     setSubmitting(true);
     setSubmitError(null);
 
     try {
-      const familySize = getFamilySize(onboarding);
-      const dietaryPreferences = deriveDietaryPreferences(onboarding);
-      const fullName =
-        profile?.fullName?.trim() ||
-        (typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : '') ||
-        humanizeEmail(user.email);
+      const familySize = answers.adultsCount + answers.kidsCount;
+      const dietaryPreferences = normalizeDietaryPreferences(answers);
+      const fullName = profile?.fullName?.trim() || (user.email?.split('@')[0] || 'Home Harmony User');
       const householdName =
         profile?.householdName?.trim() ||
-        (onboarding.householdType ? `${onboarding.householdType} Home` : null);
-      const goals = buildGoalsText(onboarding, personalizedPlan);
+        `${answers.adultsCount + answers.kidsCount} Person Home`;
 
       await updateProfile({
         full_name: fullName,
         household_name: householdName,
         family_size: familySize,
-        goals,
+        goals: buildGoalsText(answers),
         dietary_preferences: dietaryPreferences,
       });
 
@@ -794,46 +468,58 @@ export default function OnboardingPage() {
         await createOrGetHousehold(householdName || undefined);
       } catch (householdError) {
         console.error('Household setup failed during onboarding:', householdError);
-        // Household can be created later in Family page; do not block onboarding completion.
       }
+
+      try {
+        await seedStarterRecipesIfEmpty(
+          {
+            dietPreferences: answers.dietPreferences,
+            mealStylePreferences: answers.mealStylePreferences,
+            foodRestrictions: answers.foodRestrictions,
+            avoidFoods: parseAvoidFoods(answers.avoidFoods),
+            weeklyRhythm: answers.weeklyRhythm,
+            kidsCount: answers.kidsCount,
+          },
+          18,
+        );
+      } catch (seedError) {
+        console.error('Starter recipe seeding failed:', seedError);
+      }
+
+      setPlanRules({
+        preferFavorites: answers.planningStyle !== 'I mostly build my own plan',
+        preferKidFriendly: answers.kidsCount > 0 || answers.mealStylePreferences.includes('Kid-friendly'),
+        maxCookMinutes:
+          answers.mealStylePreferences.includes('Quick meals') ||
+          answers.weeklyRhythm.includes('Fast-paced work week') ||
+          answers.weeklyRhythm.includes('Sports-heavy week')
+            ? 30
+            : null,
+        dayLocks: {},
+      });
 
       const payload: StoredOnboardingResult = {
         completedAt: new Date().toISOString(),
-        onboarding: onboarding as unknown as Record<string, unknown>,
+        onboarding: answers as unknown as Record<string, unknown>,
         personalizedPlan: personalizedPlan as unknown as Record<string, unknown>,
       };
       await saveOnboardingResult(user.id, payload);
 
-      if (personalizedPlan.enabledModules.includes('meals') || personalizedPlan.enabledModules.includes('groceries')) {
-        setPlanRules({
-          preferFavorites: true,
-          preferKidFriendly: onboarding.householdType === 'Family',
-          maxCookMinutes: onboarding.onboardingPreset === 'busy-family' ? 30 : null,
-          dayLocks: {},
-        });
-      }
-
-      if (personalizedPlan.enabledModules.includes('meals')) {
-        try {
-          await seedStarterRecipesIfEmpty(dietaryPreferences, 18);
-        } catch (seedError) {
-          console.error('Starter recipe seeding failed:', seedError);
-        }
-      }
-
       await trackGrowthEventSafe(
         'onboarding_complete',
         {
-          modules: personalizedPlan.enabledModules,
-          reminderProfile: personalizedPlan.reminderProfile,
-          preset: onboarding.onboardingPreset,
+          adultsCount: answers.adultsCount,
+          kidsCount: answers.kidsCount,
+          painPoint: answers.mainPainPoint,
+          outcome: answers.desiredOutcome,
+          mealStyles: answers.mealStylePreferences,
+          diets: answers.dietPreferences,
         },
         `onboarding_complete:${user.id}`,
       );
 
       clearOnboardingDraft(user.id);
-
-      navigate('/getting-started', { replace: true });
+      navigate(getPostAuthRoute(isSubscribed), { replace: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not finish onboarding. Please try again.';
       setSubmitError(message);
@@ -847,594 +533,429 @@ export default function OnboardingPage() {
     }
   };
 
-  const enableReminders = async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      try {
-        if (window.Notification.permission === 'default') {
-          await window.Notification.requestPermission();
-        }
-      } catch {
-        // no-op: store opt-in regardless; browser may deny silently
-      }
-    }
+  const painAhaCopy = useMemo(() => {
+    const pain = answers.mainPainPoint;
+    if (!pain) return 'Most families are not disorganized. They are overloaded and making too many decisions in too little time.';
 
-    setOnboarding((prev) => ({ ...prev, notificationsOptIn: true }));
-    goNext();
-  };
+    const map: Record<MainPainPoint, string> = {
+      'Figuring out dinner every night': 'The 4:30pm "what are we eating" scramble is one of the fastest ways to drain energy from the whole evening.',
+      'Keeping up with the family schedule': 'When schedules live in multiple places, everyone feels behind even when they are trying hard.',
+      'Grocery planning and follow-through': 'Without a clear plan, groceries become reactive and expensive, and key ingredients are always missing.',
+      'Reducing the mental load': 'Mental load comes from carrying every moving part in your head, not from a lack of effort.',
+      'Managing sports/school/activity logistics': 'Sports nights and school logistics make dinner timing hard unless the week is planned around real constraints.',
+      'Building better routines': 'Routines break when they are too complex for real life. Simple repeatable systems stick.',
+    };
 
-  const skipReminders = () => {
-    setOnboarding((prev) => ({ ...prev, notificationsOptIn: false }));
-    goNext();
-  };
+    return map[pain];
+  }, [answers.mainPainPoint]);
 
-  const limitReached = !onboarding.primaryGoals.includes('All of the above')
-    && onboarding.primaryGoals.filter((item) => item !== 'All of the above').length >= 3;
-  const disabledPrimaryOptions = limitReached
-    ? PRIMARY_GOAL_OPTIONS.filter((option) => !onboarding.primaryGoals.includes(option) && option !== 'All of the above')
-    : [];
+  const mirrorLine = useMemo(() => {
+    const rhythm = answers.weeklyRhythm.join(', ').toLowerCase();
+    const meals = answers.mealStylePreferences.join(', ').toLowerCase();
+    const diets = answers.dietPreferences.join(', ').toLowerCase();
+    const note = answers.mealDietNotes.trim();
+    return `You\'re managing ${rhythm || 'a busy week'} for ${householdSummary(answers)}, and want ${meals || 'faster dinners'} with ${diets || 'meals that fit your preferences'}${note ? ` (plus: ${note})` : ''}.`;
+  }, [answers]);
 
-  let content = null;
-  let footer = null;
+  let content: React.ReactNode = null;
+  let footer: React.ReactNode = null;
 
   switch (currentStepId) {
-    case 'welcome': {
+    case 'welcome':
       content = (
         <QuestionScreen
-          title="Build a home plan you'll actually use"
-          helper="A few quick questions to tailor your dashboard and reminders."
+          title="Bring calm to your family week"
+          helper="Answer a few quick questions and we\'ll build a real weekly meal and grocery preview for your household."
           align="center"
         >
           <div className="h-full grid place-items-center">
-            <div className="rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center max-w-md">
-              <Sparkles className="w-8 h-8 text-primary mx-auto mb-3" />
+            <div className="max-w-md rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center">
+              <HeartHandshake className="mx-auto mb-3 h-9 w-9 text-primary" />
               <p className="text-sm text-muted-foreground">
-                Fast setup. No long form. Your personalized home plan in about 60-120 seconds.
+                Home Harmony is built to reduce decision fatigue, not add another app to manage.
               </p>
             </div>
           </div>
         </QuestionScreen>
       );
-
-      footer = <BottomCTA primaryLabel="Get started" onPrimary={goNext} />;
+      footer = <BottomCTA primaryLabel="Start" onPrimary={goNext} />;
       break;
-    }
 
-    case 'preset': {
+    case 'painPoint':
       content = (
         <QuestionScreen
-          title="Pick your starting style"
-          helper="One tap gives you smart defaults. You can edit everything later."
+          title="Which part of family life feels hardest right now?"
+          helper="Pick the one that creates the most stress this week."
         >
           <OptionList
-            options={ONBOARDING_PRESET_OPTIONS}
-            selected={singleSelection(presetToOption(onboarding.onboardingPreset))}
-            onToggle={(value) =>
-              setOnboarding((prev) => applyPresetToOnboarding(presetFromOption(value), prev))
-            }
+            options={PAIN_POINT_OPTIONS}
+            selected={singleSelection(answers.mainPainPoint)}
+            onToggle={(value) => setSingle('mainPainPoint', value)}
           />
         </QuestionScreen>
       );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('preset', onboarding)}
-        />
-      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('painPoint', answers)} />;
       break;
-    }
 
-    case 'primaryGoals': {
+    case 'aha':
       content = (
-        <QuestionScreen
-          title="What do you want help with most?"
-          helper="Pick up to 3 - you can change this anytime."
-        >
-          <OptionList
-            options={PRIMARY_GOAL_OPTIONS}
-            selected={onboarding.primaryGoals}
-            onToggle={togglePrimaryGoal}
-            multi
-            disabledOptions={disabledPrimaryOptions}
-          />
-          {limitReached && (
-            <p className="mt-3 text-xs text-muted-foreground">You can pick up to 3, or tap "All of the above".</p>
-          )}
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('primaryGoals', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'household': {
-      content = (
-        <QuestionScreen title="Who are we planning for?">
-          <OptionList
-            options={HOUSEHOLD_OPTIONS}
-            selected={singleSelection(onboarding.householdType)}
-            onToggle={(value) => {
-              setSingle('householdType', value);
-              if (value !== 'Family') {
-                setSingle('kidCount', null);
-              }
-            }}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('household', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'kidCount': {
-      content = (
-        <QuestionScreen title="How many kids?">
-          <OptionList
-            options={KID_COUNT_OPTIONS}
-            selected={singleSelection(onboarding.kidCount)}
-            onToggle={(value) => setSingle('kidCount', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('kidCount', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'role': {
-      content = (
-        <QuestionScreen title="What's your role at home?">
-          <OptionList
-            options={ROLE_OPTIONS}
-            selected={singleSelection(onboarding.role)}
-            onToggle={(value) => setSingle('role', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('role', onboarding)} />;
-      break;
-    }
-
-    case 'intensity': {
-      content = (
-        <QuestionScreen title="How structured do you want your week?">
-          <OptionList
-            options={INTENSITY_OPTIONS}
-            selected={singleSelection(onboarding.routineIntensity)}
-            onToggle={(value) => setSingle('routineIntensity', value)}
-          />
-          <p className="mt-4 text-sm text-muted-foreground">
-            This controls how many reminders and suggested routines we create.
-          </p>
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('intensity', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'meal': {
-      content = (
-        <QuestionScreen title="How do you want meals to work?">
-          <OptionList
-            options={MEAL_OPTIONS}
-            selected={singleSelection(onboarding.mealPreference)}
-            onToggle={(value) => setSingle('mealPreference', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('meal', onboarding)} />;
-      break;
-    }
-
-    case 'dietPreferences': {
-      content = (
-        <QuestionScreen
-          title="What food preferences should we plan around?"
-          helper="Pick at least one. We'll use this to build your starter recipe library."
-        >
-          <OptionList
-            options={DIET_PREFERENCE_OPTIONS}
-            selected={onboarding.dietPreferences}
-            onToggle={toggleDietPreference}
-            multi
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('dietPreferences', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'groceryMode': {
-      content = (
-        <QuestionScreen title="How do you shop?">
-          <OptionList
-            options={GROCERY_MODE_OPTIONS}
-            selected={singleSelection(onboarding.groceryMode)}
-            onToggle={(value) => {
-              setSingle('groceryMode', value);
-              if (value === 'In-store') {
-                setSingle('groceryStore', null);
-              }
-            }}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('groceryMode', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'groceryStore': {
-      content = (
-        <QuestionScreen title="Where do you order groceries?">
-          <OptionList
-            options={GROCERY_STORE_OPTIONS}
-            selected={singleSelection(onboarding.groceryStore)}
-            onToggle={(value) => setSingle('groceryStore', value)}
-          />
-          <p className="mt-4 text-xs text-muted-foreground">No integration needed yet - we save this for future one-tap ordering.</p>
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('groceryStore', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'chores': {
-      content = (
-        <QuestionScreen title="How do you want chores assigned?">
-          <OptionList
-            options={CHORE_OPTIONS}
-            selected={singleSelection(onboarding.choreStyle)}
-            onToggle={(value) => setSingle('choreStyle', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('chores', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'reminderStyle': {
-      content = (
-        <QuestionScreen
-          title="How should reminders feel?"
-          helper="You can snooze or mute anytime."
-        >
-          <OptionList
-            options={REMINDER_STYLE_OPTIONS}
-            selected={singleSelection(onboarding.reminderStyle)}
-            onToggle={(value) => setSingle('reminderStyle', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('reminderStyle', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'fitnessLevel': {
-      content = (
-        <QuestionScreen title="What's your fitness level?">
-          <OptionList
-            options={FITNESS_LEVEL_OPTIONS}
-            selected={singleSelection(onboarding.fitnessLevel)}
-            onToggle={(value) => setSingle('fitnessLevel', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('fitnessLevel', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'workoutFrequency': {
-      content = (
-        <QuestionScreen title="How many workouts per week?">
-          <OptionList
-            options={WORKOUT_FREQ_OPTIONS}
-            selected={singleSelection(onboarding.workoutFrequency)}
-            onToggle={(value) => setSingle('workoutFrequency', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('workoutFrequency', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'workoutLocation': {
-      content = (
-        <QuestionScreen title="Where do you work out?">
-          <OptionList
-            options={WORKOUT_LOCATION_OPTIONS}
-            selected={singleSelection(onboarding.workoutLocation)}
-            onToggle={(value) => setSingle('workoutLocation', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('workoutLocation', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'nutritionTracking': {
-      content = (
-        <QuestionScreen title="How do you want to track nutrition?">
-          <OptionList
-            options={NUTRITION_TRACKING_OPTIONS}
-            selected={singleSelection(onboarding.nutritionTracking)}
-            onToggle={(value) => setSingle('nutritionTracking', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('nutritionTracking', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'hydrationTracking': {
-      content = (
-        <QuestionScreen title="Do you want to track water?">
-          <OptionList
-            options={HYDRATION_OPTIONS}
-            selected={singleSelection(onboarding.hydrationTracking)}
-            onToggle={(value) => setSingle('hydrationTracking', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('hydrationTracking', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'stepGoal': {
-      content = (
-        <QuestionScreen title="What daily step goal do you want?">
-          <OptionList
-            options={STEP_GOAL_OPTIONS}
-            selected={singleSelection(onboarding.stepGoal)}
-            onToggle={(value) => setSingle('stepGoal', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('stepGoal', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'sleepGoal': {
-      content = (
-        <QuestionScreen title="Do you want a sleep target?">
-          <OptionList
-            options={SLEEP_GOAL_OPTIONS}
-            selected={singleSelection(onboarding.sleepGoal)}
-            onToggle={(value) => setSingle('sleepGoal', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('sleepGoal', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'alcoholGoal': {
-      content = (
-        <QuestionScreen title="Do you want to track alcohol habits?">
-          <OptionList
-            options={ALCOHOL_GOAL_OPTIONS}
-            selected={singleSelection(onboarding.alcoholGoal)}
-            onToggle={(value) => setSingle('alcoholGoal', value)}
-          />
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Continue"
-          onPrimary={goNext}
-          primaryDisabled={!isStepComplete('alcoholGoal', onboarding)}
-        />
-      );
-      break;
-    }
-
-    case 'notifications': {
-      content = (
-        <QuestionScreen
-          title="Stay on track"
-          helper="Choose what you want reminders for."
-        >
-          <div className="space-y-3">
-            {([
-              ['tasks', 'Tasks'],
-              ['groceries', 'Groceries'],
-              ['meals', 'Meals'],
-              ['chores', 'Chores'],
-              ['workouts', 'Workouts'],
-            ] as const).map(([key, label]) => (
-              <label key={key} className="w-full rounded-2xl border border-border px-4 py-3 flex items-center justify-between">
-                <span className="text-sm">{label}</span>
-                <Switch checked={onboarding.reminderToggles[key]} onCheckedChange={() => toggleReminder(key)} />
-              </label>
-            ))}
-          </div>
-        </QuestionScreen>
-      );
-
-      footer = (
-        <BottomCTA
-          primaryLabel="Enable reminders"
-          onPrimary={enableReminders}
-          secondaryLabel="Not now"
-          onSecondary={skipReminders}
-        />
-      );
-      break;
-    }
-
-    case 'value': {
-      content = (
-        <QuestionScreen
-          title="You're all set"
-          helper="We built your dashboard, routines, and lists based on your answers."
-          align="center"
-        >
-          <div className="h-full grid place-items-center">
-            <div className="rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center max-w-md">
-              <CheckCircle2 className="w-8 h-8 text-primary mx-auto mb-3" />
+        <QuestionScreen title="You\'re not failing. Your week is overloaded." helper="This is where Home Harmony helps most.">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-muted/40 p-4">
+              <p className="text-sm text-foreground">{painAhaCopy}</p>
+            </div>
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
               <p className="text-sm text-muted-foreground">
-                Smart defaults are ready. You can edit anything later from settings.
+                We\'ll build your plan around your real schedule so dinners, groceries, and routines run with less friction.
               </p>
             </div>
           </div>
         </QuestionScreen>
       );
-
-      footer = <BottomCTA primaryLabel="See my home plan" onPrimary={goNext} />;
+      footer = <BottomCTA primaryLabel="That\'s exactly it" onPrimary={goNext} />;
       break;
-    }
 
-    case 'plan': {
+    case 'household':
       content = (
-        <QuestionScreen title="Your Home Plan">
-          <div className="space-y-3">
-            {personalizedPlan.suggestedLists.map((item) => (
-              <div key={item} className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
-                {item}
+        <QuestionScreen title="Who are we planning for?" helper="Set household size so meals and planning are realistic.">
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm font-medium">Adults</p>
+              <div className="mt-3 flex items-center gap-3">
+                <Button variant="outline" type="button" onClick={() => setSingle('adultsCount', Math.max(1, answers.adultsCount - 1))}>-</Button>
+                <span className="min-w-8 text-center text-lg font-semibold">{answers.adultsCount}</span>
+                <Button variant="outline" type="button" onClick={() => setSingle('adultsCount', Math.min(6, answers.adultsCount + 1))}>+</Button>
               </div>
-            ))}
-          </div>
+            </div>
 
-          <div className="mt-6 rounded-xl border border-border p-4 space-y-2">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Enabled modules</p>
-            <div className="flex flex-wrap gap-2">
-              {personalizedPlan.enabledModules.map((module) => (
-                <span key={module} className="rounded-full border border-border px-3 py-1 text-xs capitalize">
-                  {module}
-                </span>
-              ))}
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm font-medium">Kids</p>
+              <div className="mt-3 flex items-center gap-3">
+                <Button variant="outline" type="button" onClick={() => {
+                  const next = Math.max(0, answers.kidsCount - 1);
+                  setAnswers((prev) => ({ ...prev, kidsCount: next, kidAgeRanges: next === 0 ? [] : prev.kidAgeRanges }));
+                }}>-</Button>
+                <span className="min-w-8 text-center text-lg font-semibold">{answers.kidsCount}</span>
+                <Button variant="outline" type="button" onClick={() => setSingle('kidsCount', Math.min(8, answers.kidsCount + 1))}>+</Button>
+              </div>
             </div>
           </div>
-          {submitError && (
-            <p className="mt-4 text-sm text-destructive">{submitError}</p>
-          )}
         </QuestionScreen>
       );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('household', answers)} />;
+      break;
 
+    case 'kidAgeRanges':
+      content = (
+        <QuestionScreen title="What are your kids' age ranges?" helper="This helps with kid-friendly meal matching.">
+          <OptionList
+            options={KID_AGE_RANGE_OPTIONS}
+            selected={answers.kidAgeRanges}
+            onToggle={(value) => setAnswers((prev) => ({ ...prev, kidAgeRanges: toggleValue(prev.kidAgeRanges, value) }))}
+            multi
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('kidAgeRanges', answers)} />;
+      break;
+
+    case 'weeklyRhythm':
+      content = (
+        <QuestionScreen title="What does your week usually look like?" helper="Pick what best describes your normal rhythm.">
+          <OptionList
+            options={WEEKLY_RHYTHM_OPTIONS}
+            selected={answers.weeklyRhythm}
+            onToggle={(value) => setAnswers((prev) => ({ ...prev, weeklyRhythm: toggleValue(prev.weeklyRhythm, value) }))}
+            multi
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('weeklyRhythm', answers)} />;
+      break;
+
+    case 'mealStyles':
+      content = (
+        <QuestionScreen
+          title="What kinds of meals should we prioritize?"
+          helper="This is how we tailor your week so dinner actually works in real life."
+        >
+          <OptionList
+            options={MEAL_STYLE_OPTIONS}
+            selected={answers.mealStylePreferences}
+            onToggle={(value) =>
+              setAnswers((prev) => ({
+                ...prev,
+                mealStylePreferences: toggleWithMix(prev.mealStylePreferences, value, 'Mix of everything'),
+              }))
+            }
+            multi
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('mealStyles', answers)} />;
+      break;
+
+    case 'dietPreferences':
+      content = (
+        <QuestionScreen
+          title="Diet and food preference profile"
+          helper="Required: choose your household diet style so recipe suggestions are matched correctly."
+        >
+          <div className="space-y-4">
+            <OptionList
+              options={DIET_PREFERENCE_OPTIONS}
+              selected={answers.dietPreferences}
+              onToggle={(value) =>
+                setAnswers((prev) => ({
+                  ...prev,
+                  dietPreferences: toggleWithMix(prev.dietPreferences, value, 'Mix of everything'),
+                }))
+              }
+              multi
+            />
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Anything else we should account for?</p>
+              <Textarea
+                value={answers.mealDietNotes}
+                onChange={(event) => setSingle('mealDietNotes', event.target.value)}
+                placeholder="Optional: halal at home, kids dislike spicy food, organic produce first, etc."
+                rows={3}
+              />
+            </div>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('dietPreferences', answers)} />;
+      break;
+
+    case 'foodRestrictions':
+      content = (
+        <QuestionScreen title="Any hard food restrictions?" helper="These are enforced when we build your meal suggestions.">
+          <OptionList
+            options={FOOD_RESTRICTION_OPTIONS}
+            selected={answers.foodRestrictions}
+            onToggle={(value) => setAnswers((prev) => ({ ...prev, foodRestrictions: toggleValue(prev.foodRestrictions, value) }))}
+            multi
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
+      break;
+
+    case 'avoidFoods':
+      content = (
+        <QuestionScreen title="Anything your family dislikes or avoids?" helper="Optional. Add ingredients or foods to avoid.">
+          <div className="space-y-3">
+            <Textarea
+              value={answers.avoidFoods}
+              onChange={(event) => setSingle('avoidFoods', event.target.value)}
+              placeholder="Examples: mushrooms, tuna, cilantro"
+              rows={6}
+            />
+            <p className="text-xs text-muted-foreground">Separate with commas or new lines.</p>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
+      break;
+
+    case 'planningStyle':
+      content = (
+        <QuestionScreen title="How do you want planning to feel?" helper="We\'ll tune recommendations around your style.">
+          <OptionList
+            options={PLANNING_STYLE_OPTIONS}
+            selected={singleSelection(answers.planningStyle)}
+            onToggle={(value) => setSingle('planningStyle', value)}
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('planningStyle', answers)} />;
+      break;
+
+    case 'groceryPreferences':
+      content = (
+        <QuestionScreen title="How do you shop groceries?" helper="Set your preferred mode and stores for grocery links and list routing.">
+          <div className="space-y-6">
+            <OptionList
+              options={GROCERY_MODE_OPTIONS}
+              selected={singleSelection(answers.groceryShoppingMode)}
+              onToggle={(value) => setSingle('groceryShoppingMode', value)}
+            />
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Preferred stores</p>
+              <div className="grid grid-cols-2 gap-2">
+                {GROCERY_STORE_OPTIONS.map((store) => (
+                  <label key={store} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={answers.groceryStorePreferences.includes(store)}
+                      onCheckedChange={() =>
+                        setAnswers((prev) => ({
+                          ...prev,
+                          groceryStorePreferences: toggleValue(prev.groceryStorePreferences, store),
+                        }))
+                      }
+                    />
+                    <span>{store}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('groceryPreferences', answers)} />;
+      break;
+
+    case 'desiredOutcome':
+      content = (
+        <QuestionScreen title="What result matters most right now?" helper="Pick one outcome to optimize first.">
+          <OptionList
+            options={DESIRED_OUTCOME_OPTIONS}
+            selected={singleSelection(answers.desiredOutcome)}
+            onToggle={(value) => setSingle('desiredOutcome', value)}
+          />
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('desiredOutcome', answers)} />;
+      break;
+
+    case 'mirror':
+      content = (
+        <QuestionScreen title="Here\'s what we heard" helper="This setup is now tailored to your household.">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-primary/25 bg-primary/5 p-4">
+              <p className="text-sm">{mirrorLine}</p>
+            </div>
+            <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+              Main pressure: <span className="text-foreground">{answers.mainPainPoint}</span>
+              <br />
+              Primary outcome: <span className="text-foreground">{answers.desiredOutcome}</span>
+            </div>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Show my sample week" onPrimary={goNext} />;
+      break;
+
+    case 'experience':
+      content = (
+        <QuestionScreen
+          title="Your sample week is ready"
+          helper={`Based on your ${answers.weeklyRhythm.join(', ').toLowerCase()} rhythm and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`}
+        >
+          <div className="space-y-5">
+            <div className="rounded-xl border border-border p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Dinner preview
+              </div>
+              <div className="space-y-2">
+                {previewWeek.map((item) => (
+                  <div key={`${item.day}-${item.recipe.name}`} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                    <div>
+                      <p className="font-medium">{item.day}</p>
+                      <p className="text-xs text-muted-foreground">{item.recipe.name}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground">~{item.cookMinutes} min</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                <ShoppingBasket className="h-4 w-4 text-primary" />
+                Grocery preview
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {groceryPreview.map((item) => (
+                  <span key={item} className="rounded-full border border-border px-3 py-1 text-xs">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              This is a real preview generated from your inputs. You can edit meal picks after setup.
+            </p>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
+      break;
+
+    case 'commitment':
+      content = (
+        <QuestionScreen title="Ready to run a calmer week?" helper="One tap to lock this in.">
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setSingle('commitmentConfirmed', !answers.commitmentConfirmed)}
+              className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${
+                answers.commitmentConfirmed
+                  ? 'border-primary bg-primary/10 text-primary font-medium'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/60'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span>Yes — I want calmer evenings, easier dinners, and less weekly stress.</span>
+                <span
+                  className={`h-5 w-5 rounded-full border flex items-center justify-center text-[10px] ${
+                    answers.commitmentConfirmed
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-muted-foreground/40'
+                  }`}
+                >
+                  {answers.commitmentConfirmed ? '✓' : ''}
+                </span>
+              </div>
+            </button>
+            <p className="text-xs text-muted-foreground">
+              This helps us keep recommendations aligned to what you care about most.
+            </p>
+          </div>
+        </QuestionScreen>
+      );
+      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} primaryDisabled={!isStepComplete('commitment', answers)} />;
+      break;
+
+    case 'paywallPrep':
+      content = (
+        <QuestionScreen
+          title={BILLING_ENABLED ? 'Your personalized plan is ready to unlock' : 'Your Home Harmony plan is ready'}
+          helper={
+            BILLING_ENABLED
+              ? 'You already built your custom week. Continue to unlock it and keep your plan running each week.'
+              : 'Meals, groceries, and weekly coordination are now personalized for your household.'
+          }
+          align="center"
+        >
+          <div className="h-full grid place-items-center">
+            <div className="max-w-md rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center">
+              <Sparkles className="mx-auto mb-3 h-9 w-9 text-primary" />
+              <p className="text-sm text-muted-foreground">{personalizedPlan.summary}</p>
+              <p className="mt-3 text-sm text-muted-foreground">
+                {BILLING_ENABLED
+                  ? 'Continue to choose your plan and keep this personalized setup active.'
+                  : 'Continue to apply this plan inside the app and keep your week in sync.'}
+              </p>
+            </div>
+          </div>
+          {submitError && <p className="mt-4 text-sm text-destructive">{submitError}</p>}
+        </QuestionScreen>
+      );
       footer = (
         <BottomCTA
-          primaryLabel="Finish"
+          primaryLabel={BILLING_ENABLED ? 'Continue to plans' : 'Apply my plan'}
           onPrimary={completeOnboarding}
           secondaryLabel="Edit answers"
-          onSecondary={() => setCurrentStepId('primaryGoals')}
+          onSecondary={() => setCurrentStepId('painPoint')}
           loading={submitting}
         />
       );
       break;
-    }
 
     default:
       content = null;
@@ -1442,7 +963,7 @@ export default function OnboardingPage() {
       break;
   }
 
-  const canContinue = isStepComplete(currentStepId, onboarding);
+  const canContinue = isStepComplete(currentStepId, answers);
 
   return (
     <OnboardingShell

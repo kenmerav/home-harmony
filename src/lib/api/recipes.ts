@@ -3,7 +3,11 @@ import { extractPdfText } from '@/lib/pdfParser';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
-import { buildStarterDinnerRecipes } from '@/data/starterDinnerRecipes';
+import {
+  buildPersonalizedStarterRecipes,
+  buildStarterDinnerRecipes,
+  type StarterRecipeProfile,
+} from '@/data/starterDinnerRecipes';
 
 export interface ExtractedRecipe {
   name: string;
@@ -804,7 +808,7 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
 }
 
 export async function seedStarterRecipesIfEmpty(
-  dietaryPreferences: string[] = [],
+  dietaryPreferences: string[] | StarterRecipeProfile = [],
   targetCount = 18,
 ): Promise<{ inserted: number; skipped: boolean }> {
   const existing = await fetchRecipes();
@@ -812,7 +816,11 @@ export async function seedStarterRecipesIfEmpty(
     return { inserted: 0, skipped: true };
   }
 
-  const starters = buildStarterDinnerRecipes(dietaryPreferences, targetCount).map((recipe) => ({
+  const starterRecipes = Array.isArray(dietaryPreferences)
+    ? buildStarterDinnerRecipes(dietaryPreferences, targetCount)
+    : buildPersonalizedStarterRecipes(dietaryPreferences, targetCount);
+
+  const starters = starterRecipes.map((recipe) => ({
     name: recipe.name,
     servings: recipe.servings,
     ingredients: recipe.ingredients,
