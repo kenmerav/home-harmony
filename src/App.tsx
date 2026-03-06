@@ -5,7 +5,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
-import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireAdmin } from "./components/auth/RequireAdmin";
 import { RequireProfileComplete } from "./components/auth/RequireProfileComplete";
 import { RequireSubscription } from "./components/auth/RequireSubscription";
@@ -147,14 +146,7 @@ const App = () => (
               <Route path="/templates/:slug" element={<TemplateDetailPage />} />
               <Route path="/signin" element={<AuthPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route
-                path="/onboarding"
-                element={
-                  <RequireAuth>
-                    <OnboardingPage />
-                  </RequireAuth>
-                }
-              />
+              <Route path="/onboarding" element={<OnboardingPage />} />
               <Route
                 path="/billing"
                 element={

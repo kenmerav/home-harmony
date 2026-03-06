@@ -258,7 +258,7 @@ function normalizePreference(value: string): StarterDietPreference | null {
   if (cleaned === 'paleo') return 'Paleo';
   if (cleaned === 'vegetarian') return 'Vegetarian';
   if (cleaned === 'macro friendly' || cleaned === 'macro-friendly' || cleaned === 'high protein') return 'Macro Friendly';
-  if (cleaned === 'organic') return 'Organic';
+  if (cleaned === 'organic' || cleaned === 'organic first' || cleaned === 'organic-first') return 'Organic';
   return null;
 }
 
@@ -359,9 +359,12 @@ function scoreRecipe(recipe: StarterDinnerRecipe, profile: StarterRecipeProfile)
     if (dietPrefs.has(normalizeToken(tag))) score += 3;
   }
   if (dietPrefs.has('mix of everything')) score += 1;
+  if (dietPrefs.has('organic first') && recipe.tags.includes('Organic')) score += 2;
   if (mealStyles.has('high protein') && meta.proteinForward) score += 3;
   if ((mealStyles.has('family friendly') || mealStyles.has('kid friendly')) && meta.kidFriendly) score += 3;
   if (mealStyles.has('quick meals') && meta.cookMinutes <= 30) score += 3;
+  if (mealStyles.has('healthy and easy') && meta.cookMinutes <= 30) score += 2;
+  if (mealStyles.has('healthy and easy') && recipe.tags.includes('Organic')) score += 2;
   if (mealStyles.has('budget friendly') && meta.budgetFriendly) score += 3;
   if (mealStyles.has('healthy clean eating') && recipe.tags.includes('Organic')) score += 2;
   if (mealStyles.has('comfort food') && (recipe.flavor === 'Comfort' || recipe.flavor === 'Italian' || recipe.flavor === 'American')) score += 2;

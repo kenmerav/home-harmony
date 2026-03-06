@@ -17,7 +17,7 @@ import {
 
 export default function LandingPage() {
   const { user, isDemoUser } = useAuth();
-  const startFreeHref = user ? '/onboarding?force=1' : '/signin?onboarding=1';
+  const startFreeHref = user ? '/onboarding?force=1' : '/onboarding';
 
   const scrollToSection = (sectionId: string) => {
     const section = document.getElementById(sectionId);
