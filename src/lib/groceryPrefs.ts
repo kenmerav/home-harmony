@@ -248,15 +248,15 @@ export function buildWeeklyAdUrl(storeId: string, zipCode: string): string {
   switch (storeId) {
     case 'frys':
       return zip
-        ? `https://www.frysfood.com/stores/search?searchTerm=${encodedZip}`
+        ? `https://www.frysfood.com/weeklyad?zipCode=${encodedZip}`
         : 'https://www.frysfood.com/weeklyad';
     case 'safeway':
       return zip
-        ? `https://local.safeway.com/safeway.html?query=${encodedZip}`
+        ? `https://www.safeway.com/weeklyad?zipcode=${encodedZip}`
         : 'https://www.safeway.com/weeklyad';
     case 'whole-foods':
       return zip
-        ? `https://www.wholefoodsmarket.com/stores?text=${encodedZip}`
+        ? `https://www.wholefoodsmarket.com/sales-flyer?zip=${encodedZip}`
         : 'https://www.wholefoodsmarket.com/sales-flyer';
     case 'kroger':
       return zip

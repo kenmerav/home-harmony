@@ -448,10 +448,11 @@ export default function GroceryPage() {
 
   const toggleWeeklyAdStore = (storeId: string) => {
     setWeeklyAdStoreIdsState((prev) => {
-      if (prev.includes(storeId)) {
-        return prev.filter((id) => id !== storeId);
-      }
-      return [...prev, storeId];
+      const next = prev.includes(storeId)
+        ? prev.filter((id) => id !== storeId)
+        : [...prev, storeId];
+      setWeeklyAdPrefs(weeklyAdZip, next);
+      return next;
     });
   };
 
@@ -507,11 +508,11 @@ export default function GroceryPage() {
           <div>
             <h2 className="font-medium">Weekly ad links</h2>
             <p className="text-xs text-muted-foreground">
-              Set your ZIP and stores to quickly open each weekly ad.
+              Set your ZIP and stores once. Preferences are saved automatically.
             </p>
           </div>
-          <Button size="sm" onClick={saveWeeklyAdPreferences}>
-            Save ad settings
+          <Button size="sm" variant="outline" onClick={saveWeeklyAdPreferences}>
+            Save now
           </Button>
         </div>
 
@@ -523,7 +524,11 @@ export default function GroceryPage() {
               inputMode="numeric"
               maxLength={5}
               value={weeklyAdZip}
-              onChange={(event) => setWeeklyAdZipState(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+              onChange={(event) => {
+                const cleanedZip = event.target.value.replace(/[^\d]/g, '').slice(0, 5);
+                setWeeklyAdZipState(cleanedZip);
+                setWeeklyAdPrefs(cleanedZip, weeklyAdStoreIds);
+              }}
             />
           </div>
           <div className="space-y-1.5">
@@ -561,7 +566,7 @@ export default function GroceryPage() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Fry&apos;s, Safeway, and Whole Foods first open a ZIP-filtered store finder so your local ad/location is correct.
+              Links include your ZIP in the weekly-ad URL.
             </p>
           </div>
         ) : (
