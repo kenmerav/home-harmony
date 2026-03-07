@@ -3,8 +3,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Recipe, DayOfWeek } from '@/types';
-import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check, Link2, WandSparkles } from 'lucide-react';
+import { Search, Upload, UtensilsCrossed, Anchor, Calendar, FileText, Check, Link2, WandSparkles, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -59,6 +60,115 @@ const dayLabels: Record<DayOfWeek, string> = {
   sunday: 'Sunday',
 };
 
+type RecipeInspirationStyle =
+  | 'all'
+  | 'healthy-easy'
+  | 'high-protein'
+  | 'kid-friendly'
+  | 'budget'
+  | 'vegetarian'
+  | 'gluten-free'
+  | 'slow-cooker';
+
+interface PinterestBoardRecommendation {
+  title: string;
+  href: string;
+  description: string;
+  styles: RecipeInspirationStyle[];
+}
+
+const RECIPE_STYLE_FILTERS: Array<{ id: RecipeInspirationStyle; label: string }> = [
+  { id: 'all', label: 'All styles' },
+  { id: 'healthy-easy', label: 'Healthy + easy' },
+  { id: 'high-protein', label: 'High protein' },
+  { id: 'kid-friendly', label: 'Kid friendly' },
+  { id: 'budget', label: 'Budget meals' },
+  { id: 'vegetarian', label: 'Vegetarian' },
+  { id: 'gluten-free', label: 'Gluten free' },
+  { id: 'slow-cooker', label: 'Slow cooker' },
+];
+
+const PINTEREST_BOARD_RECOMMENDATIONS: PinterestBoardRecommendation[] = [
+  {
+    title: 'Healthy Easy Dinners',
+    href: 'https://www.pinterest.com/jennasuedesign/dinner/',
+    description: 'Great starter board for healthy, practical weeknight meals.',
+    styles: ['healthy-easy'],
+  },
+  {
+    title: 'High Protein',
+    href: 'https://www.pinterest.com/shelleyharland/high-protein/',
+    description: 'Protein-forward meal ideas that fit macro-focused households.',
+    styles: ['high-protein', 'healthy-easy'],
+  },
+  {
+    title: 'Kid-Friendly Recipes',
+    href: 'https://www.pinterest.com/yummly/kid-friendly-recipes/',
+    description: 'Kid-approved meal ideas that are easier to get on the table.',
+    styles: ['kid-friendly'],
+  },
+  {
+    title: 'Budget Meals',
+    href: 'https://www.pinterest.com/thelazydish/budget-meals/',
+    description: 'Lower-cost meal inspiration for families watching grocery spend.',
+    styles: ['budget', 'kid-friendly'],
+  },
+  {
+    title: 'Vegetarian Meals',
+    href: 'https://www.pinterest.com/lauriepadron/vegetarian-meals/',
+    description: 'Vegetarian dinner ideas with good variety for weekly planning.',
+    styles: ['vegetarian', 'healthy-easy'],
+  },
+  {
+    title: 'Gluten Free Dinner Ideas',
+    href: 'https://www.pinterest.com/cottercrunch/gluten-free-dinner-ideas/',
+    description: 'Large gluten-free dinner board for households with restrictions.',
+    styles: ['gluten-free', 'healthy-easy'],
+  },
+  {
+    title: 'Slow Cooker Meals',
+    href: 'https://www.pinterest.com/angie681/slow-cooker-meals/',
+    description: 'Set-and-forget meal options for busy weeknights.',
+    styles: ['slow-cooker', 'kid-friendly', 'budget'],
+  },
+];
+
+const MAX_BULK_URLS = 25;
+
+function parseBulkUrlInput(raw: string): string[] {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const unique = new Set<string>();
+
+  for (const line of lines) {
+    const parts = line.split(/\s+/).map((part) => part.trim()).filter(Boolean);
+    for (const part of parts) {
+      if (!part) continue;
+      if (/^(https?:\/\/|www\.|[a-z0-9.-]+\.[a-z]{2,}\/)/i.test(part)) {
+        unique.add(part.replace(/[),.;]+$/, ''));
+      }
+    }
+  }
+
+  return Array.from(unique);
+}
+
+function dedupeExtractedRecipes(recipes: ExtractedRecipe[]): ExtractedRecipe[] {
+  const seen = new Set<string>();
+  const deduped: ExtractedRecipe[] = [];
+
+  for (const recipe of recipes) {
+    const key = `${(recipe.name || '').trim().toLowerCase()}::${(recipe.ingredientsRaw || '').trim().toLowerCase().slice(0, 80)}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(recipe);
+  }
+
+  return deduped;
+}
+
 // Convert DB recipe to display format
 function dbRecipeToDisplayRecipe(
   dbRecipe: DbRecipe,
@@ -105,6 +215,9 @@ export default function RecipesPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [urlInput, setUrlInput] = useState('');
+  const [bulkUrlsInput, setBulkUrlsInput] = useState('');
+  const [bulkFailedUrls, setBulkFailedUrls] = useState<string[]>([]);
+  const [recipeStyleFilter, setRecipeStyleFilter] = useState<RecipeInspirationStyle>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
@@ -280,7 +393,11 @@ export default function RecipesPage() {
     const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
     return matchesSearch && matchesFavorite && matchesKidFriendly;
   });
+  const filteredBoardRecommendations = PINTEREST_BOARD_RECOMMENDATIONS.filter(
+    (board) => recipeStyleFilter === 'all' || board.styles.includes(recipeStyleFilter),
+  );
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
+  const bulkUrlCount = parseBulkUrlInput(bulkUrlsInput).length;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -534,6 +651,78 @@ export default function RecipesPage() {
     }
   };
 
+  const processBulkUrls = async () => {
+    const urls = parseBulkUrlInput(bulkUrlsInput);
+    if (!urls.length) {
+      toast({
+        title: 'Add links first',
+        description: 'Paste one recipe URL per line.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (urls.length > MAX_BULK_URLS) {
+      toast({
+        title: 'Too many links',
+        description: `Please import up to ${MAX_BULK_URLS} links at a time.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    setBulkFailedUrls([]);
+    setProcessingStatus(`Reading link 1/${urls.length}...`);
+
+    const extracted: ExtractedRecipe[] = [];
+    const failed: string[] = [];
+
+    try {
+      for (let i = 0; i < urls.length; i += 1) {
+        const url = urls[i];
+        setProcessingStatus(`Reading link ${i + 1}/${urls.length}...`);
+        const result = await parseRecipesFromUrl(url);
+        if (result.success && result.recipes?.length) {
+          extracted.push(...result.recipes);
+        } else {
+          failed.push(url);
+        }
+      }
+
+      const deduped = dedupeExtractedRecipes(extracted);
+      if (!deduped.length) {
+        setBulkFailedUrls(failed);
+        toast({
+          title: 'No recipes found',
+          description: 'We could not extract recipes from those links. Try direct recipe page URLs.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setExtractedRecipes(deduped);
+      setSelectedRecipes(new Set(deduped.map((_, i) => i)));
+      setBulkFailedUrls(failed);
+      setUploadStep('review');
+
+      toast({
+        title: 'Bulk link import ready',
+        description: `${deduped.length} recipes found from ${urls.length - failed.length}/${urls.length} links.`,
+      });
+    } catch (error) {
+      console.error('Error processing bulk links:', error);
+      toast({
+        title: 'Bulk link import failed',
+        description: 'Something went wrong while importing those links.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
   const toggleRecipeSelection = (index: number) => {
     const newSelected = new Set(selectedRecipes);
     if (newSelected.has(index)) {
@@ -588,6 +777,8 @@ export default function RecipesPage() {
     setExtractedRecipes([]);
     setSelectedRecipes(new Set());
     setUrlInput('');
+    setBulkUrlsInput('');
+    setBulkFailedUrls([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -642,6 +833,52 @@ export default function RecipesPage() {
         >
           {kidFriendlyOnly ? 'Showing Kid Friendly' : 'Kid Friendly Only'}
         </Button>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Need recipe ideas fast?</p>
+            <p className="text-sm text-muted-foreground">
+              Open a board that matches your style, pick pins you like, then paste those links in bulk import.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Bulk Import Links
+          </Button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {RECIPE_STYLE_FILTERS.map((filter) => (
+            <Button
+              key={filter.id}
+              size="sm"
+              variant={recipeStyleFilter === filter.id ? 'default' : 'outline'}
+              onClick={() => setRecipeStyleFilter(filter.id)}
+            >
+              {filter.label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {filteredBoardRecommendations.map((board) => (
+            <div key={board.href} className="rounded-lg border border-border/80 bg-background p-3">
+              <p className="font-medium">{board.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{board.description}</p>
+              <a
+                href={board.href}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center text-sm font-medium text-primary hover:underline"
+              >
+                Open Pinterest board
+                <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+              </a>
+            </div>
+          ))}
+        </div>
       </div>
 
       {activeImportJobs.length > 0 && (
@@ -717,7 +954,7 @@ export default function RecipesPage() {
             </DialogTitle>
             <DialogDescription>
               {uploadStep === 'upload' 
-                ? 'Upload JSON/PDF/photo or paste a recipe link to import recipes. PDF imports run in the background.'
+                ? 'Upload JSON/PDF/photo, import one URL, or bulk import many links. PDF imports run in the background.'
                 : `${extractedRecipes.length} recipes found. Select which ones to import.`
               }
             </DialogDescription>
@@ -788,6 +1025,30 @@ export default function RecipesPage() {
                   Best with recipe websites and public posts. Private or blocked social posts may need a screenshot upload instead.
                 </p>
               </div>
+
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <p className="font-medium mb-2">Bulk import links (great for Pinterest)</p>
+                <Textarea
+                  value={bulkUrlsInput}
+                  onChange={(e) => setBulkUrlsInput(e.target.value)}
+                  placeholder={'Paste one link per line:\nhttps://www.pinterest.com/pin/...\nhttps://example.com/recipe'}
+                  disabled={isProcessing}
+                  rows={5}
+                />
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {bulkUrlCount} link{bulkUrlCount === 1 ? '' : 's'} detected (max {MAX_BULK_URLS} per run)
+                  </p>
+                  <Button
+                    onClick={() => void processBulkUrls()}
+                    disabled={isProcessing || bulkUrlCount === 0}
+                    variant="outline"
+                  >
+                    <Link2 className="mr-2 h-4 w-4" />
+                    Process Bulk Links
+                  </Button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -826,6 +1087,13 @@ export default function RecipesPage() {
                   </div>
                 ))}
               </div>
+
+              {bulkFailedUrls.length > 0 && (
+                <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-xs text-amber-900">
+                  Could not parse {bulkFailedUrls.length} link{bulkFailedUrls.length === 1 ? '' : 's'} in this run.
+                  Try opening those links and copying the direct recipe page URL instead.
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-4 border-t border-border">
                 <p className="text-sm text-muted-foreground">
