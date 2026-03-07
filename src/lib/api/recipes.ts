@@ -1045,8 +1045,13 @@ export async function cleanUpRecipeLibrary(): Promise<{ scanned: number; updated
 
   if (isDemoModeEnabled()) {
     const next = scannedRecipes.map((recipe) => {
+      const cleanupSourceIngredients =
+        typeof recipe.ingredients_raw === 'string' && recipe.ingredients_raw.trim()
+          ? recipe.ingredients_raw
+          : recipe.ingredients;
       const cleaned = buildCleanRecipePayload({
         ...recipe,
+        ingredients: cleanupSourceIngredients,
         ingredientsRaw: recipe.ingredients_raw,
       });
 
@@ -1077,8 +1082,13 @@ export async function cleanUpRecipeLibrary(): Promise<{ scanned: number; updated
   }
 
   for (const recipe of scannedRecipes) {
+    const cleanupSourceIngredients =
+      typeof recipe.ingredients_raw === 'string' && recipe.ingredients_raw.trim()
+        ? recipe.ingredients_raw
+        : recipe.ingredients;
     const cleaned = buildCleanRecipePayload({
       ...recipe,
+      ingredients: cleanupSourceIngredients,
       ingredientsRaw: recipe.ingredients_raw,
     });
 
