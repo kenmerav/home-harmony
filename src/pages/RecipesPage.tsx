@@ -136,6 +136,14 @@ const PINTEREST_BOARD_RECOMMENDATIONS: PinterestBoardRecommendation[] = [
 
 const MAX_BULK_URLS = 25;
 
+type LinkPreviewStatus = 'idle' | 'loading' | 'ready' | 'failed';
+
+interface LinkPreviewRecord {
+  title: string;
+  status: LinkPreviewStatus;
+  recipes?: ExtractedRecipe[];
+}
+
 function parseBulkUrlInput(raw: string): string[] {
   const lines = raw
     .split(/\r?\n/)
@@ -168,6 +176,38 @@ function dedupeExtractedRecipes(recipes: ExtractedRecipe[]): ExtractedRecipe[] {
   }
 
   return deduped;
+}
+
+function titleCaseWords(value: string): string {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function guessRecipeTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./i, '');
+    const pinMatch = parsed.pathname.match(/\/pin\/(\d+)/i);
+    if (hostname.includes('pinterest.com') && pinMatch?.[1]) {
+      return `Pinterest Pin ${pinMatch[1]}`;
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const tail = segments[segments.length - 1] || '';
+    const cleanedTail = decodeURIComponent(tail)
+      .replace(/\.(html?|php|aspx?)$/i, '')
+      .replace(/[-_+]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanedTail && /[a-z]/i.test(cleanedTail)) {
+      return titleCaseWords(cleanedTail);
+    }
+
+    const hostLabel = hostname.split('.')[0] || 'Recipe';
+    return `${titleCaseWords(hostLabel)} Recipe`;
+  } catch {
+    return 'Recipe Link';
+  }
 }
 
 // Convert DB recipe to display format
@@ -224,6 +264,8 @@ export default function RecipesPage() {
   const [pinterestPinLinks, setPinterestPinLinks] = useState<string[]>([]);
   const [selectedPinterestPins, setSelectedPinterestPins] = useState<Set<string>>(new Set());
   const [isLoadingPinterestBoard, setIsLoadingPinterestBoard] = useState(false);
+  const [isResolvingLinkTitles, setIsResolvingLinkTitles] = useState(false);
+  const [linkPreviewByUrl, setLinkPreviewByUrl] = useState<Record<string, LinkPreviewRecord>>({});
   const [currentImportUrl, setCurrentImportUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -408,6 +450,15 @@ export default function RecipesPage() {
   const bulkUrlCount = bulkParsedUrls.length;
   const selectedPinterestLinks = pinterestPinLinks.filter((link) => selectedPinterestPins.has(link));
   const selectedPinterestPinCount = selectedPinterestPins.size;
+  const getPreviewForLink = (url: string): LinkPreviewRecord => {
+    const existing = linkPreviewByUrl[url];
+    if (existing) return existing;
+    return {
+      title: guessRecipeTitleFromUrl(url),
+      status: 'idle',
+      recipes: [],
+    };
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -661,6 +712,89 @@ export default function RecipesPage() {
     }
   };
 
+  const resolveLinkPreviews = async (urls: string[]) => {
+    const uniqueUrls = Array.from(new Set(urls.map((value) => value.trim()).filter(Boolean)));
+    if (!uniqueUrls.length) {
+      toast({
+        title: 'No links selected',
+        description: 'Select at least one link first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsResolvingLinkTitles(true);
+    setCurrentImportUrl(uniqueUrls[0] || '');
+    setProcessingStatus(`Loading recipe title 1/${uniqueUrls.length}...`);
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    try {
+      for (let i = 0; i < uniqueUrls.length; i += 1) {
+        const url = uniqueUrls[i];
+        setCurrentImportUrl(url);
+        setProcessingStatus(`Loading recipe title ${i + 1}/${uniqueUrls.length}...`);
+
+        setLinkPreviewByUrl((prev) => ({
+          ...prev,
+          [url]: {
+            title: prev[url]?.title || guessRecipeTitleFromUrl(url),
+            status: 'loading',
+            recipes: prev[url]?.recipes || [],
+          },
+        }));
+
+        const result = await parseRecipesFromUrl(url);
+        if (result.success && result.recipes?.length) {
+          const deduped = dedupeExtractedRecipes(result.recipes);
+          if (deduped.length > 0) {
+            const title = deduped[0]?.name?.trim() || guessRecipeTitleFromUrl(url);
+            setLinkPreviewByUrl((prev) => ({
+              ...prev,
+              [url]: {
+                title,
+                status: 'ready',
+                recipes: deduped,
+              },
+            }));
+            successCount += 1;
+            continue;
+          }
+        }
+
+        setLinkPreviewByUrl((prev) => ({
+          ...prev,
+          [url]: {
+            title: prev[url]?.title || guessRecipeTitleFromUrl(url),
+            status: 'failed',
+            recipes: [],
+          },
+        }));
+        failedCount += 1;
+      }
+
+      toast({
+        title: 'Link titles loaded',
+        description:
+          failedCount > 0
+            ? `${successCount} link${successCount === 1 ? '' : 's'} ready, ${failedCount} failed.`
+            : `${successCount} link${successCount === 1 ? '' : 's'} ready to import.`,
+      });
+    } catch (error) {
+      console.error('Error loading link previews:', error);
+      toast({
+        title: 'Could not load link titles',
+        description: 'Try again or import directly.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsResolvingLinkTitles(false);
+      setProcessingStatus('');
+      setCurrentImportUrl('');
+    }
+  };
+
   const processUrlList = async (urls: string[]) => {
     if (!urls.length) {
       toast({
@@ -693,12 +827,38 @@ export default function RecipesPage() {
         const url = urls[i];
         setCurrentImportUrl(url);
         setProcessingStatus(`Reading link ${i + 1}/${urls.length}...`);
+        const cachedPreview = linkPreviewByUrl[url];
+        if (cachedPreview?.status === 'ready' && cachedPreview.recipes?.length) {
+          extracted.push(...cachedPreview.recipes);
+          continue;
+        }
+
         const result = await parseRecipesFromUrl(url);
         if (result.success && result.recipes?.length) {
-          extracted.push(...result.recipes);
-        } else {
-          failed.push(url);
+          const dedupedFromUrl = dedupeExtractedRecipes(result.recipes);
+          if (dedupedFromUrl.length > 0) {
+            extracted.push(...dedupedFromUrl);
+            setLinkPreviewByUrl((prev) => ({
+              ...prev,
+              [url]: {
+                title: dedupedFromUrl[0]?.name?.trim() || prev[url]?.title || guessRecipeTitleFromUrl(url),
+                status: 'ready',
+                recipes: dedupedFromUrl,
+              },
+            }));
+            continue;
+          }
         }
+
+        failed.push(url);
+        setLinkPreviewByUrl((prev) => ({
+          ...prev,
+          [url]: {
+            title: prev[url]?.title || guessRecipeTitleFromUrl(url),
+            status: 'failed',
+            recipes: [],
+          },
+        }));
       }
 
       const deduped = dedupeExtractedRecipes(extracted);
@@ -772,6 +932,19 @@ export default function RecipesPage() {
       setSelectedPinterestPins(new Set(nextLinks));
       setPinterestBoardTitle(result.boardTitle || '');
       setBulkUrlsInput(nextLinks.join('\n'));
+      setLinkPreviewByUrl((prev) => {
+        const next = { ...prev };
+        for (const link of nextLinks) {
+          if (!next[link]) {
+            next[link] = {
+              title: guessRecipeTitleFromUrl(link),
+              status: 'idle',
+              recipes: [],
+            };
+          }
+        }
+        return next;
+      });
 
       toast({
         title: 'Board loaded',
@@ -866,6 +1039,10 @@ export default function RecipesPage() {
     setPinterestBoardTitle('');
     setPinterestPinLinks([]);
     setSelectedPinterestPins(new Set());
+    setIsResolvingLinkTitles(false);
+    setLinkPreviewByUrl({});
+    setCurrentImportUrl('');
+    setProcessingStatus('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1097,11 +1274,11 @@ export default function RecipesPage() {
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                     placeholder="https://example.com/recipe or public social post URL"
-                    disabled={isProcessing}
+                    disabled={isProcessing || isResolvingLinkTitles}
                   />
                   <Button
                     onClick={() => void processUrl()}
-                    disabled={isProcessing || !urlInput.trim()}
+                    disabled={isProcessing || isResolvingLinkTitles || !urlInput.trim()}
                     variant="outline"
                   >
                     <Link2 className="w-4 h-4 mr-2" />
@@ -1119,21 +1296,30 @@ export default function RecipesPage() {
                   value={bulkUrlsInput}
                   onChange={(e) => setBulkUrlsInput(e.target.value)}
                   placeholder={'Paste one link per line:\nhttps://www.pinterest.com/pin/...\nhttps://example.com/recipe'}
-                  disabled={isProcessing}
+                  disabled={isProcessing || isResolvingLinkTitles}
                   rows={5}
                 />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
                     {bulkUrlCount} link{bulkUrlCount === 1 ? '' : 's'} detected (max {MAX_BULK_URLS} per run)
                   </p>
-                  <Button
-                    onClick={() => void processBulkUrls()}
-                    disabled={isProcessing || bulkUrlCount === 0}
-                    variant="outline"
-                  >
-                    <Link2 className="mr-2 h-4 w-4" />
-                    Process Bulk Links
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => void resolveLinkPreviews(bulkParsedUrls)}
+                      disabled={isProcessing || isResolvingLinkTitles || bulkUrlCount === 0}
+                      variant="outline"
+                    >
+                      {isResolvingLinkTitles ? 'Loading Titles...' : 'Preview Titles'}
+                    </Button>
+                    <Button
+                      onClick={() => void processBulkUrls()}
+                      disabled={isProcessing || isResolvingLinkTitles || bulkUrlCount === 0}
+                      variant="outline"
+                    >
+                      <Link2 className="mr-2 h-4 w-4" />
+                      Process Bulk Links
+                    </Button>
+                  </div>
                 </div>
                 {bulkUrlCount > 0 && (
                   <div className="mt-3 rounded-md border border-border/70 bg-background p-2">
@@ -1141,11 +1327,26 @@ export default function RecipesPage() {
                       Links queued for "Process Bulk Links" ({bulkUrlCount})
                     </p>
                     <div className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded border border-border/60 p-2">
-                      {bulkParsedUrls.map((link) => (
-                        <p key={link} className="truncate text-xs text-muted-foreground">
-                          {link}
-                        </p>
-                      ))}
+                      {bulkParsedUrls.map((link) => {
+                        const preview = getPreviewForLink(link);
+                        return (
+                          <div key={link} className="rounded border border-border/40 bg-card px-2 py-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-xs font-medium text-foreground">{preview.title}</p>
+                              <span className="text-[10px] text-muted-foreground">
+                                {preview.status === 'ready'
+                                  ? 'Ready'
+                                  : preview.status === 'loading'
+                                    ? 'Loading...'
+                                    : preview.status === 'failed'
+                                      ? 'Failed'
+                                      : 'Pending'}
+                              </span>
+                            </div>
+                            <p className="truncate text-[11px] text-muted-foreground">{link}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1158,11 +1359,11 @@ export default function RecipesPage() {
                     value={pinterestBoardUrl}
                     onChange={(e) => setPinterestBoardUrl(e.target.value)}
                     placeholder="https://www.pinterest.com/<user>/<board>/"
-                    disabled={isProcessing || isLoadingPinterestBoard}
+                    disabled={isProcessing || isResolvingLinkTitles || isLoadingPinterestBoard}
                   />
                   <Button
                     onClick={() => void loadPinterestBoardPins()}
-                    disabled={isProcessing || isLoadingPinterestBoard || !pinterestBoardUrl.trim()}
+                    disabled={isProcessing || isResolvingLinkTitles || isLoadingPinterestBoard || !pinterestBoardUrl.trim()}
                     variant="outline"
                   >
                     {isLoadingPinterestBoard ? 'Loading...' : 'Load Board'}
@@ -1177,6 +1378,14 @@ export default function RecipesPage() {
                         {pinterestPinLinks.length} pin link{pinterestPinLinks.length === 1 ? '' : 's'} found
                       </p>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void resolveLinkPreviews(selectedPinterestLinks)}
+                          disabled={isProcessing || isResolvingLinkTitles || selectedPinterestPinCount === 0}
+                        >
+                          {isResolvingLinkTitles ? 'Loading Titles...' : 'Preview selected titles'}
+                        </Button>
                         <Button variant="outline" size="sm" onClick={selectAllPinterestPins}>
                           Select all
                         </Button>
@@ -1196,7 +1405,21 @@ export default function RecipesPage() {
                             checked={selectedPinterestPins.has(link)}
                             onCheckedChange={() => togglePinterestPinSelection(link)}
                           />
-                          <span className="truncate">{link}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium text-foreground">
+                              {getPreviewForLink(link).title}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">{link}</p>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">
+                            {getPreviewForLink(link).status === 'ready'
+                              ? 'Ready'
+                              : getPreviewForLink(link).status === 'loading'
+                                ? 'Loading...'
+                                : getPreviewForLink(link).status === 'failed'
+                                  ? 'Failed'
+                                  : 'Pending'}
+                          </span>
                         </label>
                       ))}
                     </div>
@@ -1207,7 +1430,7 @@ export default function RecipesPage() {
                       </p>
                       <Button
                         onClick={() => void processSelectedPinterestPins()}
-                        disabled={isProcessing || selectedPinterestPinCount === 0}
+                        disabled={isProcessing || isResolvingLinkTitles || selectedPinterestPinCount === 0}
                         variant="outline"
                         size="sm"
                       >
@@ -1222,9 +1445,12 @@ export default function RecipesPage() {
                         </p>
                         <div className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded border border-border/60 p-2">
                           {selectedPinterestLinks.map((link) => (
-                            <p key={link} className="truncate text-xs text-muted-foreground">
-                              {link}
-                            </p>
+                            <div key={link} className="rounded border border-border/40 bg-card px-2 py-1">
+                              <p className="truncate text-xs font-medium text-foreground">
+                                {getPreviewForLink(link).title}
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">{link}</p>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -1233,9 +1459,10 @@ export default function RecipesPage() {
                 )}
               </div>
 
-              {isProcessing && currentImportUrl ? (
+              {(isProcessing || isResolvingLinkTitles) && currentImportUrl ? (
                 <p className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  Importing now: <span className="font-medium text-foreground">{currentImportUrl}</span>
+                  {isResolvingLinkTitles ? 'Checking link now:' : 'Importing now:'}{' '}
+                  <span className="font-medium text-foreground">{currentImportUrl}</span>
                 </p>
               ) : null}
             </div>
