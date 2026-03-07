@@ -23,7 +23,7 @@ export function normalizeRecipeInstructions(input?: string | null): string {
 }
 
 const quantityToken =
-  '(?:\\d+(?:\\.\\d+)?|\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+)\\s*(?:g|kg|oz|lb|lbs|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
+  '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s*(?:g|kg|oz|lb|lbs|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
 
 const fractionMap: Record<string, string> = {
   '¼': '1/4',
@@ -75,12 +75,29 @@ function endsWithLooseDescriptor(line: string): boolean {
 function looksLikeStandaloneDescriptor(text: string): boolean {
   const lower = text.toLowerCase().trim();
   if (!lower) return true;
+  if (/^[\d\s/.()%"-]+$/.test(lower)) return true;
   if (['red', 'green', 'yellow', 'orange', 'ground', 'plain', 'small', 'medium', 'large'].includes(lower)) {
     return true;
   }
   if (/^%+$/.test(lower)) return true;
   if (/(^|\s)cont(?:inued)?\.?$/.test(lower)) return true;
   return false;
+}
+
+function hasUnclosedParenthesis(text: string): boolean {
+  const opens = (text.match(/\(/g) || []).length;
+  const closes = (text.match(/\)/g) || []).length;
+  return opens > closes;
+}
+
+function isInsideParenthesis(text: string, index: number): boolean {
+  let depth = 0;
+  for (let i = 0; i < index; i += 1) {
+    const ch = text[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')' && depth > 0) depth -= 1;
+  }
+  return depth > 0;
 }
 
 function repairIngredientFragments(parts: string[]): string[] {
@@ -92,6 +109,11 @@ function repairIngredientFragments(parts: string[]): string[] {
   for (let i = 0; i < lines.length; i += 1) {
     let current = lines[i];
     if (!current) continue;
+
+    if (out.length > 0 && hasUnclosedParenthesis(out[out.length - 1])) {
+      out[out.length - 1] = `${out[out.length - 1]} ${current}`.replace(/\s+/g, ' ').trim();
+      continue;
+    }
 
     if (isQuantityOnlyLine(current) && i + 1 < lines.length) {
       const next = lines[i + 1];
@@ -156,7 +178,19 @@ function splitMergedIngredientLine(line: string): string[] {
   const regex = new RegExp(quantityToken, 'gi');
   let match: RegExpExecArray | null = regex.exec(text);
   while (match) {
-    splitPoints.push(match.index);
+    const token = match[0] || '';
+    const prevChar = match.index > 0 ? text[match.index - 1] : '';
+    const nextChar = text[match.index + token.length] || '';
+    const tokenHasUnit = new RegExp(`\\b${unitToken}\\b`, 'i').test(token);
+    const tokenIsBareNumber = /^\d+(?:\.\d+)?$/.test(token.trim());
+
+    // Keep mixed fractions intact and ignore quantity matches inside "(360 g)" style conversions.
+    if (!isInsideParenthesis(text, match.index)) {
+      if (!(tokenIsBareNumber && (prevChar === '/' || nextChar === '/')) && (tokenHasUnit || !tokenIsBareNumber)) {
+        splitPoints.push(match.index);
+      }
+    }
+
     match = regex.exec(text);
   }
 
