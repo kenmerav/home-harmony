@@ -722,7 +722,7 @@ function OperationsDetail({ config }: { config: OperationsConfig }) {
         readMinutes: estimateReadMinutes([page.systemDesign, page.implementationSteps, page.commonPitfalls]),
       }}
       bestFor={page.bestFor}
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.systemDesign[0], page.implementationSteps[0], page.commonPitfalls[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -749,7 +749,7 @@ function OperationsDetail({ config }: { config: OperationsConfig }) {
         title: 'Run This System Without Weekly Reset',
         description:
           'Save this workflow to your dashboard, assign ownership, and coordinate it with your full household plan.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'Browse More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

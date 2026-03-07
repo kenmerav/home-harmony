@@ -240,7 +240,7 @@ const seoFooterGroups = [
   {
     title: 'Get Started',
     links: [
-      { label: 'Start Free', href: '/signin?onboarding=1' },
+      { label: 'Start Free', href: '/onboarding' },
       { label: 'Sign In', href: '/signin' },
       { label: 'Getting Started Guide', href: '/getting-started' },
       { label: 'Family Dashboard', href: '/dashboard/me' },

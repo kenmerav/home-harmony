@@ -537,7 +537,7 @@ export function HouseholdTemplateDetailPage() {
         readMinutes: estimateReadMinutes([page.dailyTemplate, page.weeklyTemplate, page.reviewRitual]),
       }}
       bestFor={page.householdProfile}
-      primaryCta={{ label: 'Use This Template', href: '/signin' }}
+      primaryCta={{ label: 'Use This Template', href: '/onboarding' }}
       outcomes={[page.dailyTemplate[0], page.weeklyTemplate[0], page.reviewRitual[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -564,7 +564,7 @@ export function HouseholdTemplateDetailPage() {
         title: 'Turn This Template Into a Weekly Habit',
         description:
           'Save this template to your dashboard, set weekly reminders, and keep tasks, chores, and meals coordinated in one place.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'Browse More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

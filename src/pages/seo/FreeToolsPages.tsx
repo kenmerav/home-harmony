@@ -42,7 +42,7 @@ interface ToolOptimizationPack {
 function buildSignInHref(slug: string, variant: CtaVariantId) {
   const intent = encodeURIComponent(slug);
   const ab = encodeURIComponent(variant);
-  return `/signin?source=free-tools&intent=${intent}&ab=${ab}`;
+  return `/onboarding?source=free-tools&intent=${intent}&ab=${ab}`;
 }
 
 const toolOptimizationMap: Record<string, ToolOptimizationPack> = {

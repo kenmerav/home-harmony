@@ -240,7 +240,7 @@ export function PantryDetailPage() {
         readMinutes: estimateReadMinutes([page.fastMeals, page.fillInItems, page.failSafeTips]),
       }}
       bestFor="Households trying to make dinner from what is already on hand."
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.fastMeals[0], page.fillInItems[0], page.failSafeTips[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -266,7 +266,7 @@ export function PantryDetailPage() {
       quietCta={{
         title: 'Run Pantry Planning Every Week',
         description: 'Save this structure and coordinate pantry meals with your grocery and dinner schedule.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

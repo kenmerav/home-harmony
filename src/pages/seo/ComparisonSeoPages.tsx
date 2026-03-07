@@ -212,7 +212,7 @@ export function ComparisonDetailPage() {
         ]),
       }}
       bestFor={page.bestForHomeHarmony[0] || `Families evaluating ${page.competitor} alternatives.`}
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.whereHomeHarmonyWins[0], page.whereHomeHarmonyWins[1], page.whereCompetitorWins[0]]}
       howItWorks={page.switchChecklist}
       editorialBlocks={editorialBlocks}
@@ -238,7 +238,7 @@ export function ComparisonDetailPage() {
       quietCta={{
         title: 'Migrate One Workflow at a Time',
         description: 'Start with meals and grocery, then layer chores and tasks once week one is stable.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

@@ -248,7 +248,7 @@ export function TemplateDetailPage() {
       navigate('/onboarding?force=1');
       return;
     }
-    navigate('/signin?onboarding=1');
+    navigate('/onboarding');
   };
   const narrative = templateNarrative[pack.slug] || {
     intro: 'This template is designed for fast deployment and consistent weekly use.',

@@ -537,7 +537,7 @@ export function MacroDetailPage() {
         readMinutes: estimateReadMinutes([page.sampleDay, page.adjustmentRules, page.loggingProtocol]),
       }}
       bestFor={page.macroTarget}
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.sampleDay[0], page.adjustmentRules[0], page.loggingProtocol[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -564,7 +564,7 @@ export function MacroDetailPage() {
         title: 'Keep Your Targets Consistent Week to Week',
         description:
           'Save your macro targets, log progress, and connect meals, grocery lists, and workouts in one weekly rhythm.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'Browse More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

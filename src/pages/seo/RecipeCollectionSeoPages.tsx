@@ -240,7 +240,7 @@ export function RecipeCollectionDetailPage() {
         readMinutes: estimateReadMinutes([page.featuredRecipes, page.howToUseCollection, page.pairingIdeas]),
       }}
       bestFor={page.collectionAngle}
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.featuredRecipes[0], page.howToUseCollection[0], page.pairingIdeas[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -266,7 +266,7 @@ export function RecipeCollectionDetailPage() {
       quietCta={{
         title: 'Save This Collection Workflow',
         description: 'Keep your collection, grocery rollups, and weekly reminders connected in one system.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[

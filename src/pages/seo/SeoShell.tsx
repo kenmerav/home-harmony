@@ -15,7 +15,7 @@ export function SeoShell({ children }: { children: ReactNode }) {
             <Link to="/resources">
               <Button variant="ghost">Resources</Button>
             </Link>
-            <Link to="/signin">
+            <Link to="/onboarding">
               <Button>Open App</Button>
             </Link>
           </div>

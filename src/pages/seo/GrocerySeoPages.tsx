@@ -537,7 +537,7 @@ export function GroceryDetailPage() {
         readMinutes: estimateReadMinutes([page.listStrategy, page.costControls, page.substitutionRules]),
       }}
       bestFor={page.focus}
-      primaryCta={{ label: 'Use This System', href: '/signin' }}
+      primaryCta={{ label: 'Use This System', href: '/onboarding' }}
       outcomes={[page.listStrategy[0], page.costControls[0], page.substitutionRules[0]]}
       howItWorks={actionPlanSteps}
       editorialBlocks={editorialBlocks}
@@ -564,7 +564,7 @@ export function GroceryDetailPage() {
         title: 'Keep Your Grocery Planning Consistent',
         description:
           'Save this workflow to your dashboard, set weekly reminders, and keep grocery lists, meal plans, and tasks aligned in one place.',
-        primary: { label: 'Start Free Trial', href: '/signin' },
+        primary: { label: 'Start Free Trial', href: '/onboarding' },
         secondary: { label: 'Browse More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[
