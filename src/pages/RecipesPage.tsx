@@ -23,6 +23,7 @@ import {
   parseRecipesFromImage,
   parseRecipesFromUrl,
   extractPinterestBoardLinks,
+  extractRecipePageLinks,
   fetchCookbookImportJobs,
   cancelCookbookImportJob,
   CookbookImportJob,
@@ -264,6 +265,11 @@ export default function RecipesPage() {
   const [pinterestPinLinks, setPinterestPinLinks] = useState<string[]>([]);
   const [selectedPinterestPins, setSelectedPinterestPins] = useState<Set<string>>(new Set());
   const [isLoadingPinterestBoard, setIsLoadingPinterestBoard] = useState(false);
+  const [recipeCollectionUrl, setRecipeCollectionUrl] = useState('');
+  const [recipeCollectionTitle, setRecipeCollectionTitle] = useState('');
+  const [recipeCollectionLinks, setRecipeCollectionLinks] = useState<Array<{ url: string; title: string }>>([]);
+  const [selectedRecipeCollectionLinks, setSelectedRecipeCollectionLinks] = useState<Set<string>>(new Set());
+  const [isLoadingRecipeCollection, setIsLoadingRecipeCollection] = useState(false);
   const [isResolvingLinkTitles, setIsResolvingLinkTitles] = useState(false);
   const [linkPreviewByUrl, setLinkPreviewByUrl] = useState<Record<string, LinkPreviewRecord>>({});
   const [currentImportUrl, setCurrentImportUrl] = useState('');
@@ -450,6 +456,10 @@ export default function RecipesPage() {
   const bulkUrlCount = bulkParsedUrls.length;
   const selectedPinterestLinks = pinterestPinLinks.filter((link) => selectedPinterestPins.has(link));
   const selectedPinterestPinCount = selectedPinterestPins.size;
+  const selectedRecipeCollectionUrlList = recipeCollectionLinks
+    .map((item) => item.url)
+    .filter((url) => selectedRecipeCollectionLinks.has(url));
+  const selectedRecipeCollectionCount = selectedRecipeCollectionUrlList.length;
   const getPreviewForLink = (url: string): LinkPreviewRecord => {
     const existing = linkPreviewByUrl[url];
     if (existing) return existing;
@@ -979,6 +989,90 @@ export default function RecipesPage() {
     await processUrlList(selected);
   };
 
+  const loadRecipeCollectionLinks = async () => {
+    const input = recipeCollectionUrl.trim();
+    if (!input) {
+      toast({
+        title: 'Add page URL first',
+        description: 'Paste a recipe category or recipe list page URL.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoadingRecipeCollection(true);
+    setRecipeCollectionLinks([]);
+    setSelectedRecipeCollectionLinks(new Set());
+    setRecipeCollectionTitle('');
+
+    try {
+      const result = await extractRecipePageLinks(input, MAX_BULK_URLS);
+      if (!result.success || !result.links?.length) {
+        toast({
+          title: 'Could not load recipes from that page',
+          description: result.error || 'No recipe links found for that page.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const nextLinks = result.links.slice(0, MAX_BULK_URLS);
+      setRecipeCollectionLinks(nextLinks);
+      setSelectedRecipeCollectionLinks(new Set(nextLinks.map((item) => item.url)));
+      setRecipeCollectionTitle(result.pageTitle || '');
+      setBulkUrlsInput(nextLinks.map((item) => item.url).join('\n'));
+      setLinkPreviewByUrl((prev) => {
+        const next = { ...prev };
+        for (const item of nextLinks) {
+          if (!next[item.url]) {
+            next[item.url] = {
+              title: item.title || guessRecipeTitleFromUrl(item.url),
+              status: 'idle',
+              recipes: [],
+            };
+          } else if (!next[item.url].title || next[item.url].title === 'Recipe Link') {
+            next[item.url] = {
+              ...next[item.url],
+              title: item.title || next[item.url].title,
+            };
+          }
+        }
+        return next;
+      });
+
+      toast({
+        title: 'Recipe links loaded',
+        description: `Found ${nextLinks.length} recipe link${nextLinks.length === 1 ? '' : 's'}.`,
+      });
+    } catch (error) {
+      console.error('Failed to load recipe collection links:', error);
+      toast({
+        title: 'Could not load recipe links',
+        description: 'Try another page URL or paste links manually.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingRecipeCollection(false);
+    }
+  };
+
+  const toggleRecipeCollectionSelection = (url: string) => {
+    setSelectedRecipeCollectionLinks((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  };
+
+  const selectAllRecipeCollectionLinks = () =>
+    setSelectedRecipeCollectionLinks(new Set(recipeCollectionLinks.map((item) => item.url)));
+  const clearRecipeCollectionSelection = () => setSelectedRecipeCollectionLinks(new Set());
+
+  const processSelectedRecipeCollectionLinks = async () => {
+    await processUrlList(selectedRecipeCollectionUrlList);
+  };
+
   const toggleRecipeSelection = (index: number) => {
     const newSelected = new Set(selectedRecipes);
     if (newSelected.has(index)) {
@@ -1039,6 +1133,10 @@ export default function RecipesPage() {
     setPinterestBoardTitle('');
     setPinterestPinLinks([]);
     setSelectedPinterestPins(new Set());
+    setRecipeCollectionUrl('');
+    setRecipeCollectionTitle('');
+    setRecipeCollectionLinks([]);
+    setSelectedRecipeCollectionLinks(new Set());
     setIsResolvingLinkTitles(false);
     setLinkPreviewByUrl({});
     setCurrentImportUrl('');
@@ -1455,6 +1553,93 @@ export default function RecipesPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <p className="font-medium mb-2">Load all recipes from one category/list page</p>
+                <div className="flex gap-2">
+                  <Input
+                    value={recipeCollectionUrl}
+                    onChange={(e) => setRecipeCollectionUrl(e.target.value)}
+                    placeholder="https://masonfit.com/category/recipes/"
+                    disabled={isProcessing || isResolvingLinkTitles || isLoadingRecipeCollection}
+                  />
+                  <Button
+                    onClick={() => void loadRecipeCollectionLinks()}
+                    disabled={
+                      isProcessing ||
+                      isResolvingLinkTitles ||
+                      isLoadingRecipeCollection ||
+                      !recipeCollectionUrl.trim()
+                    }
+                    variant="outline"
+                  >
+                    {isLoadingRecipeCollection ? 'Loading...' : 'Load Recipe Page'}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Great for recipe blogs and category pages. We will pull likely recipe post links so you can pick exactly what to import.
+                </p>
+
+                {recipeCollectionLinks.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {recipeCollectionTitle ? `${recipeCollectionTitle} · ` : ''}
+                        {recipeCollectionLinks.length} recipe link{recipeCollectionLinks.length === 1 ? '' : 's'} found
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={selectAllRecipeCollectionLinks}>
+                          Select all
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={clearRecipeCollectionSelection}>
+                          Clear
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void resolveLinkPreviews(selectedRecipeCollectionUrlList)}
+                          disabled={isProcessing || isResolvingLinkTitles || selectedRecipeCollectionCount === 0}
+                        >
+                          {isResolvingLinkTitles ? 'Loading Titles...' : 'Preview selected titles'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-border/70 p-2">
+                      {recipeCollectionLinks.map((item) => (
+                        <label
+                          key={item.url}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={selectedRecipeCollectionLinks.has(item.url)}
+                            onCheckedChange={() => toggleRecipeCollectionSelection(item.url)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium text-foreground">
+                              {getPreviewForLink(item.url).title || item.title}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">{item.url}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">{selectedRecipeCollectionCount} selected</p>
+                      <Button
+                        onClick={() => void processSelectedRecipeCollectionLinks()}
+                        disabled={isProcessing || isResolvingLinkTitles || selectedRecipeCollectionCount === 0}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Link2 className="mr-2 h-4 w-4" />
+                        Process Selected Recipe Links
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>

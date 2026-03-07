@@ -50,6 +50,27 @@ export interface PinterestBoardLinksResult {
   links?: string[];
 }
 
+interface ExtractRecipePageLinksResponse {
+  success: boolean;
+  error?: string;
+  pageUrl?: string;
+  pageTitle?: string;
+  links?: Array<{ url: string; title?: string }>;
+}
+
+export interface RecipePageLink {
+  url: string;
+  title: string;
+}
+
+export interface RecipePageLinksResult {
+  success: boolean;
+  error?: string;
+  pageUrl?: string;
+  pageTitle?: string;
+  links?: RecipePageLink[];
+}
+
 export interface CookbookImportJob {
   id: string;
   user_id: string;
@@ -388,6 +409,61 @@ export async function extractPinterestBoardLinks(
     };
   } catch (error) {
     console.error('Error extracting Pinterest board links:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    };
+  }
+}
+
+export async function extractRecipePageLinks(
+  url: string,
+  limit = 40,
+): Promise<RecipePageLinksResult> {
+  try {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Please enter a recipe page URL.' };
+    }
+
+    let normalizedUrl = trimmed;
+    if (!/^https?:\/\//i.test(normalizedUrl)) {
+      normalizedUrl = `https://${normalizedUrl}`;
+    }
+
+    const parsed = new URL(normalizedUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { success: false, error: 'Only http/https links are supported.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('extract-recipe-page-links', {
+      body: {
+        url: parsed.toString(),
+        limit,
+      },
+    });
+
+    if (error) {
+      console.error('Edge function error (extract-recipe-page-links):', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to load recipe links',
+      };
+    }
+
+    const response = data as ExtractRecipePageLinksResponse;
+    return {
+      success: !!response.success,
+      error: response.error,
+      pageUrl: response.pageUrl,
+      pageTitle: response.pageTitle,
+      links: (response.links || []).map((item) => ({
+        url: String(item.url || '').trim(),
+        title: String(item.title || '').trim() || 'Recipe Link',
+      })),
+    };
+  } catch (error) {
+    console.error('Error extracting recipe page links:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
