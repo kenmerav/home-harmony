@@ -34,6 +34,22 @@ interface ParsePdfOptions {
   onProgress?: (message: string) => void;
 }
 
+interface ExtractPinterestBoardLinksResponse {
+  success: boolean;
+  error?: string;
+  boardUrl?: string;
+  boardTitle?: string;
+  links?: string[];
+}
+
+export interface PinterestBoardLinksResult {
+  success: boolean;
+  error?: string;
+  boardUrl?: string;
+  boardTitle?: string;
+  links?: string[];
+}
+
 export interface CookbookImportJob {
   id: string;
   user_id: string;
@@ -320,6 +336,58 @@ export async function parseRecipesFromUrl(url: string): Promise<ParseCookbookRes
     return data as ParseCookbookResponse;
   } catch (error) {
     console.error('Error parsing recipe URL:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    };
+  }
+}
+
+export async function extractPinterestBoardLinks(
+  url: string,
+  limit = 40,
+): Promise<PinterestBoardLinksResult> {
+  try {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Please enter a Pinterest board URL.' };
+    }
+
+    let normalizedUrl = trimmed;
+    if (!/^https?:\/\//i.test(normalizedUrl)) {
+      normalizedUrl = `https://${normalizedUrl}`;
+    }
+
+    const parsed = new URL(normalizedUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { success: false, error: 'Only http/https links are supported.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('extract-pinterest-board-links', {
+      body: {
+        url: parsed.toString(),
+        limit,
+      },
+    });
+
+    if (error) {
+      console.error('Edge function error (extract-pinterest-board-links):', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to load Pinterest board links',
+      };
+    }
+
+    const response = data as ExtractPinterestBoardLinksResponse;
+    return {
+      success: !!response.success,
+      error: response.error,
+      boardUrl: response.boardUrl,
+      boardTitle: response.boardTitle,
+      links: response.links || [],
+    };
+  } catch (error) {
+    console.error('Error extracting Pinterest board links:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',

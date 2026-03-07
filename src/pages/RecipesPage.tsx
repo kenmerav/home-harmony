@@ -22,6 +22,7 @@ import {
   parseRecipesFromJson,
   parseRecipesFromImage,
   parseRecipesFromUrl,
+  extractPinterestBoardLinks,
   fetchCookbookImportJobs,
   cancelCookbookImportJob,
   CookbookImportJob,
@@ -218,6 +219,11 @@ export default function RecipesPage() {
   const [bulkUrlsInput, setBulkUrlsInput] = useState('');
   const [bulkFailedUrls, setBulkFailedUrls] = useState<string[]>([]);
   const [recipeStyleFilter, setRecipeStyleFilter] = useState<RecipeInspirationStyle>('all');
+  const [pinterestBoardUrl, setPinterestBoardUrl] = useState('');
+  const [pinterestBoardTitle, setPinterestBoardTitle] = useState('');
+  const [pinterestPinLinks, setPinterestPinLinks] = useState<string[]>([]);
+  const [selectedPinterestPins, setSelectedPinterestPins] = useState<Set<string>>(new Set());
+  const [isLoadingPinterestBoard, setIsLoadingPinterestBoard] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
@@ -398,6 +404,7 @@ export default function RecipesPage() {
   );
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const bulkUrlCount = parseBulkUrlInput(bulkUrlsInput).length;
+  const selectedPinterestPinCount = selectedPinterestPins.size;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -651,8 +658,7 @@ export default function RecipesPage() {
     }
   };
 
-  const processBulkUrls = async () => {
-    const urls = parseBulkUrlInput(bulkUrlsInput);
+  const processUrlList = async (urls: string[]) => {
     if (!urls.length) {
       toast({
         title: 'Add links first',
@@ -723,6 +729,77 @@ export default function RecipesPage() {
     }
   };
 
+  const processBulkUrls = async () => {
+    const urls = parseBulkUrlInput(bulkUrlsInput);
+    await processUrlList(urls);
+  };
+
+  const loadPinterestBoardPins = async () => {
+    const input = pinterestBoardUrl.trim();
+    if (!input) {
+      toast({
+        title: 'Add board URL first',
+        description: 'Paste a Pinterest board URL.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoadingPinterestBoard(true);
+    setPinterestPinLinks([]);
+    setSelectedPinterestPins(new Set());
+    setPinterestBoardTitle('');
+
+    try {
+      const result = await extractPinterestBoardLinks(input, MAX_BULK_URLS);
+      if (!result.success || !result.links?.length) {
+        toast({
+          title: 'Could not load board pins',
+          description: result.error || 'No pins found for that board.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const nextLinks = result.links.slice(0, MAX_BULK_URLS);
+      setPinterestPinLinks(nextLinks);
+      setSelectedPinterestPins(new Set(nextLinks));
+      setPinterestBoardTitle(result.boardTitle || '');
+      setBulkUrlsInput(nextLinks.join('\n'));
+
+      toast({
+        title: 'Board loaded',
+        description: `Found ${nextLinks.length} pin link${nextLinks.length === 1 ? '' : 's'}.`,
+      });
+    } catch (error) {
+      console.error('Failed to load Pinterest board pins:', error);
+      toast({
+        title: 'Could not load board pins',
+        description: 'Try another board URL or paste links manually.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingPinterestBoard(false);
+    }
+  };
+
+  const togglePinterestPinSelection = (link: string) => {
+    setSelectedPinterestPins((prev) => {
+      const next = new Set(prev);
+      if (next.has(link)) next.delete(link);
+      else next.add(link);
+      return next;
+    });
+  };
+
+  const selectAllPinterestPins = () => setSelectedPinterestPins(new Set(pinterestPinLinks));
+  const clearPinterestPinSelection = () => setSelectedPinterestPins(new Set());
+
+  const processSelectedPinterestPins = async () => {
+    const selected = pinterestPinLinks.filter((link) => selectedPinterestPins.has(link));
+    await processUrlList(selected);
+  };
+
   const toggleRecipeSelection = (index: number) => {
     const newSelected = new Set(selectedRecipes);
     if (newSelected.has(index)) {
@@ -779,6 +856,10 @@ export default function RecipesPage() {
     setUrlInput('');
     setBulkUrlsInput('');
     setBulkFailedUrls([]);
+    setPinterestBoardUrl('');
+    setPinterestBoardTitle('');
+    setPinterestPinLinks([]);
+    setSelectedPinterestPins(new Set());
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1048,6 +1129,74 @@ export default function RecipesPage() {
                     Process Bulk Links
                   </Button>
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <p className="font-medium mb-2">Load a Pinterest board, then choose pins</p>
+                <div className="flex gap-2">
+                  <Input
+                    value={pinterestBoardUrl}
+                    onChange={(e) => setPinterestBoardUrl(e.target.value)}
+                    placeholder="https://www.pinterest.com/<user>/<board>/"
+                    disabled={isProcessing || isLoadingPinterestBoard}
+                  />
+                  <Button
+                    onClick={() => void loadPinterestBoardPins()}
+                    disabled={isProcessing || isLoadingPinterestBoard || !pinterestBoardUrl.trim()}
+                    variant="outline"
+                  >
+                    {isLoadingPinterestBoard ? 'Loading...' : 'Load Board'}
+                  </Button>
+                </div>
+
+                {pinterestPinLinks.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {pinterestBoardTitle ? `${pinterestBoardTitle} · ` : ''}
+                        {pinterestPinLinks.length} pin link{pinterestPinLinks.length === 1 ? '' : 's'} found
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={selectAllPinterestPins}>
+                          Select all
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={clearPinterestPinSelection}>
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/70 p-2">
+                      {pinterestPinLinks.map((link) => (
+                        <label
+                          key={link}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={selectedPinterestPins.has(link)}
+                            onCheckedChange={() => togglePinterestPinSelection(link)}
+                          />
+                          <span className="truncate">{link}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        {selectedPinterestPinCount} selected
+                      </p>
+                      <Button
+                        onClick={() => void processSelectedPinterestPins()}
+                        disabled={isProcessing || selectedPinterestPinCount === 0}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Link2 className="mr-2 h-4 w-4" />
+                        Process Selected Pins
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
