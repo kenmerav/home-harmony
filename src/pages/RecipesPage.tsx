@@ -224,6 +224,7 @@ export default function RecipesPage() {
   const [pinterestPinLinks, setPinterestPinLinks] = useState<string[]>([]);
   const [selectedPinterestPins, setSelectedPinterestPins] = useState<Set<string>>(new Set());
   const [isLoadingPinterestBoard, setIsLoadingPinterestBoard] = useState(false);
+  const [currentImportUrl, setCurrentImportUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
@@ -403,7 +404,9 @@ export default function RecipesPage() {
     (board) => recipeStyleFilter === 'all' || board.styles.includes(recipeStyleFilter),
   );
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
-  const bulkUrlCount = parseBulkUrlInput(bulkUrlsInput).length;
+  const bulkParsedUrls = parseBulkUrlInput(bulkUrlsInput);
+  const bulkUrlCount = bulkParsedUrls.length;
+  const selectedPinterestLinks = pinterestPinLinks.filter((link) => selectedPinterestPins.has(link));
   const selectedPinterestPinCount = selectedPinterestPins.size;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -680,6 +683,7 @@ export default function RecipesPage() {
     setIsProcessing(true);
     setBulkFailedUrls([]);
     setProcessingStatus(`Reading link 1/${urls.length}...`);
+    setCurrentImportUrl(urls[0] || '');
 
     const extracted: ExtractedRecipe[] = [];
     const failed: string[] = [];
@@ -687,6 +691,7 @@ export default function RecipesPage() {
     try {
       for (let i = 0; i < urls.length; i += 1) {
         const url = urls[i];
+        setCurrentImportUrl(url);
         setProcessingStatus(`Reading link ${i + 1}/${urls.length}...`);
         const result = await parseRecipesFromUrl(url);
         if (result.success && result.recipes?.length) {
@@ -726,6 +731,7 @@ export default function RecipesPage() {
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
+      setCurrentImportUrl('');
     }
   };
 
@@ -1028,7 +1034,7 @@ export default function RecipesPage() {
 
       {/* Upload PDF Modal */}
       <Dialog open={uploadModalOpen} onOpenChange={(open) => !open && closeModal()}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {uploadStep === 'upload' ? 'Upload Recipes' : 'Review Extracted Recipes'}
@@ -1129,6 +1135,20 @@ export default function RecipesPage() {
                     Process Bulk Links
                   </Button>
                 </div>
+                {bulkUrlCount > 0 && (
+                  <div className="mt-3 rounded-md border border-border/70 bg-background p-2">
+                    <p className="text-xs font-medium text-foreground">
+                      Links queued for "Process Bulk Links" ({bulkUrlCount})
+                    </p>
+                    <div className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded border border-border/60 p-2">
+                      {bulkParsedUrls.map((link) => (
+                        <p key={link} className="truncate text-xs text-muted-foreground">
+                          {link}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-border/70 bg-card p-4">
@@ -1195,9 +1215,29 @@ export default function RecipesPage() {
                         Process Selected Pins
                       </Button>
                     </div>
+                    {selectedPinterestPinCount > 0 && (
+                      <div className="rounded-md border border-border/70 bg-background p-2">
+                        <p className="text-xs font-medium text-foreground">
+                          Links queued for "Process Selected Pins" ({selectedPinterestPinCount})
+                        </p>
+                        <div className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded border border-border/60 p-2">
+                          {selectedPinterestLinks.map((link) => (
+                            <p key={link} className="truncate text-xs text-muted-foreground">
+                              {link}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+
+              {isProcessing && currentImportUrl ? (
+                <p className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  Importing now: <span className="font-medium text-foreground">{currentImportUrl}</span>
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-4">
