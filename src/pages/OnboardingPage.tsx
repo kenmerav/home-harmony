@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
-import { seedStarterRecipesIfEmpty } from '@/lib/api/recipes';
+import { fetchRecipes, seedStarterRecipesIfEmpty } from '@/lib/api/recipes';
 import {
   buildPersonalizedDinnerWeek,
   buildPersonalizedGroceryPreview,
@@ -29,6 +29,7 @@ import { BottomCTA } from '@/components/onboarding/BottomCTA';
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
 import { OptionList } from '@/components/onboarding/OptionList';
 import { QuestionScreen } from '@/components/onboarding/QuestionScreen';
+import { DayOfWeek } from '@/types';
 
 const PAIN_POINT_OPTIONS = [
   'Figuring out dinner every night',
@@ -365,10 +366,42 @@ function normalizeDietaryPreferences(answers: OnboardingAnswers): string[] {
   return Array.from(new Set(combined));
 }
 
-function buildDayLocks(answers: OnboardingAnswers): Partial<Record<'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday', string>> {
-  const locks: Partial<Record<'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday', string>> = {};
-  if (answers.weeklyStaples.includes('Taco Tuesday')) locks.tuesday = 'Taco night';
-  if (answers.weeklyStaples.includes('Pizza Friday')) locks.friday = 'Pizza night';
+function normalizeRecipeLookup(value: string): string {
+  return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function findRecipeIdByKeywords(
+  recipes: Array<{ id: string; name: string }>,
+  keywords: string[],
+  usedIds: Set<string>,
+): string | null {
+  for (const recipe of recipes) {
+    if (usedIds.has(recipe.id)) continue;
+    const haystack = normalizeRecipeLookup(recipe.name);
+    if (keywords.some((keyword) => haystack.includes(keyword))) {
+      usedIds.add(recipe.id);
+      return recipe.id;
+    }
+  }
+  return null;
+}
+
+function buildDayLocks(
+  answers: OnboardingAnswers,
+  recipes: Array<{ id: string; name: string }> = [],
+): Partial<Record<DayOfWeek, string>> {
+  const locks: Partial<Record<DayOfWeek, string>> = {};
+  const used = new Set<string>();
+
+  if (answers.weeklyStaples.includes('Taco Tuesday')) {
+    const tacoId = findRecipeIdByKeywords(recipes, ['taco', 'fajita'], used);
+    if (tacoId) locks.tuesday = tacoId;
+  }
+  if (answers.weeklyStaples.includes('Pizza Friday')) {
+    const pizzaId = findRecipeIdByKeywords(recipes, ['pizza', 'flatbread'], used);
+    if (pizzaId) locks.friday = pizzaId;
+  }
+
   return locks;
 }
 
@@ -571,6 +604,7 @@ export default function OnboardingPage() {
       foodRestrictions: answers.foodRestrictions,
       avoidFoods: parseListText(answers.avoidFoods),
       weeklyRhythm: answers.weeklyRhythm,
+      weeklyStaples: answers.weeklyStaples,
       kidsCount: answers.kidsCount,
     }),
     [answers],
@@ -706,6 +740,14 @@ export default function OnboardingPage() {
         console.error('Starter recipe seeding failed:', seedError);
       }
 
+      let availableRecipes: Array<{ id: string; name: string }> = [];
+      try {
+        const dbRecipes = await fetchRecipes();
+        availableRecipes = dbRecipes.map((recipe) => ({ id: recipe.id, name: recipe.name }));
+      } catch (recipeLoadError) {
+        console.error('Could not load recipes while applying onboarding day locks:', recipeLoadError);
+      }
+
       setPlanRules({
         preferFavorites: answers.planningStyle !== 'I mostly build my own plan',
         preferKidFriendly: answers.kidsCount > 0 || answers.mealStylePreferences.includes('Kid-friendly'),
@@ -716,7 +758,7 @@ export default function OnboardingPage() {
           answers.weeklyRhythm.includes('Sports-heavy week')
             ? 30
             : null,
-        dayLocks: buildDayLocks(answers),
+        dayLocks: buildDayLocks(answers, availableRecipes),
       });
 
       if (

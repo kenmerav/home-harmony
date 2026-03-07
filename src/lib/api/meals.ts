@@ -55,6 +55,47 @@ function weightedPick<T extends { id: string }>(
   return weighted[weighted.length - 1].recipe;
 }
 
+function normalizeLockToken(value: string): string {
+  return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function resolveDayLockRecipe<T extends { id: string; name: string }>(
+  recipes: T[],
+  lockValue: string | undefined,
+): T | null {
+  if (!lockValue) return null;
+  const raw = String(lockValue).trim();
+  if (!raw) return null;
+
+  const byId = recipes.find((recipe) => recipe.id === raw);
+  if (byId) return byId;
+
+  const normalizedLock = normalizeLockToken(raw);
+  if (!normalizedLock) return null;
+
+  const byExactName = recipes.find((recipe) => normalizeLockToken(recipe.name) === normalizedLock);
+  if (byExactName) return byExactName;
+
+  const keywordGroups: Array<{ match: boolean; keywords: string[] }> = [
+    { match: normalizedLock.includes('taco'), keywords: ['taco', 'fajita'] },
+    { match: normalizedLock.includes('pizza'), keywords: ['pizza', 'flatbread'] },
+    { match: normalizedLock.includes('pasta'), keywords: ['pasta', 'rigatoni', 'orzo', 'ravioli'] },
+    { match: normalizedLock.includes('soup'), keywords: ['soup', 'chili', 'stew'] },
+    { match: normalizedLock.includes('breakfast'), keywords: ['breakfast', 'egg', 'omelet', 'oats'] },
+  ];
+
+  const activeGroup = keywordGroups.find((group) => group.match);
+  if (activeGroup) {
+    const byKeyword = recipes.find((recipe) => {
+      const name = normalizeLockToken(recipe.name);
+      return activeGroup.keywords.some((keyword) => name.includes(keyword));
+    });
+    if (byKeyword) return byKeyword;
+  }
+
+  return recipes.find((recipe) => normalizeLockToken(recipe.name).includes(normalizedLock)) || null;
+}
+
 function getWeekOf(weekOffset: number): string {
   const ws = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
   return format(ws, 'yyyy-MM-dd');
@@ -182,8 +223,7 @@ export async function generateMeals(
     for (const day of targetDays) {
       const meal = byDay.get(day);
       if (meal?.is_locked) continue;
-      const forcedRecipeId = dayLocks[day];
-      const forcedRecipe = forcedRecipeId ? recipes.find((r) => r.id === forcedRecipeId) : null;
+      const forcedRecipe = resolveDayLockRecipe(recipes, dayLocks[day]);
       if (forcedRecipe) {
         used.add(forcedRecipe.id);
         mutable.push({
@@ -290,10 +330,7 @@ export async function generateMeals(
 
   // Apply recurring day locks first (example: tacos every Tuesday).
   for (const day of daysNeedingMeals.slice()) {
-    const recipeId = dayLocks[day];
-    if (!recipeId) continue;
-
-    const forcedRecipe = allRecipes.find((r) => r.id === recipeId);
+    const forcedRecipe = resolveDayLockRecipe(allRecipes, dayLocks[day]);
     if (!forcedRecipe) continue;
 
     newMeals.push({ recipe_id: forcedRecipe.id, day, week_of: weekOf });

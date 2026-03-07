@@ -175,6 +175,17 @@ const STARTER_DINNER_CATALOG: StarterDinnerRecipe[] = [
     effort: 'moderate',
   },
   {
+    name: 'Sheet Pan Pizza Night',
+    servings: 4,
+    ingredients: ['1 lb pizza dough', '1 cup marinara sauce', '2 cups shredded mozzarella', '1 cup sliced bell peppers', '0.5 cup sliced red onion', '1 cup sliced mushrooms', '1 tbsp olive oil', '1 tsp Italian seasoning'],
+    instructions: '1. Heat oven to 450F and stretch dough on an oiled sheet pan. 2. Spread sauce and top with cheese and vegetables. 3. Bake 14-18 minutes until crust is golden. 4. Rest 3 minutes, slice, and serve.',
+    macrosPerServing: { calories: 520, protein_g: 23, carbs_g: 58, fat_g: 21, fiber_g: 4 },
+    tags: ['Organic'],
+    flavor: 'Comfort',
+    cost: 'budget',
+    effort: 'easy',
+  },
+  {
     name: 'Pesto Turkey Meatballs with Zoodles',
     servings: 5,
     ingredients: ['1.75 lb lean ground turkey', '1 egg', '0.5 cup breadcrumbs', '0.25 cup pesto', '4 zucchini', '2 cups marinara', '0.25 cup parmesan'],
@@ -268,6 +279,7 @@ export interface StarterRecipeProfile {
   foodRestrictions?: string[];
   avoidFoods?: string[];
   weeklyRhythm?: string[];
+  weeklyStaples?: string[];
   kidsCount?: number;
 }
 
@@ -292,6 +304,11 @@ const COST_RANK: Record<CostTier, number> = {
 };
 
 const PREVIEW_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+
+const STAPLE_TO_DAY_INDEX: Record<string, number> = {
+  'taco tuesday': 1,
+  'pizza friday': 4,
+};
 
 const normalizeToken = (value: string): string =>
   value.trim().toLowerCase().replace(/[/-]/g, ' ').replace(/\s+/g, ' ');
@@ -378,6 +395,28 @@ function scoreRecipe(recipe: StarterDinnerRecipe, profile: StarterRecipeProfile)
   return score;
 }
 
+function pickRecipeForStaple(staple: string, pool: StarterDinnerRecipe[], usedNames: Set<string>): StarterDinnerRecipe | null {
+  const normalized = normalizeToken(staple);
+  const keywordGroups: Array<{ match: boolean; keywords: string[] }> = [
+    { match: normalized.includes('taco'), keywords: ['taco', 'fajita'] },
+    { match: normalized.includes('pizza'), keywords: ['pizza'] },
+    { match: normalized.includes('pasta'), keywords: ['pasta', 'rigatoni', 'ravioli', 'orzo'] },
+    { match: normalized.includes('soup'), keywords: ['soup', 'chili', 'stew'] },
+    { match: normalized.includes('breakfast'), keywords: ['breakfast', 'egg', 'pancake', 'waffle', 'omelet'] },
+  ];
+
+  const active = keywordGroups.find((group) => group.match);
+  if (!active) return null;
+
+  const candidate = pool.find((recipe) => {
+    if (usedNames.has(recipe.name)) return false;
+    const haystack = normalizeToken(`${recipe.name} ${recipe.ingredients.join(' ')}`);
+    return active.keywords.some((keyword) => haystack.includes(keyword));
+  });
+
+  return candidate || null;
+}
+
 function pickWithVariety(pool: StarterDinnerRecipe[], targetCount: number): StarterDinnerRecipe[] {
   const selected: StarterDinnerRecipe[] = [];
   const flavorCounts = new Map<FlavorProfile, number>();
@@ -443,10 +482,32 @@ export function buildPersonalizedDinnerWeek(
   profile: StarterRecipeProfile,
   dayCount = 5,
 ): Array<{ day: string; recipe: StarterDinnerRecipe; cookMinutes: number }> {
-  const recipes = buildPersonalizedStarterRecipes(profile, Math.max(dayCount, 7));
-  const picked = recipes.slice(0, Math.max(1, Math.min(dayCount, 7)));
+  const safeCount = Math.max(1, Math.min(dayCount, 7));
+  const recipes = buildPersonalizedStarterRecipes(profile, Math.max(safeCount, 7));
+  const picked: Array<StarterDinnerRecipe | null> = Array.from({ length: safeCount }, () => null);
+  const usedNames = new Set<string>();
+  const staples = (profile.weeklyStaples || []).map(normalizeToken);
 
-  return picked.map((recipe, index) => ({
+  for (const staple of staples) {
+    const dayIndex = STAPLE_TO_DAY_INDEX[staple];
+    if (dayIndex === undefined || dayIndex >= safeCount || picked[dayIndex]) continue;
+    const match = pickRecipeForStaple(staple, recipes, usedNames);
+    if (!match) continue;
+    picked[dayIndex] = match;
+    usedNames.add(match.name);
+  }
+
+  for (let i = 0; i < safeCount; i += 1) {
+    if (picked[i]) continue;
+    const fallback = recipes.find((recipe) => !usedNames.has(recipe.name));
+    if (!fallback) continue;
+    picked[i] = fallback;
+    usedNames.add(fallback.name);
+  }
+
+  const finalized = picked.filter((recipe): recipe is StarterDinnerRecipe => !!recipe);
+
+  return finalized.map((recipe, index) => ({
     day: PREVIEW_DAYS[index],
     recipe,
     cookMinutes: inferRecipeMeta(recipe).cookMinutes,

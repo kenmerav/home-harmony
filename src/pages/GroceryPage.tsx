@@ -31,6 +31,12 @@ import {
   toIngredientKey,
 } from '@/lib/groceryPrefs';
 import {
+  getNextWeekOf,
+  loadWeeklyPlanningStatus,
+  setWeeklyGroceriesOrdered,
+  WeeklyPlanningStatus,
+} from '@/lib/api/weeklyPlanningStatus';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -357,6 +363,8 @@ export default function GroceryPage() {
   const [lastOrderCompletedAt, setLastOrderCompletedAt] = useState<string | null>(null);
   const [weeklyAdZip, setWeeklyAdZipState] = useState('');
   const [weeklyAdStoreIds, setWeeklyAdStoreIdsState] = useState<string[]>([]);
+  const [nextWeekStatus, setNextWeekStatus] = useState<WeeklyPlanningStatus | null>(null);
+  const [updatingNextWeekStatus, setUpdatingNextWeekStatus] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -367,6 +375,7 @@ export default function GroceryPage() {
     setWeeklyAdZipState(getWeeklyAdZip());
     setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
     loadGroceryList();
+    void loadNextWeekStatus();
   }, []);
 
   useEffect(() => {
@@ -385,6 +394,15 @@ export default function GroceryPage() {
       console.error('Failed to load grocery list:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadNextWeekStatus = async () => {
+    try {
+      const status = await loadWeeklyPlanningStatus(getNextWeekOf());
+      setNextWeekStatus(status);
+    } catch (error) {
+      console.error('Failed to load next-week grocery order status:', error);
     }
   };
 
@@ -444,6 +462,29 @@ export default function GroceryPage() {
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
     toast({ title: 'Order marked complete', description: 'Reminder will wait until next scheduled window.' });
+  };
+
+  const toggleNextWeekOrdered = async (ordered: boolean) => {
+    try {
+      setUpdatingNextWeekStatus(true);
+      const status = await setWeeklyGroceriesOrdered(getNextWeekOf(), ordered);
+      setNextWeekStatus(status);
+      toast({
+        title: ordered ? 'Marked next week as ordered' : 'Cleared ordered status',
+        description: ordered
+          ? 'SMS reminders will stop for next week grocery ordering.'
+          : 'You can mark it ordered again after checkout.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update order status.';
+      toast({
+        title: 'Could not update status',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingNextWeekStatus(false);
+    }
   };
 
   const toggleWeeklyAdStore = (storeId: string) => {
@@ -572,6 +613,34 @@ export default function GroceryPage() {
         ) : (
           <p className="text-xs text-muted-foreground">Choose at least one store to show ad links.</p>
         )}
+      </div>
+
+      <div className="mb-6 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Next week grocery order</p>
+            <p className="text-xs text-muted-foreground">
+              Mark this once you place checkout so SMS reminders know groceries are handled.
+            </p>
+            {nextWeekStatus?.groceries_ordered_at && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Marked ordered: {new Date(nextWeekStatus.groceries_ordered_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant={nextWeekStatus?.groceries_ordered ? 'outline' : 'default'}
+            onClick={() => void toggleNextWeekOrdered(!nextWeekStatus?.groceries_ordered)}
+            disabled={updatingNextWeekStatus}
+          >
+            {updatingNextWeekStatus
+              ? 'Saving...'
+              : nextWeekStatus?.groceries_ordered
+              ? 'Mark as Not Ordered'
+              : 'Mark Ordered'}
+          </Button>
+        </div>
       </div>
 
       {reminderDue && (

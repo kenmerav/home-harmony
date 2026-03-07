@@ -308,6 +308,75 @@ serve(async (req) => {
           }
         }
 
+        const shouldSendWeeklyPlanningNudge =
+          localNow.weekday >= 5 &&
+          isDueAt(localNow, String(row.night_before_time || "20:00"), windowMinutes);
+
+        if (shouldSendWeeklyPlanningNudge) {
+          const nextWeekLocal = localNow.plus({ weeks: 1 }).startOf("week");
+          const nextWeekOf = nextWeekLocal.toISODate();
+
+          if (nextWeekOf) {
+            const { count: nextWeekMealCount, error: mealCountError } = await supabase
+              .from("planned_meals")
+              .select("id", { head: true, count: "exact" })
+              .eq("owner_id", row.user_id)
+              .eq("week_of", nextWeekOf)
+              .eq("is_skipped", false);
+            if (mealCountError) throw mealCountError;
+
+            const { data: planningStatus, error: planningStatusError } = await supabase
+              .from("weekly_planning_status")
+              .select("groceries_ordered")
+              .eq("user_id", row.user_id)
+              .eq("week_of", nextWeekOf)
+              .maybeSingle();
+            if (planningStatusError) throw planningStatusError;
+
+            const mealsPlanned = Number(nextWeekMealCount || 0) > 0;
+            const groceriesOrdered = !!planningStatus?.groceries_ordered;
+
+            if (!mealsPlanned || !groceriesOrdered) {
+              const dedupeKey = `weekly-plan:${row.user_id}:${nextWeekOf}`;
+              const logId = await insertDedupeLog(
+                supabase,
+                row.user_id,
+                dedupeKey,
+                "weekly_planning_nudge",
+                nowUtc.toISO(),
+                {
+                  timezone,
+                  weekOf: nextWeekOf,
+                  mealsPlanned,
+                  groceriesOrdered,
+                },
+              );
+
+              if (logId) {
+                try {
+                  const missingParts: string[] = [];
+                  if (!mealsPlanned) missingParts.push("planned meals");
+                  if (!groceriesOrdered) missingParts.push("marked groceries ordered");
+                  const body = `Home Harmony: We noticed you have not ${missingParts.join(
+                    " and ",
+                  )} for next week. Reply YES and we will auto-generate your meals and prep your grocery list.`;
+                  const result = await sendTwilioSms(phone, body);
+                  messagesSent += 1;
+                  await markLogStatus(supabase, logId, "sent", result.sid, {
+                    timezone,
+                    weekOf: nextWeekOf,
+                    mealsPlanned,
+                    groceriesOrdered,
+                  });
+                } catch (sendError) {
+                  errors.push(`weekly-plan:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
+                }
+              }
+            }
+          }
+        }
+
         if (row.event_reminders_enabled) {
           const offsets = Array.isArray(row.reminder_offsets_minutes) ? row.reminder_offsets_minutes : [60, 30];
           const events = [...todayEvents, ...tomorrowEvents];

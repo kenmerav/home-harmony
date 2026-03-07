@@ -31,6 +31,23 @@ type AgendaEvent = {
   source: "meal" | "manual";
 };
 
+type RecipeRow = {
+  id: string;
+  name: string;
+  is_anchored: boolean | null;
+  default_day: string | null;
+};
+
+type PlannedMealRow = {
+  id: string;
+  day: string;
+  recipe_id: string;
+  is_locked: boolean | null;
+};
+
+const MEAL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+type MealDay = (typeof MEAL_DAYS)[number];
+
 const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
   1: "monday",
   2: "tuesday",
@@ -117,6 +134,235 @@ function formatRangeAgenda(label: string, grouped: Array<{ date: DateTime; event
   }
   if (!lines.length) return `${label}: no events found.`;
   return `${label}:\n${lines.slice(0, 7).join("\n")}`;
+}
+
+function normalizeToken(value: string): string {
+  return value.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isMealDay(value: string | null | undefined): value is MealDay {
+  if (!value) return false;
+  return MEAL_DAYS.includes(String(value).toLowerCase() as MealDay);
+}
+
+function chooseRecipeIdByKeywords(
+  recipes: RecipeRow[],
+  keywords: string[],
+  usedRecipeIds: Set<string>,
+): string | null {
+  for (const recipe of recipes) {
+    if (usedRecipeIds.has(recipe.id)) continue;
+    const haystack = normalizeToken(recipe.name);
+    if (keywords.some((keyword) => haystack.includes(keyword))) {
+      usedRecipeIds.add(recipe.id);
+      return recipe.id;
+    }
+  }
+  return null;
+}
+
+function buildDayLocksFromOnboarding(
+  recipes: RecipeRow[],
+  onboardingSettings: Record<string, unknown> | null,
+): Partial<Record<MealDay, string>> {
+  if (!onboardingSettings) return {};
+  const onboardingRaw = onboardingSettings.onboarding;
+  if (!onboardingRaw || typeof onboardingRaw !== "object" || Array.isArray(onboardingRaw)) return {};
+
+  const weeklyStaplesRaw = (onboardingRaw as Record<string, unknown>).weeklyStaples;
+  if (!Array.isArray(weeklyStaplesRaw)) return {};
+
+  const weeklyStaples = weeklyStaplesRaw
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  const locks: Partial<Record<MealDay, string>> = {};
+  const usedRecipeIds = new Set<string>();
+
+  for (const staple of weeklyStaples) {
+    const normalized = normalizeToken(staple);
+    if (normalized === "taco tuesday" && !locks.tuesday) {
+      const recipeId = chooseRecipeIdByKeywords(recipes, ["taco", "fajita"], usedRecipeIds);
+      if (recipeId) locks.tuesday = recipeId;
+      continue;
+    }
+    if (normalized === "pizza friday" && !locks.friday) {
+      const recipeId = chooseRecipeIdByKeywords(recipes, ["pizza", "flatbread"], usedRecipeIds);
+      if (recipeId) locks.friday = recipeId;
+    }
+  }
+
+  return locks;
+}
+
+function randomRecipe(
+  recipes: RecipeRow[],
+  usedRecipeIds: Set<string>,
+  excludeRecipeId: string | null,
+): RecipeRow | null {
+  const uniquePool = recipes.filter((recipe) => !usedRecipeIds.has(recipe.id) && recipe.id !== excludeRecipeId);
+  if (uniquePool.length > 0) {
+    return uniquePool[Math.floor(Math.random() * uniquePool.length)] || null;
+  }
+  const fallbackPool = recipes.filter((recipe) => recipe.id !== excludeRecipeId);
+  if (fallbackPool.length > 0) {
+    return fallbackPool[Math.floor(Math.random() * fallbackPool.length)] || null;
+  }
+  return recipes[0] || null;
+}
+
+async function generateMealsForWeekBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  weekOf: string,
+): Promise<{ inserted: number; lockedKept: number; total: number }> {
+  const { data: recipesData, error: recipeError } = await supabase
+    .from("recipes")
+    .select("id,name,is_anchored,default_day")
+    .eq("owner_id", userId);
+  if (recipeError) throw recipeError;
+
+  const recipes = ((recipesData || []) as RecipeRow[]).filter((recipe) => !!recipe.id && !!recipe.name);
+  if (!recipes.length) {
+    throw new Error("Your recipe library is empty. Add recipes first, then reply RUN MEALS.");
+  }
+
+  const { data: profileData, error: profileError } = await supabase
+    .from("profiles")
+    .select("onboarding_settings")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError) throw profileError;
+
+  const onboardingSettings =
+    profileData?.onboarding_settings && typeof profileData.onboarding_settings === "object" && !Array.isArray(profileData.onboarding_settings)
+      ? (profileData.onboarding_settings as Record<string, unknown>)
+      : null;
+  const dayLocks = buildDayLocksFromOnboarding(recipes, onboardingSettings);
+
+  const { data: existingData, error: existingError } = await supabase
+    .from("planned_meals")
+    .select("id,day,recipe_id,is_locked")
+    .eq("owner_id", userId)
+    .eq("week_of", weekOf);
+  if (existingError) throw existingError;
+
+  const existingMeals = (existingData || []) as PlannedMealRow[];
+  const lockedMeals = existingMeals.filter((meal) => !!meal.is_locked);
+  const deleteIds = existingMeals.filter((meal) => !meal.is_locked).map((meal) => meal.id);
+  if (deleteIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("planned_meals")
+      .delete()
+      .in("id", deleteIds);
+    if (deleteError) throw deleteError;
+  }
+
+  const usedRecipeIds = new Set<string>(lockedMeals.map((meal) => meal.recipe_id));
+  const keptDays = new Set<MealDay>(
+    lockedMeals
+      .map((meal) => String(meal.day || "").toLowerCase())
+      .filter((day): day is MealDay => isMealDay(day)),
+  );
+
+  const previousRecipeByDay = new Map<MealDay, string>(
+    existingMeals
+      .map((meal) => [String(meal.day || "").toLowerCase(), meal.recipe_id] as const)
+      .filter(([day]) => isMealDay(day))
+      .map(([day, recipeId]) => [day as MealDay, recipeId]),
+  );
+
+  const rowsToInsert: Array<{ owner_id: string; recipe_id: string; day: MealDay; week_of: string; is_skipped: boolean; is_locked: boolean }> = [];
+  const daysNeeding = MEAL_DAYS.filter((day) => !keptDays.has(day));
+
+  for (const day of [...daysNeeding]) {
+    const forcedRecipeId = dayLocks[day];
+    if (!forcedRecipeId) continue;
+    rowsToInsert.push({
+      owner_id: userId,
+      recipe_id: forcedRecipeId,
+      day,
+      week_of: weekOf,
+      is_skipped: false,
+      is_locked: false,
+    });
+    usedRecipeIds.add(forcedRecipeId);
+    daysNeeding.splice(daysNeeding.indexOf(day), 1);
+  }
+
+  for (const recipe of recipes) {
+    if (!recipe.is_anchored || !isMealDay(recipe.default_day)) continue;
+    const day = recipe.default_day;
+    if (!daysNeeding.includes(day) || usedRecipeIds.has(recipe.id)) continue;
+    rowsToInsert.push({
+      owner_id: userId,
+      recipe_id: recipe.id,
+      day,
+      week_of: weekOf,
+      is_skipped: false,
+      is_locked: false,
+    });
+    usedRecipeIds.add(recipe.id);
+    daysNeeding.splice(daysNeeding.indexOf(day), 1);
+  }
+
+  for (const day of daysNeeding) {
+    const previousRecipeId = previousRecipeByDay.get(day) || null;
+    const picked = randomRecipe(recipes, usedRecipeIds, previousRecipeId);
+    if (!picked) continue;
+    rowsToInsert.push({
+      owner_id: userId,
+      recipe_id: picked.id,
+      day,
+      week_of: weekOf,
+      is_skipped: false,
+      is_locked: false,
+    });
+    usedRecipeIds.add(picked.id);
+  }
+
+  if (rowsToInsert.length > 0) {
+    const { error: insertError } = await supabase.from("planned_meals").insert(rowsToInsert);
+    if (insertError) throw insertError;
+  }
+
+  const nowIso = new Date().toISOString();
+  const { error: statusError } = await supabase
+    .from("weekly_planning_status")
+    .upsert(
+      {
+        user_id: userId,
+        week_of: weekOf,
+        meals_generated_at: nowIso,
+      },
+      { onConflict: "user_id,week_of" },
+    );
+  if (statusError) throw statusError;
+
+  return {
+    inserted: rowsToInsert.length,
+    lockedKept: lockedMeals.length,
+    total: rowsToInsert.length + lockedMeals.length,
+  };
+}
+
+async function findRecentWeeklyNudgeWeek(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("sms_notification_log")
+    .select("payload,created_at")
+    .eq("user_id", userId)
+    .eq("notification_type", "weekly_planning_nudge")
+    .eq("status", "sent")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || typeof data.payload !== "object" || !data.payload) return null;
+  const weekOf = (data.payload as Record<string, unknown>).weekOf;
+  return typeof weekOf === "string" && weekOf ? weekOf : null;
 }
 
 async function fetchMealsForWeek(
@@ -330,7 +576,7 @@ serve(async (req) => {
     }
 
     const stopWords = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit"]);
-    const startWords = new Set(["start", "unstop", "subscribe", "yes"]);
+    const startWords = new Set(["start", "unstop", "subscribe"]);
     const helpWords = new Set(["help", "info"]);
 
     if (stopWords.has(body)) {
@@ -357,7 +603,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- What do I have tomorrow?\n- What do I have next week?\n- What meals do we have this week?\n- What meals next week?\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- What do I have tomorrow?\n- What do I have next week?\n- What meals do we have this week?\n- What meals next week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -374,6 +620,35 @@ serve(async (req) => {
     const asksMeals = hasAnyKeyword(body, ["meal", "meals", "dinner", "menu", "breakfast", "lunch"]);
     const asksSchedule = hasAnyKeyword(body, ["what do i have", "schedule", "calendar", "event", "events", "tomorrow", "next week", "this week"]);
     const asksChores = hasAnyKeyword(body, ["chore", "chores", "kid", "kids"]);
+    const asksAutoGenerateMeals =
+      hasAnyKeyword(body, ["run meals", "auto generate", "autogenerate", "generate meals", "plan meals"]) ||
+      body === "yes" ||
+      body === "y";
+
+    if (asksAutoGenerateMeals) {
+      const localNow = DateTime.now().setZone(timezone).startOf("day");
+      const recentNudgeWeek = await findRecentWeeklyNudgeWeek(supabase, pref.user_id);
+      const fallbackWeek = weekOfIso(localNow.plus({ weeks: 1 }));
+      const currentWeek = weekOfIso(localNow);
+      const targetWeekOf =
+        wantsThisWeek && !wantsNextWeek
+          ? currentWeek
+          : recentNudgeWeek || fallbackWeek;
+
+      if (!targetWeekOf) {
+        return twiml("I couldn't determine which week to plan. Reply RUN MEALS NEXT WEEK.");
+      }
+
+      try {
+        const result = await generateMealsForWeekBySms(supabase, pref.user_id, targetWeekOf);
+        return twiml(
+          `Done. I generated ${result.inserted} meals${result.lockedKept ? ` and kept ${result.lockedKept} locked` : ""} for week of ${targetWeekOf}. Your grocery list is ready in Home Harmony.`,
+        );
+      } catch (generationError) {
+        const message = generationError instanceof Error ? generationError.message : "Could not generate meals.";
+        return twiml(`Could not run meal generation: ${message}`);
+      }
+    }
 
     if (asksChores && !asksMeals && !asksSchedule) {
       return twiml(

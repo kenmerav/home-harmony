@@ -64,6 +64,60 @@ function parseAltQuantityPrefixLine(line: string): { qty: string; rest: string }
   };
 }
 
+function takeLeadingNumberAndRest(line: string): { number: string; rest: string } | null {
+  const match = line.trim().match(/^(\d+(?:\.\d+)?)(?:\s+|$)(.*)$/);
+  if (!match) return null;
+  return {
+    number: match[1],
+    rest: (match[2] || '').trim(),
+  };
+}
+
+function joinSplitFractionLines(lines: string[]): string[] {
+  const merged: string[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const current = lines[i].trim();
+    if (!current) continue;
+
+    const wholeMatch = current.match(/^(\d+)$/);
+    const fractionPrefixNext = lines[i + 1]?.trim().match(/^(\d+)\/$/);
+    const thirdWithNumber = lines[i + 2] ? takeLeadingNumberAndRest(lines[i + 2]) : null;
+
+    // Repair OCR splits like: "1" + "1/" + "2 cups milk" => "1 1/2 cups milk"
+    if (wholeMatch && fractionPrefixNext && thirdWithNumber) {
+      const qty = `${wholeMatch[1]} ${fractionPrefixNext[1]}/${thirdWithNumber.number}`;
+      const rebuilt = `${qty}${thirdWithNumber.rest ? ` ${thirdWithNumber.rest}` : ''}`.trim();
+      merged.push(rebuilt);
+      i += 2;
+      continue;
+    }
+
+    const fractionPrefixCurrent = current.match(/^(\d+)\/$/);
+    const nextWithNumber = lines[i + 1] ? takeLeadingNumberAndRest(lines[i + 1]) : null;
+
+    // Repair OCR splits like: "3/" + "4 cup yogurt" => "3/4 cup yogurt"
+    if (fractionPrefixCurrent && nextWithNumber) {
+      const qty = `${fractionPrefixCurrent[1]}/${nextWithNumber.number}`;
+      const rebuilt = `${qty}${nextWithNumber.rest ? ` ${nextWithNumber.rest}` : ''}`.trim();
+      merged.push(rebuilt);
+      i += 1;
+      continue;
+    }
+
+    const nextFractionLine = lines[i + 1]?.trim().match(/^(\d+\/\d+)\s+(.+)$/);
+    if (wholeMatch && nextFractionLine) {
+      merged.push(`${wholeMatch[1]} ${nextFractionLine[1]} ${nextFractionLine[2]}`.trim());
+      i += 1;
+      continue;
+    }
+
+    merged.push(current);
+  }
+
+  return merged;
+}
+
 function startsWithPercentDescriptor(line: string): boolean {
   return /^\d+\s*%\s*[a-z]/i.test(line.trim());
 }
@@ -101,9 +155,10 @@ function isInsideParenthesis(text: string, index: number): boolean {
 }
 
 function repairIngredientFragments(parts: string[]): string[] {
-  const lines = parts
+  const rawLines = parts
     .map((line) => normalizeFractions(String(line || '')).replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+  const lines = joinSplitFractionLines(rawLines);
   const out: string[] = [];
 
   for (let i = 0; i < lines.length; i += 1) {

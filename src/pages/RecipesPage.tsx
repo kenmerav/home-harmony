@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import {
   enqueueCookbookImportFromPdf,
   parseRecipesFromPdf,
@@ -1197,51 +1198,55 @@ export default function RecipesPage() {
         </Button>
       </div>
 
-      <div className="mb-6 rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold">Need recipe ideas fast?</p>
-            <p className="text-sm text-muted-foreground">
-              Open a board that matches your style, pick pins you like, then paste those links in bulk import.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Bulk Import Links
-          </Button>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {RECIPE_STYLE_FILTERS.map((filter) => (
-            <Button
-              key={filter.id}
-              size="sm"
-              variant={recipeStyleFilter === filter.id ? 'default' : 'outline'}
-              onClick={() => setRecipeStyleFilter(filter.id)}
-            >
-              {filter.label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {filteredBoardRecommendations.map((board) => (
-            <div key={board.href} className="rounded-lg border border-border/80 bg-background p-3">
-              <p className="font-medium">{board.title}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{board.description}</p>
-              <a
-                href={board.href}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center text-sm font-medium text-primary hover:underline"
-              >
-                Open Pinterest board
-                <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-              </a>
+      <Accordion type="single" collapsible className="mb-6 rounded-xl border border-border bg-card px-4">
+        <AccordionItem value="recipe-ideas" className="border-none">
+          <AccordionTrigger className="py-4 text-left hover:no-underline">
+            <span className="text-sm font-semibold">Need recipe ideas fast?</span>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Open a board that matches your style, pick pins you like, then paste those links in bulk import.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Bulk Import Links
+              </Button>
             </div>
-          ))}
-        </div>
-      </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {RECIPE_STYLE_FILTERS.map((filter) => (
+                <Button
+                  key={filter.id}
+                  size="sm"
+                  variant={recipeStyleFilter === filter.id ? 'default' : 'outline'}
+                  onClick={() => setRecipeStyleFilter(filter.id)}
+                >
+                  {filter.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {filteredBoardRecommendations.map((board) => (
+                <div key={board.href} className="rounded-lg border border-border/80 bg-background p-3">
+                  <p className="font-medium">{board.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{board.description}</p>
+                  <a
+                    href={board.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center text-sm font-medium text-primary hover:underline"
+                  >
+                    Open Pinterest board
+                    <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {activeImportJobs.length > 0 && (
         <div className="mb-6 rounded-xl border border-border bg-card p-4">
