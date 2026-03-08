@@ -309,6 +309,10 @@ export default function CalendarPage() {
     loadStoredCalendarFilterPresets(user?.id),
   );
   const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
+  const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
+  const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
+  const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
+  const [filterPresetDraftRecipients, setFilterPresetDraftRecipients] = useState('');
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
       typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
@@ -955,7 +959,7 @@ export default function CalendarPage() {
     }
   };
 
-  const addFilterPreset = () => {
+  const nextFilterNameSuggestion = () => {
     const existing = new Set(filterPresets.map((preset) => normalizeCalendarFilterName(preset.name).toLowerCase()));
     let nextIndex = filterPresets.length + 1;
     let suggestedName = `Filter ${nextIndex}`;
@@ -963,30 +967,63 @@ export default function CalendarPage() {
       nextIndex += 1;
       suggestedName = `Filter ${nextIndex}`;
     }
+    return suggestedName;
+  };
+
+  const openAddFilterPresetDialog = () => {
+    setEditingFilterPresetId(null);
+    setFilterPresetDraftName(nextFilterNameSuggestion());
+    setFilterPresetDraftRecipients('');
+    setFilterPresetDialogOpen(true);
+  };
+
+  const openEditFilterPresetDialog = (presetId: string) => {
+    const preset = filterPresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setEditingFilterPresetId(presetId);
+    setFilterPresetDraftName(preset.name);
+    setFilterPresetDraftRecipients(formatPhoneList(preset.reminderRecipients || []));
+    setFilterPresetDialogOpen(true);
+  };
+
+  const saveFilterPresetDialog = () => {
+    const normalizedName = normalizeCalendarFilterName(filterPresetDraftName || nextFilterNameSuggestion());
+    const recipients = parsePhoneList(filterPresetDraftRecipients);
+
+    if (editingFilterPresetId) {
+      setFilterPresets((prev) =>
+        prev.map((preset) =>
+          preset.id === editingFilterPresetId
+            ? { ...preset, name: normalizedName, reminderRecipients: recipients }
+            : preset,
+        ),
+      );
+      if (activeFilterPresetId === editingFilterPresetId) {
+        const active = filterPresets.find((preset) => preset.id === editingFilterPresetId);
+        if (active) {
+          void applyPresetRecipientsToSms({
+            ...active,
+            name: normalizedName,
+            reminderRecipients: recipients,
+          });
+        }
+      }
+      toast({ title: 'Filter updated' });
+      setFilterPresetDialogOpen(false);
+      return;
+    }
 
     const nextPreset = createCalendarFilterPreset(
-      suggestedName,
+      normalizedName,
       filters,
       filterPresets.length,
-      [],
+      recipients,
     );
     setFilterPresets((prev) => [...prev, nextPreset]);
     setActiveFilterPresetId(nextPreset.id);
     toast({ title: `Filter "${nextPreset.name}" saved` });
-  };
-
-  const renameFilterPreset = (presetId: string, name: string) => {
-    setFilterPresets((prev) =>
-      prev.map((preset) => (preset.id === presetId ? { ...preset, name } : preset)),
-    );
-  };
-
-  const commitFilterPresetName = (presetId: string) => {
-    setFilterPresets((prev) =>
-      prev.map((preset) =>
-        preset.id === presetId ? { ...preset, name: normalizeCalendarFilterName(preset.name) } : preset,
-      ),
-    );
+    setFilterPresetDialogOpen(false);
+    void applyPresetRecipientsToSms(nextPreset);
   };
 
   const applyFilterPreset = (presetId: string) => {
@@ -997,26 +1034,10 @@ export default function CalendarPage() {
     void applyPresetRecipientsToSms(preset);
   };
 
-  const updatePresetFromCurrent = (presetId: string) => {
-    setFilterPresets((prev) =>
-      prev.map((preset) => (preset.id === presetId ? { ...preset, modules: { ...filters } } : preset)),
-    );
-    toast({ title: 'Filter updated from current toggles' });
-  };
-
   const deleteFilterPreset = (presetId: string) => {
     setFilterPresets((prev) => prev.filter((preset) => preset.id !== presetId));
     setActiveFilterPresetId((prev) => (prev === presetId ? null : prev));
     toast({ title: 'Filter removed' });
-  };
-
-  const updateFilterPresetRecipients = (presetId: string, input: string) => {
-    const recipients = parsePhoneList(input);
-    setFilterPresets((prev) =>
-      prev.map((preset) =>
-        preset.id === presetId ? { ...preset, reminderRecipients: recipients } : preset,
-      ),
-    );
   };
 
   const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
@@ -1182,80 +1203,41 @@ export default function CalendarPage() {
                 </div>
               ))}
 
-              <div className="flex justify-end">
-                <Button type="button" variant="outline" size="sm" onClick={addFilterPreset}>
+              {filterPresets.map((preset) => {
+                const isActive = activeFilterPresetId === preset.id;
+                return (
+                  <div key={preset.id} className="flex items-center justify-between gap-2">
+                    <button type="button" onClick={() => applyFilterPreset(preset.id)} aria-label={`Apply ${preset.name} filter`}>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'border cursor-pointer border-dashed',
+                          isActive && 'border-primary text-primary bg-primary/5',
+                        )}
+                      >
+                        {preset.name}
+                      </Badge>
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="sm" variant={isActive ? 'default' : 'outline'} onClick={() => applyFilterPreset(preset.id)}>
+                        Apply
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => openEditFilterPresetDialog(preset.id)}>
+                        Edit
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" onClick={() => deleteFilterPreset(preset.id)} aria-label={`Delete ${preset.name}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="flex justify-end pt-1">
+                <Button type="button" variant="outline" size="sm" onClick={openAddFilterPresetDialog}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Filter
                 </Button>
-              </div>
-
-              <div className="pt-3 border-t border-border space-y-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
-                {filterPresets.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No saved filters yet. Use Add Filter above to save the current toggles.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                    {filterPresets.map((preset) => {
-                      const isActive = activeFilterPresetId === preset.id;
-                      return (
-                        <div
-                          key={preset.id}
-                          className={cn(
-                            'rounded-lg border border-border p-2 space-y-2',
-                            isActive && 'border-primary/50 bg-primary/5',
-                          )}
-                        >
-                          <Input
-                            value={preset.name}
-                            onChange={(event) => renameFilterPreset(preset.id, event.target.value)}
-                            onBlur={() => commitFilterPresetName(preset.id)}
-                            aria-label={`Filter name for ${preset.name}`}
-                          />
-                          <div className="space-y-1">
-                            <label className="text-xs text-muted-foreground">
-                              Reminder recipients for this filter
-                            </label>
-                            <Input
-                              value={formatPhoneList(preset.reminderRecipients || [])}
-                              onChange={(event) =>
-                                updateFilterPresetRecipients(preset.id, event.target.value)
-                              }
-                              placeholder="+16155551234, +16155550999"
-                            />
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={isActive ? 'default' : 'outline'}
-                              onClick={() => applyFilterPreset(preset.id)}
-                            >
-                              Apply
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => updatePresetFromCurrent(preset.id)}
-                            >
-                              Update
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => deleteFilterPreset(preset.id)}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
           </SectionCard>
@@ -1588,6 +1570,45 @@ export default function CalendarPage() {
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="outline" onClick={closeCalendarSetupDialog}>
               Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={filterPresetDialogOpen} onOpenChange={setFilterPresetDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">{editingFilterPresetId ? 'Edit filter' : 'Add filter'}</DialogTitle>
+            <DialogDescription>
+              {editingFilterPresetId
+                ? 'Update filter name and who should get reminder texts when this filter is applied.'
+                : 'Create a filter from your current toggle selections.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Filter name</label>
+              <Input
+                value={filterPresetDraftName}
+                onChange={(event) => setFilterPresetDraftName(event.target.value)}
+                placeholder="Family plan"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Reminder recipients (optional)</label>
+              <Input
+                value={filterPresetDraftRecipients}
+                onChange={(event) => setFilterPresetDraftRecipients(event.target.value)}
+                placeholder="+16155551234, +16155550999"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setFilterPresetDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveFilterPresetDialog()}>
+              {editingFilterPresetId ? 'Save changes' : 'Add filter'}
             </Button>
           </div>
         </DialogContent>
