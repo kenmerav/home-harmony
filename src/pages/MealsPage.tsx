@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -131,7 +131,23 @@ interface PantryMatch {
   missing: string[];
 }
 
-type PlannerViewMode = 'weekly-dinners' | 'weekly-lunches' | 'daily-all';
+type PlannerViewMode = 'weekly-dinners' | 'weekly-lunches' | 'daily-all' | 'weekly-meal-grid';
+
+type MealGridRowKey = 'breakfast' | 'snack-1' | 'lunch' | 'snack-2' | 'dinner';
+
+interface MealGridRow {
+  key: MealGridRowKey;
+  label: string;
+  mealType: PlannedMealType;
+}
+
+const MEAL_GRID_ROWS: MealGridRow[] = [
+  { key: 'breakfast', label: 'Breakfast', mealType: 'breakfast' },
+  { key: 'snack-1', label: 'Snack', mealType: 'snack' },
+  { key: 'lunch', label: 'Lunch', mealType: 'lunch' },
+  { key: 'snack-2', label: 'Snack', mealType: 'snack' },
+  { key: 'dinner', label: 'Dinner', mealType: 'dinner' },
+];
 
 function metricProgress(current: number, target: number): number {
   if (!target || target <= 0) return 0;
@@ -641,6 +657,29 @@ export default function MealsPage() {
     toast({ title: 'Planned meal added' });
   };
 
+  const quickAddPlannerItem = (date: string, mealType: PlannedMealType) => {
+    setPlannerForm((prev) => ({
+      ...prev,
+      date,
+      mealType,
+      recipeId: '',
+      name: '',
+      servings: '1',
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+    }));
+    if (plannerViewMode === 'weekly-meal-grid') {
+      setPlannerViewMode('daily-all');
+    }
+    setPlannerDay(date);
+    toast({
+      title: `Ready to add ${plannedMealTypeLabel[mealType].toLowerCase()}`,
+      description: 'Use the Add planned meal/item form below to save it.',
+    });
+  };
+
   const commonPlannedFoods = listCommonPlannedFoods(user?.id, 10);
 
   const weekDateRows = days.map((day, index) => ({
@@ -699,6 +738,12 @@ export default function MealsPage() {
     plannerViewMode === 'daily-all'
       ? weekDateRows.filter((row) => row.date === plannerDay)
       : weekDateRows;
+
+  const getEntriesForGridCell = (entries: PlannedFoodEntry[], row: MealGridRow): PlannedFoodEntry[] => {
+    if (row.key === 'snack-1') return entries.filter((entry) => entry.mealType === 'snack').slice(0, 1);
+    if (row.key === 'snack-2') return entries.filter((entry) => entry.mealType === 'snack').slice(1, 2);
+    return entries.filter((entry) => entry.mealType === row.mealType);
+  };
 
   return (
     <AppLayout>
@@ -981,6 +1026,13 @@ export default function MealsPage() {
           >
             Weekly - lunches
           </Button>
+          <Button
+            size="sm"
+            variant={plannerViewMode === 'weekly-meal-grid' ? 'default' : 'outline'}
+            onClick={() => setPlannerViewMode('weekly-meal-grid')}
+          >
+            Weekly - meal grid
+          </Button>
           {plannerViewMode === 'daily-all' && (
             <Input
               type="date"
@@ -1126,8 +1178,95 @@ export default function MealsPage() {
           </div>
         </div>
 
-        <div className="grid gap-3">
-          {plannerRows.map((row) => {
+          <div className="grid gap-3">
+          {plannerViewMode === 'weekly-meal-grid' ? (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <div
+                className="grid min-w-[860px]"
+                style={{ gridTemplateColumns: '140px repeat(7, minmax(100px, 1fr))' }}
+              >
+                <div className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Meal
+                </div>
+                {weekDateRows.map((row) => (
+                  <div
+                    key={`grid-header-${row.date}`}
+                    className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground last:border-r-0"
+                  >
+                    {format(new Date(`${row.date}T00:00:00`), 'EEE d')}
+                  </div>
+                ))}
+
+                {MEAL_GRID_ROWS.map((gridRow) => (
+                  <Fragment key={`grid-row-${gridRow.key}`}>
+                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3 text-sm font-medium text-foreground">
+                      {gridRow.label}
+                    </div>
+                    {weekDateRows.map((row) => {
+                      const entries = entriesByDate[row.date] || [];
+                      const cellEntries = getEntriesForGridCell(entries, gridRow);
+                      const dinnerBase = dinnerBaseByDate.get(row.date);
+                      const showScheduledDinner = gridRow.key === 'dinner' && Boolean(dinnerBase);
+                      return (
+                        <div
+                          key={`grid-cell-${gridRow.key}-${row.date}`}
+                          className="border-b border-r border-border p-2 last:border-r-0"
+                        >
+                          <div className="space-y-2">
+                            {showScheduledDinner && dinnerBase && (
+                              <div className="rounded-md border border-border bg-primary/5 px-2 py-1.5">
+                                <p className="text-xs font-medium leading-tight">{dinnerBase.name}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {dinnerBase.calories} cal
+                                </p>
+                              </div>
+                            )}
+                            {cellEntries.map((entry) => (
+                              <div key={entry.id} className="rounded-md border border-border bg-background px-2 py-1.5">
+                                <div className="flex items-start justify-between gap-1">
+                                  <p className="text-xs font-medium leading-tight">{entry.name}</p>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5"
+                                    onClick={() => {
+                                      deletePlannedFoodEntry(entry.id, user?.id);
+                                      refreshPlannerEntries();
+                                    }}
+                                    title="Remove planned item"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                  </Button>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {entry.calories} cal
+                                </p>
+                              </div>
+                            ))}
+                            {!showScheduledDinner && cellEntries.length === 0 && (
+                              <div className="rounded-md border border-dashed border-border px-2 py-2 text-center text-[11px] text-muted-foreground">
+                                Empty
+                              </div>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-full text-xs"
+                              onClick={() => quickAddPlannerItem(row.date, gridRow.mealType)}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          ) : (
+          plannerRows.map((row) => {
             const allEntries = entriesByDate[row.date] || [];
             const filteredEntries =
               plannerViewMode === 'weekly-dinners'
@@ -1264,7 +1403,8 @@ export default function MealsPage() {
                 </div>
               </div>
             );
-          })}
+          })
+          )}
         </div>
       </div>
 
