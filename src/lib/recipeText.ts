@@ -23,7 +23,7 @@ export function normalizeRecipeInstructions(input?: string | null): string {
 }
 
 const quantityToken =
-  '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s*(?:g|kg|oz|lb|lbs|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
+  '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
 
 const fractionMap: Record<string, string> = {
   '¼': '1/4',
@@ -46,7 +46,7 @@ function normalizeFractions(input: string): string {
 }
 
 const unitToken =
-  '(?:g|kg|oz|lb|lbs|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|ml|l|clove|cloves|can|cans|packet|packets|item|items)';
+  '(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|ml|l|clove|cloves|can|cans|packet|packets|item|items)';
 const numberToken = '(?:\\d+(?:\\.\\d+)?|\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+)';
 
 function isQuantityOnlyLine(line: string): boolean {
@@ -60,6 +60,18 @@ function parseAltQuantityPrefixLine(line: string): { qty: string; rest: string }
   if (!match) return null;
   return {
     qty: `${match[1]} ${match[2]}`.replace(/\s+/g, ' ').trim(),
+    rest: match[3].trim(),
+  };
+}
+
+function parseParentheticalQuantityLine(line: string): { qtyNumber: string; qtyUnit: string; rest: string } | null {
+  const match = line
+    .trim()
+    .match(new RegExp(`^\\(\\s*(${numberToken})\\s*(${unitToken})\\s*\\)\\s*(.*)$`, 'i'));
+  if (!match) return null;
+  return {
+    qtyNumber: match[1].trim(),
+    qtyUnit: match[2].trim(),
     rest: match[3].trim(),
   };
 }
@@ -103,6 +115,27 @@ function joinSplitFractionLines(lines: string[]): string[] {
       merged.push(rebuilt);
       i += 1;
       continue;
+    }
+
+    const trailingFractionWithPrefix = current.match(/^(.+?)\s+(\d+)\/$/);
+    if (trailingFractionWithPrefix && lines[i + 1]) {
+      const prefix = trailingFractionWithPrefix[1].trim();
+      const numerator = trailingFractionWithPrefix[2].trim();
+      const parenthetical = parseParentheticalQuantityLine(lines[i + 1]);
+      if (parenthetical) {
+        let rest = parenthetical.rest;
+        let consumedExtra = 1;
+        if (!rest && lines[i + 2]) {
+          rest = lines[i + 2].trim();
+          consumedExtra = 2;
+        }
+        const rebuilt = `${prefix} (${numerator}/${parenthetical.qtyNumber} ${parenthetical.qtyUnit})${rest ? ` ${rest}` : ''}`
+          .replace(/\s+/g, ' ')
+          .trim();
+        merged.push(rebuilt);
+        i += consumedExtra;
+        continue;
+      }
     }
 
     const nextFractionLine = lines[i + 1]?.trim().match(/^(\d+\/\d+)\s+(.+)$/);
