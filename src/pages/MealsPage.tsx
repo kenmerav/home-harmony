@@ -64,6 +64,7 @@ import {
   type PlannedMealType,
 } from '@/lib/mealBudgetPlanner';
 import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/macroMealSuggestions';
+import { filterAlcoholPresets, findAlcoholPresetById } from '@/lib/alcoholPresets';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -208,6 +209,7 @@ export default function MealsPage() {
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
+  const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
   const [gridQuickAddContext, setGridQuickAddContext] = useState<GridQuickAddContext | null>(null);
   const [macroSuggestions, setMacroSuggestions] = useState<MacroMealSuggestion[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -595,6 +597,7 @@ export default function MealsPage() {
   const plannerRecipeTypeahead = plannerRecipeQuery.trim() ? plannerRecipeOptions.slice(0, 8) : [];
   const chooseRecipeTypeahead = chooseRecipeQuery.trim() ? chooseRecipeOptions.slice(0, 8) : [];
   const manualRecipeTypeahead = manualRecipeQuery.trim() ? manualRecipeOptions.slice(0, 8) : [];
+  const alcoholPresetOptions = filterAlcoholPresets(alcoholPresetQuery).slice(0, 40);
 
   const selectRecipeForPlanner = (recipeId: string) => {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
@@ -626,6 +629,23 @@ export default function MealsPage() {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
     setManualRecipeId(recipeId);
     if (recipe) setManualRecipeQuery(recipe.name);
+  };
+
+  const applyAlcoholPreset = (presetId: string) => {
+    const preset = findAlcoholPresetById(presetId);
+    if (!preset) return;
+    setPlannerForm((prev) => ({
+      ...prev,
+      mealType: 'alcohol',
+      recipeId: '',
+      name: `${preset.name} (${preset.serving})`,
+      servings: '1',
+      calories: String(preset.calories),
+      protein_g: String(preset.protein_g),
+      carbs_g: String(preset.carbs_g),
+      fat_g: String(preset.fat_g),
+    }));
+    setPlannerRecipeQuery('');
   };
 
   const openManualDialog = async (day: DayOfWeek) => {
@@ -1329,12 +1349,14 @@ export default function MealsPage() {
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={plannerForm.mealType}
-              onChange={(event) =>
+              onChange={(event) => {
+                const nextMealType = event.target.value as PlannedMealType;
                 setPlannerForm((prev) => ({
                   ...prev,
-                  mealType: event.target.value as PlannedMealType,
-                }))
-              }
+                  mealType: nextMealType,
+                  recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
+                }));
+              }}
             >
               {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
                 <option key={mealType} value={mealType}>
@@ -1343,6 +1365,39 @@ export default function MealsPage() {
               ))}
             </select>
           </div>
+          {plannerForm.mealType === 'alcohol' ? (
+            <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Common alcohol drinks (auto-fills calories/macros)
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input
+                  placeholder="Search beer, wine, cocktails, shots..."
+                  value={alcoholPresetQuery}
+                  onChange={(event) => setAlcoholPresetQuery(event.target.value)}
+                />
+                <select
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  defaultValue=""
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    applyAlcoholPreset(event.target.value);
+                    event.currentTarget.value = '';
+                  }}
+                >
+                  <option value="">Choose common drink...</option>
+                  {alcoholPresetOptions.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name} ({preset.serving}) - {preset.calories} cal
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Includes beer, wine, spirits, cocktails, hard seltzers, and popular premade drinks.
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-2 md:grid-cols-2">
             <Input
               placeholder="Search recipes for planner..."
@@ -2071,12 +2126,14 @@ export default function MealsPage() {
               <select
                 className="rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={plannerForm.mealType}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const nextMealType = event.target.value as PlannedMealType;
                   setPlannerForm((prev) => ({
                     ...prev,
-                    mealType: event.target.value as PlannedMealType,
-                  }))
-                }
+                    mealType: nextMealType,
+                    recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
+                  }));
+                }}
               >
                 {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
                   <option key={mealType} value={mealType}>
@@ -2085,6 +2142,36 @@ export default function MealsPage() {
                 ))}
               </select>
             </div>
+            {plannerForm.mealType === 'alcohol' ? (
+              <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Common alcohol drinks (auto-fills calories/macros)
+                </p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Search beer, wine, cocktails, shots..."
+                    value={alcoholPresetQuery}
+                    onChange={(event) => setAlcoholPresetQuery(event.target.value)}
+                  />
+                  <select
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    defaultValue=""
+                    onChange={(event) => {
+                      if (!event.target.value) return;
+                      applyAlcoholPreset(event.target.value);
+                      event.currentTarget.value = '';
+                    }}
+                  >
+                    <option value="">Choose common drink...</option>
+                    {alcoholPresetOptions.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name} ({preset.serving}) - {preset.calories} cal
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : null}
             <Input
               placeholder="Search recipes..."
               value={plannerRecipeQuery}
