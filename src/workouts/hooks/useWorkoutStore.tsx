@@ -2,11 +2,16 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
+  useRef,
   createContext,
   useContext,
   type ReactNode,
 } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Workout, WorkoutTemplate, AppSettings, ExerciseHistory, CardioSession, WeightLog } from '@/workouts/types/workout';
+import { mergeStarterTemplates } from '@/workouts/data/starterTemplates';
 
 const STORAGE_KEYS = {
   workouts: 'liftlog_workouts',
@@ -26,7 +31,92 @@ const DEFAULT_SETTINGS: AppSettings = {
   vibrationEnabled: true,
 };
 
+type PersistedWorkoutState = {
+  schemaVersion: number;
+  workouts: Workout[];
+  templates: WorkoutTemplate[];
+  settings: AppSettings;
+  customExercises: string[];
+  cardioSessions: CardioSession[];
+  weightLogs: WeightLog[];
+};
+
+const STATE_SCHEMA_VERSION = 1;
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function readJson<T>(key: string, fallback: T): T {
+  if (!canUseStorage()) return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson<T>(key: string, value: T) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function fromLocalStorage(): PersistedWorkoutState {
+  return {
+    schemaVersion: STATE_SCHEMA_VERSION,
+    workouts: readJson<Workout[]>(STORAGE_KEYS.workouts, []),
+    templates: readJson<WorkoutTemplate[]>(STORAGE_KEYS.templates, []),
+    settings: { ...DEFAULT_SETTINGS, ...readJson<Partial<AppSettings>>(STORAGE_KEYS.settings, {}) },
+    customExercises: readJson<string[]>(STORAGE_KEYS.customExercises, []),
+    cardioSessions: readJson<CardioSession[]>(STORAGE_KEYS.cardioSessions, []),
+    weightLogs: readJson<WeightLog[]>(STORAGE_KEYS.weightLogs, []),
+  };
+}
+
+function toLocalStorage(state: PersistedWorkoutState) {
+  writeJson(STORAGE_KEYS.workouts, state.workouts);
+  writeJson(STORAGE_KEYS.templates, state.templates);
+  writeJson(STORAGE_KEYS.settings, state.settings);
+  writeJson(STORAGE_KEYS.customExercises, state.customExercises);
+  writeJson(STORAGE_KEYS.cardioSessions, state.cardioSessions);
+  writeJson(STORAGE_KEYS.weightLogs, state.weightLogs);
+}
+
+function hasAnyWorkoutData(state: PersistedWorkoutState): boolean {
+  return (
+    state.workouts.length > 0 ||
+    state.templates.length > 0 ||
+    state.customExercises.length > 0 ||
+    state.cardioSessions.length > 0 ||
+    state.weightLogs.length > 0
+  );
+}
+
+function coerceRemoteState(raw: unknown): PersistedWorkoutState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Partial<PersistedWorkoutState>;
+
+  return {
+    schemaVersion:
+      typeof value.schemaVersion === 'number' && Number.isFinite(value.schemaVersion)
+        ? Math.round(value.schemaVersion)
+        : STATE_SCHEMA_VERSION,
+    workouts: Array.isArray(value.workouts) ? (value.workouts as Workout[]) : [],
+    templates: Array.isArray(value.templates) ? (value.templates as WorkoutTemplate[]) : [],
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(value.settings && typeof value.settings === 'object' ? (value.settings as Partial<AppSettings>) : {}),
+    },
+    customExercises: Array.isArray(value.customExercises) ? (value.customExercises as string[]) : [],
+    cardioSessions: Array.isArray(value.cardioSessions) ? (value.cardioSessions as CardioSession[]) : [],
+    weightLogs: Array.isArray(value.weightLogs) ? (value.weightLogs as WeightLog[]) : [],
+  };
+}
+
 function useWorkoutStoreInternal() {
+  const { user, isDemoUser } = useAuth();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -34,56 +124,164 @@ function useWorkoutStoreInternal() {
   const [cardioSessions, setCardioSessions] = useState<CardioSession[]>([]);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const persistTimerRef = useRef<number | null>(null);
 
-  // Load from localStorage
-  useEffect(() => {
-    const loadedWorkouts = localStorage.getItem(STORAGE_KEYS.workouts);
-    const loadedTemplates = localStorage.getItem(STORAGE_KEYS.templates);
-    const loadedSettings = localStorage.getItem(STORAGE_KEYS.settings);
-    const loadedCustomExercises = localStorage.getItem(STORAGE_KEYS.customExercises);
-    const loadedCardioSessions = localStorage.getItem(STORAGE_KEYS.cardioSessions);
-    const loadedWeightLogs = localStorage.getItem(STORAGE_KEYS.weightLogs);
-
-    if (loadedWorkouts) setWorkouts(JSON.parse(loadedWorkouts));
-    if (loadedTemplates) setTemplates(JSON.parse(loadedTemplates));
-    if (loadedSettings) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(loadedSettings) });
-    if (loadedCustomExercises) setCustomExercises(JSON.parse(loadedCustomExercises));
-    if (loadedCardioSessions) setCardioSessions(JSON.parse(loadedCardioSessions));
-    if (loadedWeightLogs) setWeightLogs(JSON.parse(loadedWeightLogs));
-
-    setIsLoaded(true);
+  const applyState = useCallback((state: PersistedWorkoutState) => {
+    const hydratedTemplates = mergeStarterTemplates(state.templates);
+    setWorkouts(state.workouts);
+    setTemplates(hydratedTemplates);
+    setSettings(state.settings);
+    setCustomExercises(state.customExercises);
+    setCardioSessions(state.cardioSessions);
+    setWeightLogs(state.weightLogs);
   }, []);
 
-  // Save to localStorage
   useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.workouts, JSON.stringify(workouts));
-  }, [workouts, isLoaded]);
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoaded(false);
+      const localState = fromLocalStorage();
+
+      if (!user || isDemoUser) {
+        if (cancelled) return;
+        applyState(localState);
+        setIsLoaded(true);
+        return;
+      }
+
+      const db = supabase as unknown as {
+        from: (table: string) => {
+          select: (columns: string) => {
+            eq: (column: string, value: string) => {
+              maybeSingle: () => Promise<{
+                data: { state?: unknown } | null;
+                error: { message?: string } | null;
+              }>;
+            };
+          };
+          upsert: (
+            values: Record<string, unknown>,
+            options?: { onConflict?: string },
+          ) => Promise<{ error: { message?: string } | null }>;
+        };
+      };
+
+      try {
+        const { data, error } = await db
+          .from('workout_state')
+          .select('state')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (error) {
+          console.error('Failed loading workout state from Supabase:', error.message || error);
+          applyState(localState);
+          setIsLoaded(true);
+          return;
+        }
+
+        const remoteState = coerceRemoteState(data?.state);
+        if (remoteState) {
+          applyState(remoteState);
+          toLocalStorage(remoteState);
+          setIsLoaded(true);
+          return;
+        }
+
+        applyState(localState);
+        setIsLoaded(true);
+
+        if (hasAnyWorkoutData(localState)) {
+          const { error: saveError } = await db.from('workout_state').upsert(
+            {
+              user_id: user.id,
+              state: localState,
+            },
+            { onConflict: 'user_id' },
+          );
+          if (saveError) {
+            console.error('Failed seeding workout state in Supabase:', saveError.message || saveError);
+          }
+        }
+      } catch (error) {
+        console.error('Unexpected workout state load error:', error);
+        if (cancelled) return;
+        applyState(localState);
+        setIsLoaded(true);
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyState, isDemoUser, user?.id]);
+
+  const persistedState = useMemo<PersistedWorkoutState>(
+    () => ({
+      schemaVersion: STATE_SCHEMA_VERSION,
+      workouts,
+      templates,
+      settings,
+      customExercises,
+      cardioSessions,
+      weightLogs,
+    }),
+    [cardioSessions, customExercises, settings, templates, weightLogs, workouts],
+  );
 
   useEffect(() => {
     if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.templates, JSON.stringify(templates));
-  }, [templates, isLoaded]);
+    toLocalStorage(persistedState);
+  }, [isLoaded, persistedState]);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
-  }, [settings, isLoaded]);
+    if (!isLoaded || !user || isDemoUser) return;
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.customExercises, JSON.stringify(customExercises));
-  }, [customExercises, isLoaded]);
+    const db = supabase as unknown as {
+      from: (table: string) => {
+        upsert: (
+          values: Record<string, unknown>,
+          options?: { onConflict?: string },
+        ) => Promise<{ error: { message?: string } | null }>;
+      };
+    };
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.cardioSessions, JSON.stringify(cardioSessions));
-  }, [cardioSessions, isLoaded]);
+    if (persistTimerRef.current) {
+      window.clearTimeout(persistTimerRef.current);
+    }
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEYS.weightLogs, JSON.stringify(weightLogs));
-  }, [weightLogs, isLoaded]);
+    persistTimerRef.current = window.setTimeout(() => {
+      void db
+        .from('workout_state')
+        .upsert(
+          {
+            user_id: user.id,
+            state: persistedState,
+          },
+          { onConflict: 'user_id' },
+        )
+        .then(({ error }) => {
+          if (error) {
+            console.error('Failed saving workout state to Supabase:', error.message || error);
+          }
+        })
+        .catch((error) => {
+          console.error('Unexpected workout save error:', error);
+        });
+    }, 800);
+
+    return () => {
+      if (persistTimerRef.current) {
+        window.clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+    };
+  }, [isDemoUser, isLoaded, persistedState, user?.id]);
 
   const addWorkout = useCallback((workout: Workout) => {
     setWorkouts(prev => [workout, ...prev]);
@@ -245,4 +443,3 @@ export function useWorkoutStore(): WorkoutStoreValue {
   if (!ctx) throw new Error('useWorkoutStore must be used within a WorkoutStoreProvider');
   return ctx;
 }
-

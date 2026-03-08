@@ -37,6 +37,12 @@ export interface WorkoutTemplate {
     targetReps?: number;
     restTimerDuration?: number;
   }[];
+  labels?: {
+    goals?: string[];
+    equipment?: string[];
+    split?: string;
+    level?: string;
+  };
   createdAt: number;
   lastUsed?: number;
 }
