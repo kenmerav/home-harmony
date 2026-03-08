@@ -42,6 +42,7 @@ function normalizeFractions(input: string): string {
   for (const [glyph, frac] of Object.entries(fractionMap)) {
     out = out.replaceAll(glyph, ` ${frac} `);
   }
+  out = out.replace(/\b(\d{2,3})\s*\/\s*(\d{1,2})\b/g, '$1/$2');
   return out.replace(/\s+/g, ' ').trim();
 }
 
@@ -136,6 +137,16 @@ function joinSplitFractionLines(lines: string[]): string[] {
         i += consumedExtra;
         continue;
       }
+
+      const nextWithNumberForRatio = takeLeadingNumberAndRest(lines[i + 1]);
+      if (nextWithNumberForRatio) {
+        const rebuilt = `${prefix} ${numerator}/${nextWithNumberForRatio.number}${nextWithNumberForRatio.rest ? ` ${nextWithNumberForRatio.rest}` : ''}`
+          .replace(/\s+/g, ' ')
+          .trim();
+        merged.push(rebuilt);
+        i += 1;
+        continue;
+      }
     }
 
     const nextFractionLine = lines[i + 1]?.trim().match(/^(\d+\/\d+)\s+(.+)$/);
@@ -153,6 +164,10 @@ function joinSplitFractionLines(lines: string[]): string[] {
 
 function startsWithPercentDescriptor(line: string): boolean {
   return /^\d+\s*%\s*[a-z]/i.test(line.trim());
+}
+
+function startsWithLeanRatioDescriptor(line: string): boolean {
+  return /^\d{2,3}\s*\/\s*\d{1,2}\s+[a-z]/i.test(line.trim());
 }
 
 function endsWithLooseDescriptor(line: string): boolean {
@@ -238,7 +253,14 @@ function repairIngredientFragments(parts: string[]): string[] {
         current = `(${alt.qty}) ${alt.rest}`.replace(/\s+/g, ' ').trim();
       }
 
-      if (out.length > 0 && (startsWithPercentDescriptor(current) || endsWithLooseDescriptor(out[out.length - 1]))) {
+      if (
+        out.length > 0 &&
+        (
+          startsWithPercentDescriptor(current) ||
+          startsWithLeanRatioDescriptor(current) ||
+          endsWithLooseDescriptor(out[out.length - 1])
+        )
+      ) {
         out[out.length - 1] = `${out[out.length - 1]} ${current}`.replace(/\s+/g, ' ').trim();
         continue;
       }
@@ -271,10 +293,19 @@ function splitMergedIngredientLine(line: string): string[] {
     const nextChar = text[match.index + token.length] || '';
     const tokenHasUnit = new RegExp(`\\b${unitToken}\\b`, 'i').test(token);
     const tokenIsBareNumber = /^\d+(?:\.\d+)?$/.test(token.trim());
+    const tokenIsLeanRatio = /^\d{2,3}\/\d{1,2}$/.test(token.trim());
+    const textAfterToken = text.slice(match.index + token.length).trimStart().toLowerCase();
+    const appearsToBeMeatRatio =
+      tokenIsLeanRatio &&
+      /^(ground|lean|extra lean|turkey|beef|chicken|pork|steak|meat)\b/.test(textAfterToken);
 
     // Keep mixed fractions intact and ignore quantity matches inside "(360 g)" style conversions.
     if (!isInsideParenthesis(text, match.index)) {
-      if (!(tokenIsBareNumber && (prevChar === '/' || nextChar === '/')) && (tokenHasUnit || !tokenIsBareNumber)) {
+      if (
+        !appearsToBeMeatRatio &&
+        !(tokenIsBareNumber && (prevChar === '/' || nextChar === '/')) &&
+        (tokenHasUnit || !tokenIsBareNumber)
+      ) {
         splitPoints.push(match.index);
       }
     }
@@ -315,6 +346,22 @@ function splitMergedIngredientLine(line: string): string[] {
   return out;
 }
 
+function restoreLikelyQuarterFractions(line: string): string {
+  const trimmed = line.trim();
+  const match = trimmed.match(/^4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b\s*(.*)$/i);
+  if (!match) return line;
+
+  const unit = match[1].toLowerCase();
+  const rest = (match[2] || '').trim();
+  const restLower = rest.toLowerCase();
+  const hasStrongQuarterSignal =
+    /^4\s*cup\b/i.test(trimmed) ||
+    /(powder|pepper|paprika|cumin|oregano|thyme|garlic|onion|salt|seasoning|sauce|vinegar|juice|oil|sesame|chili|cinnamon|nutmeg|ginger|dill)\b/.test(restLower);
+
+  if (!hasStrongQuarterSignal) return line;
+  return `1/4 ${unit}${rest ? ` ${rest}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+
 function capitalizeIngredient(line: string): string {
   let cleaned = line
     .replace(/\s+,/g, ',')
@@ -331,6 +378,8 @@ function capitalizeIngredient(line: string): string {
     .replace(/\s+\(\s*$/, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  cleaned = restoreLikelyQuarterFractions(cleaned);
 
   if (/^\d*%?\s*plain greek$/i.test(cleaned) || /^\d*%?\s*greek$/i.test(cleaned)) {
     cleaned = 'Greek yogurt';
