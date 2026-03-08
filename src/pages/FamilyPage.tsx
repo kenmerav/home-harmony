@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,8 @@ export default function FamilyPage() {
   const [acceptingInvite, setAcceptingInvite] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+  const inviteSectionRef = useRef<HTMLElement | null>(null);
+  const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -124,14 +126,30 @@ export default function FamilyPage() {
     }
   };
 
+  const onAddFamilyMemberClick = () => {
+    if (!dashboard.household) {
+      setMessage('Create your household first, then add family members.');
+      return;
+    }
+    inviteSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => inviteEmailInputRef.current?.focus(), 120);
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="font-display text-3xl">Family</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="font-display text-3xl">Family</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.
+              </p>
+            </div>
+            <Button onClick={onAddFamilyMemberClick} disabled={loading || creatingHousehold}>
+              Add family member
+            </Button>
+          </div>
         </div>
 
         <section className="rounded-xl border border-border bg-card p-5">
@@ -193,10 +211,11 @@ export default function FamilyPage() {
                   <p className="text-xs text-muted-foreground mt-1">Household ID: {dashboard.household.id}</p>
                 </section>
 
-                <section className="rounded-xl border border-border bg-card p-5">
+                <section ref={inviteSectionRef} className="rounded-xl border border-border bg-card p-5">
                   <h2 className="font-semibold">Invite family member</h2>
                   <form className="mt-3 grid gap-3 md:grid-cols-[1fr_180px_auto]" onSubmit={onInvite}>
                     <Input
+                      ref={inviteEmailInputRef}
                       type="email"
                       required
                       placeholder="spouse-or-kid@example.com"
