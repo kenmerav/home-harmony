@@ -590,6 +590,7 @@ export default function MealsPage() {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
     if (!recipe) {
       setPlannerForm((prev) => ({ ...prev, recipeId }));
+      if (!recipeId) setPlannerRecipeQuery('');
       return;
     }
     setPlannerForm((prev) => ({
@@ -601,6 +602,8 @@ export default function MealsPage() {
       carbs_g: String(Math.round(recipe.carbs_g || 0)),
       fat_g: String(Math.round(recipe.fat_g || 0)),
     }));
+    // Collapse typeahead list after a recipe is selected.
+    setPlannerRecipeQuery('');
   };
 
   const selectRecipeForSwap = (recipeId: string) => {
