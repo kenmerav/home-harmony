@@ -53,13 +53,14 @@ import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
 
 type CalendarViewMode = 'month' | 'week';
+type CalendarSetupMode = 'google' | 'apple';
 
 type WeekdayChore = {
   name: string;
@@ -257,9 +258,16 @@ function moduleDefaultFilters(): Record<CalendarEventModule, boolean> {
   };
 }
 
+function parseCalendarSetupMode(value: string | null): CalendarSetupMode | null {
+  if (value === 'google') return 'google';
+  if (value === 'apple') return 'apple';
+  return null;
+}
+
 export default function CalendarPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -269,6 +277,11 @@ export default function CalendarPage() {
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() =>
     getGoogleCalendarPrefs(user?.id),
   );
+  const setupModeFromQuery = parseCalendarSetupMode(searchParams.get('setup'));
+  const [calendarSetupMode, setCalendarSetupMode] = useState<CalendarSetupMode>(
+    setupModeFromQuery || 'google',
+  );
+  const [calendarSetupOpen, setCalendarSetupOpen] = useState(Boolean(setupModeFromQuery));
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
@@ -280,6 +293,12 @@ export default function CalendarPage() {
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!setupModeFromQuery) return;
+    setCalendarSetupMode(setupModeFromQuery);
+    setCalendarSetupOpen(true);
+  }, [setupModeFromQuery]);
 
   const refreshEvents = useCallback(async () => {
     const rangeStart = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
@@ -704,6 +723,27 @@ export default function CalendarPage() {
     setGoogleCalendarPrefs(next, user?.id);
   };
 
+  const closeCalendarSetupDialog = () => {
+    setCalendarSetupOpen(false);
+    if (!searchParams.get('setup') && !searchParams.get('source')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('setup');
+    next.delete('source');
+    setSearchParams(next, { replace: true });
+  };
+
+  const startGoogleSetup = () => {
+    updateGooglePrefs({
+      enabled: true,
+      connectionStatus: googlePrefs.connectionStatus === 'connected' ? 'connected' : 'pending_oauth',
+      connectedAt: googlePrefs.connectedAt || new Date().toISOString(),
+    });
+    toast({
+      title: 'Google quick-add enabled',
+      description: 'Your event cards now include one-click add-to-Google links.',
+    });
+  };
+
   return (
     <AppLayout>
       <PageHeader
@@ -766,31 +806,54 @@ export default function CalendarPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Google Calendar" subtitle="Connection scaffold + quick add links">
+          <SectionCard title="Calendar integrations" subtitle="Set up Google quick add or Apple Calendar import">
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Enable Google links</span>
-                <Switch
-                  checked={googlePrefs.enabled}
-                  onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })}
-                />
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Google Calendar</span>
+                  <Switch
+                    checked={googlePrefs.enabled}
+                    onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Status</span>
+                  <Badge variant="outline">
+                    {googlePrefs.connectionStatus === 'connected' ? 'Connected' : 'OAuth setup pending'}
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Target calendar label</label>
+                  <Input
+                    value={googlePrefs.selectedCalendarLabel}
+                    onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Use quick add links on each event. Full OAuth push sync can be connected next.
+                </p>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span>Status</span>
-                <Badge variant="outline">
-                  {googlePrefs.connectionStatus === 'connected' ? 'Connected' : 'OAuth setup pending'}
-                </Badge>
+
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Apple Calendar</span>
+                  <Button variant="outline" size="sm" onClick={exportCurrentMonthIcs}>
+                    Export .ics
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Import the `.ics` file into Apple Calendar on iPhone, iPad, or Mac to bring this month into your calendar.
+                </p>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Target calendar label</label>
-                <Input
-                  value={googlePrefs.selectedCalendarLabel}
-                  onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                OAuth token sync comes next. For now, each event includes a one-click Google Calendar link.
-              </p>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setCalendarSetupOpen(true)}
+              >
+                Guided calendar setup
+              </Button>
             </div>
           </SectionCard>
         </div>
@@ -872,6 +935,75 @@ export default function CalendarPage() {
           </SectionCard>
         </div>
       </div>
+
+      <Dialog open={calendarSetupOpen} onOpenChange={(open) => (open ? setCalendarSetupOpen(true) : closeCalendarSetupDialog())}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Connect your calendar</DialogTitle>
+            <DialogDescription>
+              Pick your current calendar and finish setup in under 2 minutes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={calendarSetupMode === 'google' ? 'default' : 'outline'}
+                onClick={() => setCalendarSetupMode('google')}
+              >
+                Google Calendar
+              </Button>
+              <Button
+                type="button"
+                variant={calendarSetupMode === 'apple' ? 'default' : 'outline'}
+                onClick={() => setCalendarSetupMode('apple')}
+              >
+                Apple Calendar
+              </Button>
+            </div>
+
+            {calendarSetupMode === 'google' ? (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <p className="text-sm font-medium">Google setup</p>
+                <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
+                  <li>Enable Google quick-add links.</li>
+                  <li>Open an event and tap the external link icon.</li>
+                  <li>Save to your preferred Google calendar.</li>
+                </ol>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={startGoogleSetup}>
+                    Enable Google quick-add
+                  </Button>
+                  <Button type="button" variant="outline" asChild>
+                    <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer">
+                      Open Google Calendar
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <p className="text-sm font-medium">Apple setup</p>
+                <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
+                  <li>Export your Home Harmony events as an `.ics` file.</li>
+                  <li>Open Files and tap the `.ics` file.</li>
+                  <li>Choose Apple Calendar and save.</li>
+                </ol>
+                <Button type="button" onClick={exportCurrentMonthIcs}>
+                  Download .ics for Apple Calendar
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={closeCalendarSetupDialog}>
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent className="sm:max-w-lg">

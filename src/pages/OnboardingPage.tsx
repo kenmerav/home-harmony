@@ -157,6 +157,8 @@ const APPOINTMENT_REMINDER_OPTIONS = [
   'Both 1 hour and 30 minutes',
 ] as const;
 
+const CALENDAR_SYSTEM_OPTIONS = ['Google Calendar', 'Apple Calendar', 'Other/Not sure yet'] as const;
+
 const DESIRED_OUTCOME_OPTIONS = [
   'Calmer evenings',
   'Less decision fatigue',
@@ -183,6 +185,7 @@ type StepTarget = (typeof STEP_TARGET_OPTIONS)[number];
 type AlcoholTarget = (typeof ALCOHOL_TARGET_OPTIONS)[number];
 type MorningTextChoice = (typeof MORNING_TEXT_OPTIONS)[number];
 type AppointmentReminder = (typeof APPOINTMENT_REMINDER_OPTIONS)[number];
+type CalendarSystem = (typeof CALENDAR_SYSTEM_OPTIONS)[number];
 type DesiredOutcome = (typeof DESIRED_OUTCOME_OPTIONS)[number];
 
 type StepId =
@@ -206,6 +209,7 @@ type StepId =
   | 'goalTracking'
   | 'scheduleText'
   | 'appointmentReminders'
+  | 'calendarSystem'
   | 'desiredOutcome'
   | 'mirror'
   | 'experience'
@@ -244,6 +248,7 @@ interface OnboardingAnswers {
   morningTextChoice: MorningTextChoice | null;
   phoneNumber: string;
   appointmentReminder: AppointmentReminder | null;
+  calendarSystem: CalendarSystem | null;
   desiredOutcome: DesiredOutcome | null;
   commitmentConfirmed: boolean;
 }
@@ -294,6 +299,7 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   morningTextChoice: null,
   phoneNumber: '',
   appointmentReminder: null,
+  calendarSystem: null,
   desiredOutcome: null,
   commitmentConfirmed: false,
 };
@@ -484,6 +490,7 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     answers.wellnessGoals.length > 0 ? `Wellness goals: ${answers.wellnessGoals.join(', ')}.` : null,
     answers.morningTextChoice ? `Morning schedule text: ${answers.morningTextChoice}.` : null,
     answers.appointmentReminder ? `Appointment reminder timing: ${answers.appointmentReminder}.` : null,
+    answers.calendarSystem ? `Calendar system: ${answers.calendarSystem}.` : null,
   ]
     .filter(Boolean)
     .join(' ');
@@ -508,6 +515,7 @@ function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): Step
     'goalTracking',
     'scheduleText',
     'appointmentReminders',
+    'calendarSystem',
     'desiredOutcome',
     'mirror',
     'experience',
@@ -563,6 +571,8 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
       return true;
     case 'appointmentReminders':
       return answers.appointmentReminder !== null;
+    case 'calendarSystem':
+      return answers.calendarSystem !== null;
     case 'desiredOutcome':
       return answers.desiredOutcome !== null;
     case 'commitment':
@@ -936,6 +946,7 @@ export default function OnboardingPage() {
           failedLinkImports,
           pdfImportQueued,
           morningText: answers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
+          calendarSystem: answers.calendarSystem,
         },
         `onboarding_complete:${user.id}`,
       );
@@ -955,7 +966,15 @@ export default function OnboardingPage() {
 
       clearOnboardingDraft(user.id);
       clearOnboardingDraft(null);
-      navigate(getPostAuthRoute(isSubscribed), { replace: true });
+      const shouldOpenCalendarSetup = !BILLING_ENABLED && (
+        answers.calendarSystem === 'Google Calendar' || answers.calendarSystem === 'Apple Calendar'
+      );
+      if (shouldOpenCalendarSetup) {
+        const setupMode = answers.calendarSystem === 'Google Calendar' ? 'google' : 'apple';
+        navigate(`/calendar?setup=${setupMode}&source=onboarding`, { replace: true });
+      } else {
+        navigate(getPostAuthRoute(isSubscribed), { replace: true });
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not finish onboarding. Please try again.';
       setSubmitError(message);
@@ -1598,6 +1617,28 @@ export default function OnboardingPage() {
       );
       break;
 
+    case 'calendarSystem':
+      content = (
+        <QuestionScreen
+          title="Which calendar do you use today?"
+          helper="We will guide setup right after account creation."
+        >
+          <OptionList
+            options={CALENDAR_SYSTEM_OPTIONS}
+            selected={singleSelection(answers.calendarSystem)}
+            onToggle={(value) => setSingle('calendarSystem', value)}
+          />
+        </QuestionScreen>
+      );
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('calendarSystem', answers, account)}
+        />
+      );
+      break;
+
     case 'desiredOutcome':
       content = (
         <QuestionScreen title="What result matters most this month?" helper="Pick one to optimize first.">
@@ -1630,6 +1671,8 @@ export default function OnboardingPage() {
               Grocery flow: <span className="text-foreground">{answers.groceryPain}</span>
               <br />
               Chores flow: <span className="text-foreground">{answers.chorePain}</span>
+              <br />
+              Calendar: <span className="text-foreground">{answers.calendarSystem || 'Not selected'}</span>
               <br />
               Primary outcome: <span className="text-foreground">{answers.desiredOutcome}</span>
             </div>
