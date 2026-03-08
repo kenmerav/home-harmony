@@ -8,7 +8,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { createOrGetHousehold } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
-import { fetchRecipes, seedStarterRecipesIfEmpty } from '@/lib/api/recipes';
+import {
+  enqueueCookbookImportFromPdf,
+  fetchRecipes,
+  parseRecipesFromUrl,
+  saveRecipes,
+  seedStarterRecipesIfEmpty,
+  type ExtractedRecipe,
+} from '@/lib/api/recipes';
 import {
   buildPersonalizedDinnerWeek,
   buildPersonalizedGroceryPreview,
@@ -223,6 +230,7 @@ interface OnboardingAnswers {
   weeklyStaples: WeeklyStaple[];
   weeklyStaplesOther: string;
   recipesToImplement: string;
+  recipeLinks: string;
   planningStyle: PlanningStyle | null;
   groceryStorePreferences: GroceryStorePreference[];
   groceryShoppingMode: GroceryMode | null;
@@ -272,6 +280,7 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   weeklyStaples: [],
   weeklyStaplesOther: '',
   recipesToImplement: '',
+  recipeLinks: '',
   planningStyle: null,
   groceryStorePreferences: ["Fry's"],
   groceryShoppingMode: null,
@@ -301,6 +310,52 @@ const parseListText = (raw: string): string[] =>
     .split(/[\n,]/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+
+const parseRecipeLinks = (raw: string): string[] => {
+  const unique = new Set<string>();
+  const candidates = raw
+    .split(/[\n,\s]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  for (const candidate of candidates) {
+    let value = candidate;
+    if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
+    try {
+      const parsed = new URL(value);
+      if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+      unique.add(parsed.toString());
+    } catch {
+      // Ignore invalid links during onboarding parsing.
+    }
+  }
+
+  return Array.from(unique);
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.max(1, Math.round(kb))} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+};
+
+function dedupeExtractedRecipes(recipes: ExtractedRecipe[]): ExtractedRecipe[] {
+  const seen = new Set<string>();
+  const deduped: ExtractedRecipe[] = [];
+
+  for (const recipe of recipes) {
+    const key = `${(recipe.name || '').trim().toLowerCase()}::${(recipe.ingredientsRaw || '')
+      .trim()
+      .toLowerCase()
+      .slice(0, 80)}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(recipe);
+  }
+
+  return deduped;
+}
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -408,6 +463,7 @@ function buildDayLocks(
 function buildGoalsText(answers: OnboardingAnswers): string {
   const avoidFoods = parseListText(answers.avoidFoods);
   const recipeRequests = parseListText(answers.recipesToImplement);
+  const recipeLinks = parseRecipeLinks(answers.recipeLinks);
   return [
     `Main pressure: ${answers.mainPainPoint || 'not provided'}.`,
     `Desired outcome: ${answers.desiredOutcome || 'calmer week'}.`,
@@ -420,6 +476,7 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     answers.weeklyStaples.length > 0 ? `Staples: ${answers.weeklyStaples.join(', ')}.` : null,
     answers.weeklyStaplesOther.trim() ? `Staple notes: ${answers.weeklyStaplesOther.trim()}.` : null,
     recipeRequests.length > 0 ? `Recipes to add: ${recipeRequests.join(', ')}.` : null,
+    recipeLinks.length > 0 ? `Recipe links provided: ${recipeLinks.length}.` : null,
     `Grocery mode: ${answers.groceryShoppingMode || 'not set'} at ${answers.groceryStorePreferences.join(', ')}.`,
     `Grocery friction: ${answers.groceryPain || 'not provided'}.`,
     `Chore friction: ${answers.chorePain || 'not provided'}.`,
@@ -544,12 +601,19 @@ export default function OnboardingPage() {
   const [currentStepId, setCurrentStepId] = useState<StepId>('welcome');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [recipePdfFile, setRecipePdfFile] = useState<File | null>(null);
   const [account, setAccount] = useState<AccountDraft>(DEFAULT_ACCOUNT);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const recipePdfInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (hydratedForActor.current === actorKey) return;
+
+    setRecipePdfFile(null);
+    if (recipePdfInputRef.current) {
+      recipePdfInputRef.current.value = '';
+    }
 
     let draft = loadOnboardingDraft(user?.id);
     if (user?.id && !draft) {
@@ -757,6 +821,46 @@ export default function OnboardingPage() {
         console.error('Starter recipe seeding failed:', seedError);
       }
 
+      let importedLinkRecipeCount = 0;
+      let failedLinkImports = 0;
+      const recipeLinks = parseRecipeLinks(answers.recipeLinks);
+      if (recipeLinks.length > 0) {
+        try {
+          const extractedFromLinks: ExtractedRecipe[] = [];
+          for (const link of recipeLinks) {
+            const linkResult = await parseRecipesFromUrl(link);
+            if (!linkResult.success || !Array.isArray(linkResult.recipes) || linkResult.recipes.length === 0) {
+              failedLinkImports += 1;
+              continue;
+            }
+            extractedFromLinks.push(...linkResult.recipes);
+          }
+
+          const dedupedFromLinks = dedupeExtractedRecipes(extractedFromLinks);
+          if (dedupedFromLinks.length > 0) {
+            const saved = await saveRecipes(dedupedFromLinks);
+            importedLinkRecipeCount = saved.length;
+          }
+        } catch (linkImportError) {
+          console.error('Onboarding recipe link import failed:', linkImportError);
+          failedLinkImports = Math.max(failedLinkImports, recipeLinks.length);
+        }
+      }
+
+      let pdfImportQueued = false;
+      if (recipePdfFile) {
+        try {
+          const queueResult = await enqueueCookbookImportFromPdf(recipePdfFile);
+          if (queueResult.success) {
+            pdfImportQueued = true;
+          } else {
+            console.error('Onboarding PDF import queue failed:', queueResult.error);
+          }
+        } catch (pdfQueueError) {
+          console.error('Onboarding PDF import queue failed:', pdfQueueError);
+        }
+      }
+
       let availableRecipes: Array<{ id: string; name: string }> = [];
       try {
         const dbRecipes = await fetchRecipes();
@@ -826,10 +930,28 @@ export default function OnboardingPage() {
           diets: answers.dietPreferences,
           staples: answers.weeklyStaples,
           hasRecipeRequests: parseListText(answers.recipesToImplement).length > 0,
+          hasRecipeLinks: recipeLinks.length > 0,
+          hasRecipePdf: Boolean(recipePdfFile),
+          importedLinkRecipeCount,
+          failedLinkImports,
+          pdfImportQueued,
           morningText: answers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
         },
         `onboarding_complete:${user.id}`,
       );
+
+      if (failedLinkImports > 0) {
+        toast({
+          title: 'Some recipe links could not be imported',
+          description: `${failedLinkImports} link${failedLinkImports === 1 ? '' : 's'} failed. You can retry from Recipes later.`,
+        });
+      }
+      if (pdfImportQueued) {
+        toast({
+          title: 'PDF import queued',
+          description: 'Your PDF recipes are importing in the background. You can keep using the app.',
+        });
+      }
 
       clearOnboardingDraft(user.id);
       clearOnboardingDraft(null);
@@ -1172,16 +1294,64 @@ export default function OnboardingPage() {
       content = (
         <QuestionScreen
           title="Any recipes you already want to include?"
-          helper="Optional. Add recipe names now so they can be worked into your plan later."
+          helper="Optional. Add recipe names, paste recipe links, or upload a PDF cookbook."
         >
-          <div className="space-y-3">
-            <Textarea
-              value={answers.recipesToImplement}
-              onChange={(event) => setSingle('recipesToImplement', event.target.value)}
-              placeholder="Examples: Grandma's chili, turkey taco bowls, chicken enchilada soup"
-              rows={6}
-            />
-            <p className="text-xs text-muted-foreground">Separate recipes with commas or new lines.</p>
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Recipe names</p>
+              <Textarea
+                value={answers.recipesToImplement}
+                onChange={(event) => setSingle('recipesToImplement', event.target.value)}
+                placeholder="Examples: Grandma's chili, turkey taco bowls, chicken enchilada soup"
+                rows={4}
+              />
+              <p className="text-xs text-muted-foreground">Separate recipes with commas or new lines.</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Recipe links</p>
+              <Textarea
+                value={answers.recipeLinks}
+                onChange={(event) => setSingle('recipeLinks', event.target.value)}
+                placeholder="Paste one link per line (blog posts, recipe pages, Pinterest pins)"
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">We will try to import recipes from each link.</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Upload a PDF cookbook</p>
+              <Input
+                ref={recipePdfInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setRecipePdfFile(file);
+                }}
+              />
+              {recipePdfFile && (
+                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                  <span className="truncate pr-3">
+                    {recipePdfFile.name} ({formatFileSize(recipePdfFile.size)})
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setRecipePdfFile(null);
+                      if (recipePdfInputRef.current) recipePdfInputRef.current.value = '';
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                PDF imports run in the background right after onboarding.
+              </p>
+            </div>
           </div>
         </QuestionScreen>
       );
