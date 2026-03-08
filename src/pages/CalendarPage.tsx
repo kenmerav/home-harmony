@@ -347,6 +347,14 @@ export default function CalendarPage() {
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
 
+  const allFiltersEnabled = useMemo(() => {
+    const next = {} as Record<CalendarEventModule, boolean>;
+    (Object.keys(moduleMeta) as CalendarEventModule[]).forEach((module) => {
+      next[module] = true;
+    });
+    return next;
+  }, []);
+
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
@@ -1040,6 +1048,15 @@ export default function CalendarPage() {
     toast({ title: 'Filter removed' });
   };
 
+  const toggleFilterPreset = (presetId: string, enabled: boolean) => {
+    if (enabled) {
+      applyFilterPreset(presetId);
+      return;
+    }
+    setFilters(allFiltersEnabled);
+    setActiveFilterPresetId(null);
+  };
+
   const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
     setSmsPrefs((prev) => ({ ...prev, [key]: value }));
   };
@@ -1206,29 +1223,23 @@ export default function CalendarPage() {
               {filterPresets.map((preset) => {
                 const isActive = activeFilterPresetId === preset.id;
                 return (
-                  <div key={preset.id} className="flex items-center justify-between gap-2">
-                    <button type="button" onClick={() => applyFilterPreset(preset.id)} aria-label={`Apply ${preset.name} filter`}>
+                  <div key={preset.id} className="flex items-center justify-between">
+                    <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
                       <Badge
                         variant="outline"
                         className={cn(
-                          'border cursor-pointer border-dashed',
+                          'border cursor-pointer',
                           isActive && 'border-primary text-primary bg-primary/5',
                         )}
                       >
                         {preset.name}
                       </Badge>
                     </button>
-                    <div className="flex items-center gap-1">
-                      <Button type="button" size="sm" variant={isActive ? 'default' : 'outline'} onClick={() => applyFilterPreset(preset.id)}>
-                        Apply
-                      </Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => openEditFilterPresetDialog(preset.id)}>
-                        Edit
-                      </Button>
-                      <Button type="button" size="icon" variant="ghost" onClick={() => deleteFilterPreset(preset.id)} aria-label={`Delete ${preset.name}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Switch
+                      checked={isActive}
+                      onCheckedChange={(checked) => toggleFilterPreset(preset.id, checked)}
+                      aria-label={`Toggle ${preset.name} filter`}
+                    />
                   </div>
                 );
               })}
@@ -1604,6 +1615,11 @@ export default function CalendarPage() {
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">
+            {editingFilterPresetId ? (
+              <Button variant="ghost" onClick={() => deleteFilterPreset(editingFilterPresetId)}>
+                Delete
+              </Button>
+            ) : null}
             <Button variant="outline" onClick={() => setFilterPresetDialogOpen(false)}>
               Cancel
             </Button>
