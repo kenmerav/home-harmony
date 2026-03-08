@@ -136,6 +136,8 @@ export default function CalendarPlannerPage() {
   );
   const [newFilterPresetName, setNewFilterPresetName] = useState('');
   const [newFilterPresetRecipients, setNewFilterPresetRecipients] = useState('');
+  const [currentFilterName, setCurrentFilterName] = useState('Current filter');
+  const [currentFilterRecipients, setCurrentFilterRecipients] = useState('');
   const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() => getGoogleCalendarPrefs(user?.id));
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
@@ -182,6 +184,14 @@ export default function CalendarPlannerPage() {
     const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
     setActiveFilterPresetId(activeMatch?.id || null);
   }, [filterPresets, filters]);
+
+  useEffect(() => {
+    if (!activeFilterPresetId) return;
+    const activePreset = filterPresets.find((preset) => preset.id === activeFilterPresetId);
+    if (!activePreset) return;
+    setCurrentFilterName(activePreset.name);
+    setCurrentFilterRecipients(formatPhoneList(activePreset.reminderRecipients || []));
+  }, [activeFilterPresetId, filterPresets]);
 
   useEffect(() => {
     let mounted = true;
@@ -511,6 +521,43 @@ export default function CalendarPlannerPage() {
     );
   };
 
+  const saveCurrentFilterConfig = async () => {
+    const normalizedName = normalizeCalendarFilterName(currentFilterName || 'Current filter');
+    const recipients = parsePhoneList(currentFilterRecipients);
+
+    if (activeFilterPresetId) {
+      let updatedPreset: CalendarFilterPreset | null = null;
+      setFilterPresets((prev) =>
+        prev.map((preset) => {
+          if (preset.id !== activeFilterPresetId) return preset;
+          updatedPreset = {
+            ...preset,
+            name: normalizedName,
+            reminderRecipients: recipients,
+            modules: { ...filters },
+          };
+          return updatedPreset;
+        }),
+      );
+      if (updatedPreset) {
+        toast({ title: 'Current filter updated' });
+        await applyPresetRecipientsToSms(updatedPreset);
+      }
+      return;
+    }
+
+    const nextPreset = createCalendarFilterPreset(
+      normalizedName,
+      filters,
+      filterPresets.length,
+      recipients,
+    );
+    setFilterPresets((prev) => [...prev, nextPreset]);
+    setActiveFilterPresetId(nextPreset.id);
+    toast({ title: 'Current filter saved' });
+    await applyPresetRecipientsToSms(nextPreset);
+  };
+
   const updateGooglePrefs = (updates: Partial<GoogleCalendarPrefs>) => {
     const next = { ...googlePrefs, ...updates };
     setGooglePrefsState(next);
@@ -656,6 +703,22 @@ export default function CalendarPlannerPage() {
 
               <div className="pt-3 border-t border-border space-y-3">
                 <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <p className="text-sm font-medium">Current filters</p>
+                  <Input
+                    value={currentFilterName}
+                    onChange={(event) => setCurrentFilterName(event.target.value)}
+                    placeholder="Filter name"
+                  />
+                  <Input
+                    value={currentFilterRecipients}
+                    onChange={(event) => setCurrentFilterRecipients(event.target.value)}
+                    placeholder="Who to notify (+16155551234, +16155550999)"
+                  />
+                  <Button type="button" variant="outline" onClick={() => void saveCurrentFilterConfig()}>
+                    Save current filter
+                  </Button>
+                </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     value={newFilterPresetName}
@@ -820,6 +883,22 @@ export default function CalendarPlannerPage() {
             ))}
             <div className="pt-2 border-t border-border space-y-3">
               <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <p className="text-sm font-medium">Current filters</p>
+                <Input
+                  value={currentFilterName}
+                  onChange={(event) => setCurrentFilterName(event.target.value)}
+                  placeholder="Filter name"
+                />
+                <Input
+                  value={currentFilterRecipients}
+                  onChange={(event) => setCurrentFilterRecipients(event.target.value)}
+                  placeholder="Who to notify (+16155551234, +16155550999)"
+                />
+                <Button type="button" variant="outline" onClick={() => void saveCurrentFilterConfig()}>
+                  Save current filter
+                </Button>
+              </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   value={newFilterPresetName}
