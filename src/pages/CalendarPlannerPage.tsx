@@ -32,6 +32,13 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { estimateCommuteEta } from '@/lib/api/commute';
+import {
+  defaultSmsPreferences,
+  loadSmsPreferences,
+  saveSmsPreferences,
+  SmsPreferences,
+} from '@/lib/api/sms';
 import {
   addManualCalendarEvent,
   CalendarEvent,
@@ -89,20 +96,43 @@ function isoDayKey(date: Date): string {
   return format(date, 'yyyy-MM-dd');
 }
 
+function withTime(baseDate: Date, hhmm: string): Date {
+  const [hourRaw, minuteRaw] = hhmm.split(':');
+  const date = new Date(baseDate);
+  date.setHours(Number.parseInt(hourRaw, 10) || 0, Number.parseInt(minuteRaw, 10) || 0, 0, 0);
+  return date;
+}
+
 export default function CalendarPlannerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [mode, setMode] = useState<PlannerMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [dayDetailOpen, setDayDetailOpen] = useState(false);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(moduleDefaultFilters);
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() => getGoogleCalendarPrefs(user?.id));
+  const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
+    defaultSmsPreferences(
+      typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
+    ),
+  );
+  const [smsSaving, setSmsSaving] = useState(false);
+  const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftLocation, setDraftLocation] = useState('');
+  const [draftHomeAddress, setDraftHomeAddress] = useState('');
+  const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
+  const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
+  const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
+  const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
+  const [draftTravelLoading, setDraftTravelLoading] = useState(false);
+  const [draftTravelError, setDraftTravelError] = useState<string | null>(null);
   const [draftDate, setDraftDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [draftTime, setDraftTime] = useState('18:00');
   const [draftEndTime, setDraftEndTime] = useState('');
@@ -111,6 +141,30 @@ export default function CalendarPlannerPage() {
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      if (!canUseRemoteSms) {
+        setSmsPrefs(
+          defaultSmsPreferences(
+            typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
+          ),
+        );
+        return;
+      }
+      try {
+        const prefs = await loadSmsPreferences();
+        if (mounted) setSmsPrefs(prefs);
+      } catch {
+        // Keep defaults if SMS prefs fail.
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [canUseRemoteSms]);
 
   const refreshEvents = useCallback(async () => {
     setIsLoading(true);
@@ -188,7 +242,81 @@ export default function CalendarPlannerPage() {
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
+    setDraftHomeAddress((smsPrefs.home_address || '').trim());
+    setDraftTravelMinutes(null);
+    setDraftTrafficMinutes(null);
+    setDraftLeaveByIso(null);
+    setDraftLeaveReminderEnabled(false);
+    setDraftTravelError(null);
     setAddDialogOpen(true);
+  };
+
+  const openDayDetail = (day: Date) => {
+    setSelectedDate(day);
+    setDayDetailOpen(true);
+  };
+
+  const estimateTravelForDraft = async () => {
+    if (draftAllDay) {
+      setDraftTravelError('Travel estimate is available for timed events only.');
+      return;
+    }
+    const origin = draftHomeAddress.trim() || smsPrefs.home_address.trim();
+    const destination = draftLocation.trim();
+    if (!origin || !destination) {
+      setDraftTravelError('Add both home address and location to estimate travel time.');
+      return;
+    }
+    const departureIso = withTime(parseISO(`${draftDate}T00:00:00`), draftTime || '18:00').toISOString();
+    setDraftTravelLoading(true);
+    setDraftTravelError(null);
+    try {
+      const estimate = await estimateCommuteEta({
+        origin,
+        destination,
+        departureTimeIso: departureIso,
+      });
+      const leaveAt = addMinutes(parseISO(departureIso), -Math.max(1, estimate.trafficDurationMinutes));
+      setDraftTravelMinutes(estimate.durationMinutes);
+      setDraftTrafficMinutes(estimate.trafficDurationMinutes);
+      setDraftLeaveByIso(leaveAt.toISOString());
+      toast({
+        title: 'Travel time updated',
+        description: `Leave by ${format(leaveAt, 'h:mm a')} (${estimate.trafficDurationMinutes} min with traffic).`,
+      });
+    } catch (error) {
+      setDraftTravelError(error instanceof Error ? error.message : 'Could not estimate travel time.');
+    } finally {
+      setDraftTravelLoading(false);
+    }
+  };
+
+  const saveHomeAddressFromDraft = async () => {
+    const nextAddress = draftHomeAddress.trim();
+    if (!nextAddress) {
+      toast({ title: 'Enter your home address first', variant: 'destructive' });
+      return;
+    }
+    if (!canUseRemoteSms) {
+      setSmsPrefs((prev) => ({ ...prev, home_address: nextAddress }));
+      toast({ title: 'Home address saved for this session' });
+      return;
+    }
+    setSmsSaving(true);
+    try {
+      const saved = await saveSmsPreferences({ ...smsPrefs, home_address: nextAddress });
+      setSmsPrefs(saved);
+      setDraftHomeAddress(saved.home_address || nextAddress);
+      toast({ title: 'Home address saved' });
+    } catch (error) {
+      toast({
+        title: 'Could not save home address',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSmsSaving(false);
+    }
   };
 
   const createManualEvent = () => {
@@ -207,6 +335,13 @@ export default function CalendarPlannerPage() {
         title: draftTitle,
         description: draftDescription,
         location: draftLocation.trim() || undefined,
+        travelFromAddress: (draftHomeAddress.trim() || smsPrefs.home_address.trim()) || undefined,
+        travelMode: 'driving',
+        travelDurationMinutes: draftTravelMinutes,
+        trafficDurationMinutes: draftTrafficMinutes,
+        recommendedLeaveAt: draftLeaveByIso,
+        leaveReminderEnabled: draftLeaveReminderEnabled,
+        leaveReminderLeadMinutes: 10,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
         allDay: draftAllDay,
@@ -245,7 +380,7 @@ export default function CalendarPlannerPage() {
       <button
         key={key}
         type="button"
-        onClick={() => setSelectedDate(day)}
+        onClick={() => openDayDetail(day)}
         className={cn(
           'min-h-[150px] border border-border/70 p-2 text-left transition-colors',
           isSelected && 'bg-primary/10 ring-1 ring-primary',
@@ -282,6 +417,9 @@ export default function CalendarPlannerPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" asChild>
               <Link to="/calendar/standard">Standard View</Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setFilterDialogOpen(true)}>
+              Filters
             </Button>
             <Button variant="outline" size="sm" onClick={() => void refreshEvents()}>
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -406,6 +544,52 @@ export default function CalendarPlannerPage() {
         </div>
       </div>
 
+      <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">{format(selectedDate, 'EEEE, MMMM d')}</DialogTitle>
+            <DialogDescription>
+              {selectedDayEvents.length} item{selectedDayEvents.length === 1 ? '' : 's'} based on your current filters.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            {selectedDayEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No events scheduled for this day.</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedDayEvents.map((event) => (
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    googleEnabled={googlePrefs.enabled}
+                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={filterDialogOpen} onOpenChange={setFilterDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Calendar filters</DialogTitle>
+            <DialogDescription>Choose which event types show in your planner and day popout.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
+              <div key={module} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <Badge variant="outline" className={cn('border', CALENDAR_MODULE_META[module].badgeClass)}>
+                  {CALENDAR_MODULE_META[module].label}
+                </Badge>
+                <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -419,7 +603,16 @@ export default function CalendarPlannerPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Date</label>
-              <Input type="date" value={draftDate} onChange={(e) => setDraftDate(e.target.value)} />
+              <Input
+                type="date"
+                value={draftDate}
+                onChange={(e) => {
+                  setDraftDate(e.target.value);
+                  setDraftTravelMinutes(null);
+                  setDraftTrafficMinutes(null);
+                  setDraftLeaveByIso(null);
+                }}
+              />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
               <span className="text-sm">All-day event</span>
@@ -429,7 +622,16 @@ export default function CalendarPlannerPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Start</label>
-                  <Input type="time" value={draftTime} onChange={(e) => setDraftTime(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={draftTime}
+                    onChange={(e) => {
+                      setDraftTime(e.target.value);
+                      setDraftTravelMinutes(null);
+                      setDraftTrafficMinutes(null);
+                      setDraftLeaveByIso(null);
+                    }}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">End (optional)</label>
@@ -450,9 +652,60 @@ export default function CalendarPlannerPage() {
               <label className="text-sm font-medium">Location (optional)</label>
               <Input
                 value={draftLocation}
-                onChange={(e) => setDraftLocation(e.target.value)}
+                onChange={(e) => {
+                  setDraftLocation(e.target.value);
+                  setDraftTravelMinutes(null);
+                  setDraftTrafficMinutes(null);
+                  setDraftLeaveByIso(null);
+                }}
                 placeholder="Address or place"
               />
+            </div>
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Home address (for travel time)</label>
+                <Input
+                  placeholder="Set your home address"
+                  value={draftHomeAddress}
+                  onChange={(e) => {
+                    setDraftHomeAddress(e.target.value);
+                    setDraftTravelMinutes(null);
+                    setDraftTrafficMinutes(null);
+                    setDraftLeaveByIso(null);
+                  }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void saveHomeAddressFromDraft()} disabled={smsSaving}>
+                  {smsSaving ? 'Saving...' : 'Save as home address'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void estimateTravelForDraft()}
+                  disabled={draftTravelLoading || draftAllDay}
+                >
+                  {draftTravelLoading ? 'Estimating...' : 'Estimate travel (live traffic)'}
+                </Button>
+              </div>
+              {draftAllDay && <p className="text-xs text-muted-foreground">Set a start time to estimate commute.</p>}
+              {draftTravelError && <p className="text-xs text-destructive">{draftTravelError}</p>}
+              {draftLeaveByIso && (
+                <p className="text-xs text-muted-foreground">
+                  Estimated drive: {draftTrafficMinutes || draftTravelMinutes} min
+                  {draftTrafficMinutes && draftTravelMinutes && draftTrafficMinutes > draftTravelMinutes
+                    ? ` (${draftTrafficMinutes - draftTravelMinutes} min traffic delay)`
+                    : ''}
+                  . Leave by {format(parseISO(draftLeaveByIso), 'h:mm a')}.
+                </p>
+              )}
+              {draftLeaveByIso && (
+                <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                  <span className="text-sm">Text me 10 min before I need to leave</span>
+                  <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                </label>
+              )}
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">
@@ -494,6 +747,16 @@ function EventRow({
           </div>
           {event.description && !compact && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{event.description}</p>}
           {event.location && !compact && <p className="mt-1 text-xs text-muted-foreground">Location: {event.location}</p>}
+          {!compact && event.recommendedLeaveAt && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Leave by {format(parseISO(event.recommendedLeaveAt), 'h:mm a')}
+              {event.trafficDurationMinutes
+                ? ` (${event.trafficDurationMinutes} min with traffic)`
+                : event.travelDurationMinutes
+                ? ` (${event.travelDurationMinutes} min)`
+                : ''}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {googleEnabled && (
