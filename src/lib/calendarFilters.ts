@@ -9,6 +9,7 @@ export interface CalendarFilterPreset {
   id: string;
   name: string;
   modules: CalendarModuleFilters;
+  reminderRecipients: string[];
 }
 
 function canUseStorage(): boolean {
@@ -83,7 +84,13 @@ function normalizePreset(input: unknown, index: number): CalendarFilterPreset | 
     row.modules && typeof row.modules === 'object'
       ? normalizeModules(row.modules as Partial<CalendarModuleFilters>)
       : moduleDefaultFilters();
-  return { id, name, modules };
+  const reminderRecipients = Array.isArray((row as { reminderRecipients?: unknown }).reminderRecipients)
+    ? ((row as { reminderRecipients?: unknown[] }).reminderRecipients || [])
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+    : [];
+  return { id, name, modules, reminderRecipients };
 }
 
 export function loadStoredCalendarFilterPresets(userId?: string | null): CalendarFilterPreset[] {
@@ -110,6 +117,9 @@ export function saveStoredCalendarFilterPresets(
     id: preset.id,
     name: normalizeFilterPresetName(preset.name || defaultPresetName(index)),
     modules: normalizeModules(preset.modules),
+    reminderRecipients: Array.isArray(preset.reminderRecipients)
+      ? preset.reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0)
+      : [],
   }));
   window.localStorage.setItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId), JSON.stringify(normalized));
 }
@@ -129,12 +139,14 @@ export function createCalendarFilterPreset(
   name: string,
   modules: CalendarModuleFilters,
   existingCount: number,
+  reminderRecipients: string[] = [],
 ): CalendarFilterPreset {
   const trimmed = normalizeFilterPresetName(name || defaultPresetName(existingCount));
   return {
     id: `filter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: trimmed,
     modules: normalizeModules(modules),
+    reminderRecipients: reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0),
   };
 }
 

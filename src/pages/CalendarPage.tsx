@@ -308,6 +308,7 @@ export default function CalendarPage() {
     loadStoredCalendarFilterPresets(user?.id),
   );
   const [newFilterPresetName, setNewFilterPresetName] = useState('');
+  const [newFilterPresetRecipients, setNewFilterPresetRecipients] = useState('');
   const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
@@ -906,12 +907,67 @@ export default function CalendarPage() {
     setFilters((prev) => ({ ...prev, [module]: enabled }));
   };
 
+  const smsModulesForPreset = (preset: CalendarFilterPreset): SmsReminderModule[] => {
+    const modules: SmsReminderModule[] = [];
+    if (preset.modules.meals) modules.push('meals');
+    if (preset.modules.manual) modules.push('manual');
+    return modules;
+  };
+
+  const applyPresetRecipientsToSms = async (preset: CalendarFilterPreset) => {
+    const recipients = preset.reminderRecipients;
+    if (!recipients.length) return;
+    const smsModules = smsModulesForPreset(preset);
+    if (smsModules.length === 0) {
+      toast({
+        title: 'No SMS-enabled modules in this filter',
+        description: 'Only Meals and Manual calendar events currently support reminder text routing.',
+      });
+      return;
+    }
+
+    const nextPrefs: SmsPreferences = {
+      ...smsPrefs,
+      include_modules: [...new Set([...smsPrefs.include_modules, ...smsModules])],
+      module_recipients: {
+        ...smsPrefs.module_recipients,
+        meals: smsModules.includes('meals') ? recipients : smsPrefs.module_recipients.meals,
+        manual: smsModules.includes('manual') ? recipients : smsPrefs.module_recipients.manual,
+      },
+    };
+    setSmsPrefs(nextPrefs);
+
+    if (!canUseRemoteSms) {
+      toast({ title: 'Filter recipients saved locally for this session' });
+      return;
+    }
+
+    try {
+      const saved = await saveSmsPreferences(nextPrefs);
+      setSmsPrefs(saved);
+      toast({ title: 'Filter reminder recipients updated' });
+    } catch (error) {
+      toast({
+        title: 'Could not save filter reminder recipients',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const createFilterPreset = () => {
-    const nextPreset = createCalendarFilterPreset(newFilterPresetName, filters, filterPresets.length);
+    const nextPreset = createCalendarFilterPreset(
+      newFilterPresetName,
+      filters,
+      filterPresets.length,
+      parsePhoneList(newFilterPresetRecipients),
+    );
     setFilterPresets((prev) => [...prev, nextPreset]);
     setNewFilterPresetName('');
+    setNewFilterPresetRecipients('');
     setActiveFilterPresetId(nextPreset.id);
     toast({ title: `Filter "${nextPreset.name}" saved` });
+    void applyPresetRecipientsToSms(nextPreset);
   };
 
   const renameFilterPreset = (presetId: string, name: string) => {
@@ -933,6 +989,7 @@ export default function CalendarPage() {
     if (!preset) return;
     setFilters(preset.modules);
     setActiveFilterPresetId(preset.id);
+    void applyPresetRecipientsToSms(preset);
   };
 
   const updatePresetFromCurrent = (presetId: string) => {
@@ -946,6 +1003,15 @@ export default function CalendarPage() {
     setFilterPresets((prev) => prev.filter((preset) => preset.id !== presetId));
     setActiveFilterPresetId((prev) => (prev === presetId ? null : prev));
     toast({ title: 'Filter removed' });
+  };
+
+  const updateFilterPresetRecipients = (presetId: string, input: string) => {
+    const recipients = parsePhoneList(input);
+    setFilterPresets((prev) =>
+      prev.map((preset) =>
+        preset.id === presetId ? { ...preset, reminderRecipients: recipients } : preset,
+      ),
+    );
   };
 
   const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
@@ -1119,6 +1185,11 @@ export default function CalendarPage() {
                     onChange={(event) => setNewFilterPresetName(event.target.value)}
                     placeholder="Name this filter (example: Meals + chores)"
                   />
+                  <Input
+                    value={newFilterPresetRecipients}
+                    onChange={(event) => setNewFilterPresetRecipients(event.target.value)}
+                    placeholder="+16155551234, +16155550999"
+                  />
                   <Button
                     type="button"
                     variant="outline"
@@ -1150,6 +1221,18 @@ export default function CalendarPage() {
                             onBlur={() => commitFilterPresetName(preset.id)}
                             aria-label={`Filter name for ${preset.name}`}
                           />
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground">
+                              Reminder recipients for this filter
+                            </label>
+                            <Input
+                              value={formatPhoneList(preset.reminderRecipients || [])}
+                              onChange={(event) =>
+                                updateFilterPresetRecipients(preset.id, event.target.value)
+                              }
+                              placeholder="+16155551234, +16155550999"
+                            />
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
