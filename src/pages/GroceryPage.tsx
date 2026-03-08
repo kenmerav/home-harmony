@@ -44,6 +44,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 interface GroceryItem {
   id: string;
@@ -544,76 +545,80 @@ export default function GroceryPage() {
         </div>
       )}
 
-      <div className="mb-6 rounded-xl border border-border bg-card p-4 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-medium">Weekly ad links</h2>
-            <p className="text-xs text-muted-foreground">
-              Set your ZIP and stores once. Preferences are saved automatically.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={saveWeeklyAdPreferences}>
-            Save now
-          </Button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">ZIP code</p>
-            <Input
-              placeholder="85340"
-              inputMode="numeric"
-              maxLength={5}
-              value={weeklyAdZip}
-              onChange={(event) => {
-                const cleanedZip = event.target.value.replace(/[^\d]/g, '').slice(0, 5);
-                setWeeklyAdZipState(cleanedZip);
-                setWeeklyAdPrefs(cleanedZip, weeklyAdStoreIds);
-              }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Stores</p>
-            <div className="grid grid-cols-2 gap-2">
-              {WEEKLY_AD_STORES.map((store) => (
-                <label
-                  key={store.id}
-                  className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs"
-                >
-                  <Checkbox
-                    checked={weeklyAdStoreIds.includes(store.id)}
-                    onCheckedChange={() => toggleWeeklyAdStore(store.id)}
-                  />
-                  <span>{store.label}</span>
-                </label>
-              ))}
+      <Accordion type="single" collapsible className="mb-6 rounded-xl border border-border bg-card px-4">
+        <AccordionItem value="weekly-ads" className="border-none">
+          <AccordionTrigger className="py-4 text-left hover:no-underline">
+            <span className="font-medium">Weekly ad links</span>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Set your ZIP and stores once. Preferences are saved automatically.
+              </p>
+              <Button size="sm" variant="outline" onClick={saveWeeklyAdPreferences}>
+                Save now
+              </Button>
             </div>
-          </div>
-        </div>
 
-        {selectedWeeklyAdStores.length > 0 ? (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-2">
-              {selectedWeeklyAdStores.map((store) => (
-                <Button
-                  key={store.id}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
-                >
-                  {store.label} ad
-                  <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
-                </Button>
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">ZIP code</p>
+                <Input
+                  placeholder="85340"
+                  inputMode="numeric"
+                  maxLength={5}
+                  value={weeklyAdZip}
+                  onChange={(event) => {
+                    const cleanedZip = event.target.value.replace(/[^\d]/g, '').slice(0, 5);
+                    setWeeklyAdZipState(cleanedZip);
+                    setWeeklyAdPrefs(cleanedZip, weeklyAdStoreIds);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Stores</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {WEEKLY_AD_STORES.map((store) => (
+                    <label
+                      key={store.id}
+                      className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs"
+                    >
+                      <Checkbox
+                        checked={weeklyAdStoreIds.includes(store.id)}
+                        onCheckedChange={() => toggleWeeklyAdStore(store.id)}
+                      />
+                      <span>{store.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Links include your ZIP in the weekly-ad URL.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">Choose at least one store to show ad links.</p>
-        )}
-      </div>
+
+            {selectedWeeklyAdStores.length > 0 ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {selectedWeeklyAdStores.map((store) => (
+                    <Button
+                      key={store.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
+                    >
+                      {store.label} ad
+                      <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Links include your ZIP in the weekly-ad URL.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Choose at least one store to show ad links.</p>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
