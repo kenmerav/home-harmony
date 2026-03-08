@@ -170,10 +170,6 @@ export default function CalendarPlannerPage() {
   const [filterPresets, setFilterPresets] = useState<CalendarFilterPreset[]>(() =>
     loadStoredCalendarFilterPresets(user?.id),
   );
-  const [newFilterPresetName, setNewFilterPresetName] = useState('');
-  const [newFilterPresetRecipients, setNewFilterPresetRecipients] = useState('');
-  const [currentFilterName, setCurrentFilterName] = useState('Current filter');
-  const [currentFilterRecipients, setCurrentFilterRecipients] = useState('');
   const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [moduleFilterSettings, setModuleFilterSettings] = useState<CalendarModuleFilterSettings>(() =>
     loadModuleFilterSettings(user?.id),
@@ -232,14 +228,6 @@ export default function CalendarPlannerPage() {
     const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
     setActiveFilterPresetId(activeMatch?.id || null);
   }, [filterPresets, filters]);
-
-  useEffect(() => {
-    if (!activeFilterPresetId) return;
-    const activePreset = filterPresets.find((preset) => preset.id === activeFilterPresetId);
-    if (!activePreset) return;
-    setCurrentFilterName(activePreset.name);
-    setCurrentFilterRecipients(formatPhoneList(activePreset.reminderRecipients || []));
-  }, [activeFilterPresetId, filterPresets]);
 
   useEffect(() => {
     let mounted = true;
@@ -568,19 +556,24 @@ export default function CalendarPlannerPage() {
     }
   };
 
-  const createFilterPreset = () => {
+  const addFilterPreset = () => {
+    const existing = new Set(filterPresets.map((preset) => normalizeCalendarFilterName(preset.name).toLowerCase()));
+    let nextIndex = filterPresets.length + 1;
+    let suggestedName = `Filter ${nextIndex}`;
+    while (existing.has(suggestedName.toLowerCase())) {
+      nextIndex += 1;
+      suggestedName = `Filter ${nextIndex}`;
+    }
+
     const nextPreset = createCalendarFilterPreset(
-      newFilterPresetName,
+      suggestedName,
       filters,
       filterPresets.length,
-      parsePhoneList(newFilterPresetRecipients),
+      [],
     );
     setFilterPresets((prev) => [...prev, nextPreset]);
-    setNewFilterPresetName('');
-    setNewFilterPresetRecipients('');
     setActiveFilterPresetId(nextPreset.id);
     toast({ title: `Filter "${nextPreset.name}" saved` });
-    void applyPresetRecipientsToSms(nextPreset);
   };
 
   const renameFilterPreset = (presetId: string, name: string) => {
@@ -625,43 +618,6 @@ export default function CalendarPlannerPage() {
         preset.id === presetId ? { ...preset, reminderRecipients: recipients } : preset,
       ),
     );
-  };
-
-  const saveCurrentFilterConfig = async () => {
-    const normalizedName = normalizeCalendarFilterName(currentFilterName || 'Current filter');
-    const recipients = parsePhoneList(currentFilterRecipients);
-
-    if (activeFilterPresetId) {
-      let updatedPreset: CalendarFilterPreset | null = null;
-      setFilterPresets((prev) =>
-        prev.map((preset) => {
-          if (preset.id !== activeFilterPresetId) return preset;
-          updatedPreset = {
-            ...preset,
-            name: normalizedName,
-            reminderRecipients: recipients,
-            modules: { ...filters },
-          };
-          return updatedPreset;
-        }),
-      );
-      if (updatedPreset) {
-        toast({ title: 'Current filter updated' });
-        await applyPresetRecipientsToSms(updatedPreset);
-      }
-      return;
-    }
-
-    const nextPreset = createCalendarFilterPreset(
-      normalizedName,
-      filters,
-      filterPresets.length,
-      recipients,
-    );
-    setFilterPresets((prev) => [...prev, nextPreset]);
-    setActiveFilterPresetId(nextPreset.id);
-    toast({ title: 'Current filter saved' });
-    await applyPresetRecipientsToSms(nextPreset);
   };
 
   const updateGooglePrefs = (updates: Partial<GoogleCalendarPrefs>) => {
@@ -809,42 +765,18 @@ export default function CalendarPlannerPage() {
                 </div>
               ))}
 
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={addFilterPreset}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Filter
+                </Button>
+              </div>
+
               <div className="pt-3 border-t border-border space-y-3">
                 <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
-                <div className="rounded-lg border border-border p-3 space-y-2">
-                  <p className="text-sm font-medium">Current filters</p>
-                  <Input
-                    value={currentFilterName}
-                    onChange={(event) => setCurrentFilterName(event.target.value)}
-                    placeholder="Filter name"
-                  />
-                  <Input
-                    value={currentFilterRecipients}
-                    onChange={(event) => setCurrentFilterRecipients(event.target.value)}
-                    placeholder="Who to notify (+16155551234, +16155550999)"
-                  />
-                  <Button type="button" variant="outline" onClick={() => void saveCurrentFilterConfig()}>
-                    Save current filter
-                  </Button>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={newFilterPresetName}
-                    onChange={(event) => setNewFilterPresetName(event.target.value)}
-                    placeholder="Name this filter (example: Meals + chores)"
-                  />
-                  <Input
-                    value={newFilterPresetRecipients}
-                    onChange={(event) => setNewFilterPresetRecipients(event.target.value)}
-                    placeholder="+16155551234, +16155550999"
-                  />
-                  <Button type="button" variant="outline" onClick={createFilterPreset}>
-                    Add filter
-                  </Button>
-                </div>
                 {filterPresets.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No custom filters yet. Save your current toggles so you can switch quickly.
+                    No saved filters yet. Use Add Filter above to save the current toggles.
                   </p>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -911,10 +843,10 @@ export default function CalendarPlannerPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Google Calendar" subtitle="Connection scaffold">
+          <SectionCard title="Calendar integrations" subtitle="Home Harmony is the source of truth">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Enable Google links</span>
+                <span className="text-sm">Google quick-add links</span>
                 <Switch checked={googlePrefs.enabled} onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })} />
               </div>
               <div className="space-y-1">
@@ -927,6 +859,19 @@ export default function CalendarPlannerPage() {
               <p className="text-xs text-muted-foreground">
                 Full OAuth sync is next. This planner currently supports one-click Google event creation.
               </p>
+
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Apple Calendar subscribed feeds</p>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple">Connect Apple</Link>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Plan in Home Harmony, see it in Apple Calendar. Edit events in Home Harmony and Apple Calendar will
+                  reflect them.
+                </p>
+              </div>
             </div>
           </SectionCard>
 
@@ -991,39 +936,14 @@ export default function CalendarPlannerPage() {
                 <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
               </div>
             ))}
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={addFilterPreset}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Filter
+              </Button>
+            </div>
             <div className="pt-2 border-t border-border space-y-3">
               <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
-              <div className="rounded-lg border border-border p-3 space-y-2">
-                <p className="text-sm font-medium">Current filters</p>
-                <Input
-                  value={currentFilterName}
-                  onChange={(event) => setCurrentFilterName(event.target.value)}
-                  placeholder="Filter name"
-                />
-                <Input
-                  value={currentFilterRecipients}
-                  onChange={(event) => setCurrentFilterRecipients(event.target.value)}
-                  placeholder="Who to notify (+16155551234, +16155550999)"
-                />
-                <Button type="button" variant="outline" onClick={() => void saveCurrentFilterConfig()}>
-                  Save current filter
-                </Button>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={newFilterPresetName}
-                  onChange={(event) => setNewFilterPresetName(event.target.value)}
-                  placeholder="Name this filter"
-                />
-                <Input
-                  value={newFilterPresetRecipients}
-                  onChange={(event) => setNewFilterPresetRecipients(event.target.value)}
-                  placeholder="+16155551234, +16155550999"
-                />
-                <Button type="button" variant="outline" onClick={createFilterPreset}>
-                  Add
-                </Button>
-              </div>
               {filterPresets.map((preset) => {
                 const isActive = activeFilterPresetId === preset.id;
                 return (
@@ -1069,7 +989,7 @@ export default function CalendarPlannerPage() {
               })}
               {filterPresets.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  No custom filters yet.
+                  No saved filters yet. Use Add Filter above to save the current toggles.
                 </p>
               )}
             </div>

@@ -65,11 +65,11 @@ export function saveStoredCalendarFilters(filters: CalendarModuleFilters, userId
 
 function normalizeFilterPresetName(input: string): string {
   const collapsed = input.replace(/\s+/g, ' ').trim();
-  return collapsed || 'Custom filter';
+  return collapsed || 'Saved filter';
 }
 
 function defaultPresetName(existingCount: number): string {
-  return `Custom filter ${existingCount + 1}`;
+  return `Filter ${existingCount + 1}`;
 }
 
 function normalizePreset(input: unknown, index: number): CalendarFilterPreset | null {
