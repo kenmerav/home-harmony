@@ -51,6 +51,7 @@ import {
 } from '@/lib/calendarStore';
 import {
   CalendarFilterPreset,
+  CalendarFilterPresetColor,
   createCalendarFilterPreset,
   filtersEqual,
   loadStoredCalendarFilterPresets,
@@ -70,6 +71,17 @@ type CalendarModuleFilterSettings = {
 };
 
 const CALENDAR_MODULE_FILTER_SETTINGS_KEY = 'homehub.calendar.module-filter-settings.v1';
+const FILTER_PRESET_COLOR_META: Record<
+  CalendarFilterPresetColor,
+  { label: string; badgeClass: string }
+> = {
+  family: { label: 'Family', badgeClass: CALENDAR_MODULE_META.manual.badgeClass },
+  meals: { label: 'Meals', badgeClass: CALENDAR_MODULE_META.meals.badgeClass },
+  tasks: { label: 'Tasks', badgeClass: CALENDAR_MODULE_META.tasks.badgeClass },
+  chores: { label: 'Chores', badgeClass: CALENDAR_MODULE_META.chores.badgeClass },
+  workouts: { label: 'Workouts', badgeClass: CALENDAR_MODULE_META.workouts.badgeClass },
+  reminders: { label: 'Reminders', badgeClass: CALENDAR_MODULE_META.reminders.badgeClass },
+};
 
 function toGoogleDateToken(input: Date): string {
   return input.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -175,6 +187,7 @@ export default function CalendarPlannerPage() {
   const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
   const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
   const [filterPresetDraftRecipients, setFilterPresetDraftRecipients] = useState('');
+  const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>('family');
   const [moduleFilterSettings, setModuleFilterSettings] = useState<CalendarModuleFilterSettings>(() =>
     loadModuleFilterSettings(user?.id),
   );
@@ -583,6 +596,7 @@ export default function CalendarPlannerPage() {
     setEditingFilterPresetId(null);
     setFilterPresetDraftName(nextFilterNameSuggestion());
     setFilterPresetDraftRecipients('');
+    setFilterPresetDraftColor('family');
     setFilterPresetDialogOpen(true);
   };
 
@@ -592,24 +606,33 @@ export default function CalendarPlannerPage() {
     setEditingFilterPresetId(presetId);
     setFilterPresetDraftName(preset.name);
     setFilterPresetDraftRecipients(formatPhoneList(preset.reminderRecipients || []));
+    setFilterPresetDraftColor(preset.color || 'family');
     setFilterPresetDialogOpen(true);
   };
 
   const saveFilterPresetDialog = () => {
     const normalizedName = normalizeCalendarFilterName(filterPresetDraftName || nextFilterNameSuggestion());
     const recipients = parsePhoneList(filterPresetDraftRecipients);
+    const color = filterPresetDraftColor;
 
     if (editingFilterPresetId) {
       setFilterPresets((prev) =>
         prev.map((preset) =>
           preset.id === editingFilterPresetId
-            ? { ...preset, name: normalizedName, reminderRecipients: recipients }
+            ? { ...preset, name: normalizedName, reminderRecipients: recipients, color }
             : preset,
         ),
       );
       if (activeFilterPresetId === editingFilterPresetId) {
         const active = filterPresets.find((preset) => preset.id === editingFilterPresetId);
-        if (active) void applyPresetRecipientsToSms({ ...active, name: normalizedName, reminderRecipients: recipients });
+        if (active) {
+          void applyPresetRecipientsToSms({
+            ...active,
+            name: normalizedName,
+            reminderRecipients: recipients,
+            color,
+          });
+        }
       }
       toast({ title: 'Filter updated' });
       setFilterPresetDialogOpen(false);
@@ -621,6 +644,7 @@ export default function CalendarPlannerPage() {
       filters,
       filterPresets.length,
       recipients,
+      color,
     );
     setFilterPresets((prev) => [...prev, nextPreset]);
     setActiveFilterPresetId(nextPreset.id);
@@ -803,10 +827,7 @@ export default function CalendarPlannerPage() {
                     <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
                       <Badge
                         variant="outline"
-                        className={cn(
-                          'border cursor-pointer',
-                          isActive && 'border-primary text-primary bg-primary/5',
-                        )}
+                        className={cn('border cursor-pointer', FILTER_PRESET_COLOR_META[preset.color || 'family'].badgeClass)}
                       >
                         {preset.name}
                       </Badge>
@@ -928,10 +949,7 @@ export default function CalendarPlannerPage() {
                   <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
                     <Badge
                       variant="outline"
-                      className={cn(
-                        'border cursor-pointer',
-                        isActive && 'border-primary text-primary bg-primary/5',
-                      )}
+                      className={cn('border cursor-pointer', FILTER_PRESET_COLOR_META[preset.color || 'family'].badgeClass)}
                     >
                       {preset.name}
                     </Badge>
@@ -981,10 +999,43 @@ export default function CalendarPlannerPage() {
                 placeholder="+16155551234, +16155550999"
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Color</label>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(FILTER_PRESET_COLOR_META) as CalendarFilterPresetColor[]).map((color) => {
+                  const isSelected = filterPresetDraftColor === color;
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setFilterPresetDraftColor(color)}
+                      aria-label={`Set filter color to ${FILTER_PRESET_COLOR_META[color].label}`}
+                    >
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'border cursor-pointer',
+                          FILTER_PRESET_COLOR_META[color].badgeClass,
+                          isSelected && 'ring-2 ring-primary/50',
+                        )}
+                      >
+                        {FILTER_PRESET_COLOR_META[color].label}
+                      </Badge>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">
             {editingFilterPresetId ? (
-              <Button variant="ghost" onClick={() => deleteFilterPreset(editingFilterPresetId)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  deleteFilterPreset(editingFilterPresetId);
+                  setFilterPresetDialogOpen(false);
+                }}
+              >
                 Delete
               </Button>
             ) : null}

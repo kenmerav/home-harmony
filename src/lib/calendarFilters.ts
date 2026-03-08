@@ -4,12 +4,33 @@ const CALENDAR_FILTERS_KEY = 'homehub.calendar.filters.v1';
 const CALENDAR_FILTER_PRESETS_KEY = 'homehub.calendar.filter-presets.v1';
 
 export type CalendarModuleFilters = Record<CalendarEventModule, boolean>;
+export type CalendarFilterPresetColor =
+  | 'family'
+  | 'meals'
+  | 'tasks'
+  | 'chores'
+  | 'workouts'
+  | 'reminders';
+
+const CALENDAR_FILTER_PRESET_COLORS: CalendarFilterPresetColor[] = [
+  'family',
+  'meals',
+  'tasks',
+  'chores',
+  'workouts',
+  'reminders',
+];
+
+function isCalendarFilterPresetColor(value: unknown): value is CalendarFilterPresetColor {
+  return typeof value === 'string' && CALENDAR_FILTER_PRESET_COLORS.includes(value as CalendarFilterPresetColor);
+}
 
 export interface CalendarFilterPreset {
   id: string;
   name: string;
   modules: CalendarModuleFilters;
   reminderRecipients: string[];
+  color: CalendarFilterPresetColor;
 }
 
 function canUseStorage(): boolean {
@@ -74,7 +95,7 @@ function defaultPresetName(existingCount: number): string {
 
 function normalizePreset(input: unknown, index: number): CalendarFilterPreset | null {
   if (!input || typeof input !== 'object') return null;
-  const row = input as { id?: unknown; name?: unknown; modules?: unknown };
+  const row = input as { id?: unknown; name?: unknown; modules?: unknown; color?: unknown };
   const id = typeof row.id === 'string' && row.id.trim() ? row.id : `filter-${index + 1}`;
   const name =
     typeof row.name === 'string' && row.name.trim()
@@ -90,7 +111,8 @@ function normalizePreset(input: unknown, index: number): CalendarFilterPreset | 
         .map((value) => value.trim())
         .filter((value) => value.length > 0)
     : [];
-  return { id, name, modules, reminderRecipients };
+  const color = isCalendarFilterPresetColor(row.color) ? row.color : 'family';
+  return { id, name, modules, reminderRecipients, color };
 }
 
 export function loadStoredCalendarFilterPresets(userId?: string | null): CalendarFilterPreset[] {
@@ -120,6 +142,7 @@ export function saveStoredCalendarFilterPresets(
     reminderRecipients: Array.isArray(preset.reminderRecipients)
       ? preset.reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0)
       : [],
+    color: isCalendarFilterPresetColor(preset.color) ? preset.color : 'family',
   }));
   window.localStorage.setItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId), JSON.stringify(normalized));
 }
@@ -140,6 +163,7 @@ export function createCalendarFilterPreset(
   modules: CalendarModuleFilters,
   existingCount: number,
   reminderRecipients: string[] = [],
+  color: CalendarFilterPresetColor = 'family',
 ): CalendarFilterPreset {
   const trimmed = normalizeFilterPresetName(name || defaultPresetName(existingCount));
   return {
@@ -147,6 +171,7 @@ export function createCalendarFilterPreset(
     name: trimmed,
     modules: normalizeModules(modules),
     reminderRecipients: reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0),
+    color: isCalendarFilterPresetColor(color) ? color : 'family',
   };
 }
 
