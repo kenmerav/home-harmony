@@ -2,12 +2,19 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fetchGoogleDriveTrafficEstimate } from "../_shared/traffic.ts";
 import { sendTwilioSms } from "../_shared/twilio.ts";
 
 type CalendarEvent = {
   id: string;
   title: string;
   module: SmsReminderModule;
+  locationText?: string | null;
+  travelFromAddress?: string | null;
+  travelDurationMinutes?: number | null;
+  trafficDurationMinutes?: number | null;
+  leaveReminderEnabled?: boolean;
+  leaveReminderLeadMinutes?: number | null;
   startsAtUtc: DateTime;
   startsAtLocal: DateTime;
 };
@@ -19,6 +26,7 @@ type SmsPreferenceRow = {
   user_id: string;
   enabled: boolean;
   phone_e164: string | null;
+  home_address: string | null;
   timezone: string;
   morning_digest_enabled: boolean;
   morning_digest_time: string;
@@ -49,6 +57,12 @@ function parseTimeToMinutes(timeValue: string): number {
   const hours = Number.parseInt(hoursRaw || "0", 10);
   const minutes = Number.parseInt(minutesRaw || "0", 10);
   return hours * 60 + minutes;
+}
+
+function normalizeLeadMinutes(value: unknown, fallback = 10): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(5, Math.min(120, Math.round(parsed)));
 }
 
 function inQuietHours(nowMinutes: number, start: string | null, end: string | null): boolean {
@@ -240,7 +254,7 @@ async function fetchDailyEvents(
     const dayEndUtc = localDate.plus({ days: 1 }).startOf("day").toUTC().toISO();
     const { data } = await supabase
       .from("calendar_events")
-      .select("id,title,starts_at")
+      .select("id,title,starts_at,location_text,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
       .eq("owner_id", userId)
       .eq("is_deleted", false)
       .gte("starts_at", dayStartUtc)
@@ -253,6 +267,14 @@ async function fetchDailyEvents(
         id: `manual-${row.id}`,
         title: String(row.title || "Event"),
         module: "manual",
+        locationText: typeof row.location_text === "string" ? row.location_text : null,
+        travelFromAddress: typeof row.travel_from_address === "string" ? row.travel_from_address : null,
+        travelDurationMinutes:
+          Number.isFinite(Number(row.travel_duration_minutes)) ? Number(row.travel_duration_minutes) : null,
+        trafficDurationMinutes:
+          Number.isFinite(Number(row.traffic_duration_minutes)) ? Number(row.traffic_duration_minutes) : null,
+        leaveReminderEnabled: !!row.leave_reminder_enabled,
+        leaveReminderLeadMinutes: normalizeLeadMinutes(row.leave_reminder_lead_minutes, 10),
         startsAtUtc,
         startsAtLocal: startsAtUtc.setZone(timezone),
       });
@@ -260,6 +282,47 @@ async function fetchDailyEvents(
   }
 
   return events.sort((a, b) => a.startsAtUtc.toMillis() - b.startsAtUtc.toMillis());
+}
+
+async function resolveTrafficMinutesForEvent(
+  event: CalendarEvent,
+  fallbackOrigin: string | null,
+): Promise<{
+  trafficMinutes: number | null;
+  baseMinutes: number | null;
+}> {
+  const origin = event.travelFromAddress || fallbackOrigin;
+  if (!event.locationText || !origin) {
+    return {
+      trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
+        ? Number(event.trafficDurationMinutes)
+        : Number.isFinite(Number(event.travelDurationMinutes))
+        ? Number(event.travelDurationMinutes)
+        : null,
+      baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
+    };
+  }
+
+  try {
+    const estimate = await fetchGoogleDriveTrafficEstimate({
+      origin,
+      destination: event.locationText,
+      departureEpochSeconds: Math.floor(Date.now() / 1000),
+    });
+    return {
+      trafficMinutes: estimate.trafficDurationMinutes,
+      baseMinutes: estimate.durationMinutes,
+    };
+  } catch {
+    return {
+      trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
+        ? Number(event.trafficDurationMinutes)
+        : Number.isFinite(Number(event.travelDurationMinutes))
+        ? Number(event.travelDurationMinutes)
+        : null,
+      baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
+    };
+  }
 }
 
 serve(async (req) => {
@@ -537,6 +600,69 @@ serve(async (req) => {
                   });
                 } catch (sendError) {
                   errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                }
+              }
+            }
+
+            if (event.module === "manual" && event.leaveReminderEnabled) {
+              if (event.startsAtLocal <= localNow) continue;
+              const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
+              const travel = await resolveTrafficMinutesForEvent(event, row.home_address || null);
+              if (!travel.trafficMinutes || travel.trafficMinutes < 1) continue;
+
+              const leaveAt = event.startsAtLocal.minus({ minutes: travel.trafficMinutes });
+              const sendAt = leaveAt.minus({ minutes: leadMinutes });
+              if (!isUsableDateTime(sendAt)) continue;
+              const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+              if (!isUsableDateTime(closeAt)) continue;
+              if (localNow < sendAt || localNow >= closeAt) continue;
+
+              const sendAtUtc = sendAt.toUTC();
+              if (!isUsableDateTime(sendAtUtc)) continue;
+              const sendAtIso = sendAtUtc.toISO();
+              if (!sendAtIso) continue;
+
+              const delayMinutes =
+                Number.isFinite(Number(travel.baseMinutes)) && Number.isFinite(Number(travel.trafficMinutes))
+                  ? Math.max(0, Number(travel.trafficMinutes) - Number(travel.baseMinutes))
+                  : 0;
+              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
+              if (!recipients.length) continue;
+
+              for (const recipient of recipients) {
+                const dedupeKey = `leave:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${recipient}`;
+                const logId = await insertDedupeLog(
+                  supabase,
+                  row.user_id,
+                  dedupeKey,
+                  "leave_reminder",
+                  sendAtIso,
+                  {
+                    timezone,
+                    eventId: event.id,
+                    to: recipient,
+                    leaveAt: leaveAt.toISO(),
+                  },
+                );
+                if (!logId) continue;
+
+                try {
+                  const locationSuffix = event.locationText ? ` for ${event.locationText}` : "";
+                  const delayText = delayMinutes > 0 ? ` Traffic is running about ${delayMinutes} min slower than normal.` : "";
+                  const body = `Home Harmony traffic alert: Leave by ${leaveAt.toFormat("h:mm a")} for ${event.title}${locationSuffix}.${delayText}`;
+                  const result = await sendTwilioSms(recipient, body);
+                  messagesSent += 1;
+                  await markLogStatus(supabase, logId, "sent", result.sid, {
+                    timezone,
+                    eventId: event.id,
+                    to: recipient,
+                    leaveAt: leaveAt.toISO(),
+                    trafficMinutes: travel.trafficMinutes,
+                    delayMinutes,
+                  });
+                } catch (sendError) {
+                  errors.push(`leave:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
                   await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
                 }
               }

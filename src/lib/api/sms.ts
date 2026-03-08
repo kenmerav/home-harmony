@@ -8,6 +8,7 @@ type ModuleRecipientsMap = Record<SmsReminderModule, string[]>;
 export interface SmsPreferences {
   enabled: boolean;
   phone_e164: string;
+  home_address: string;
   timezone: string;
   morning_digest_enabled: boolean;
   morning_digest_time: string;
@@ -30,6 +31,7 @@ const emptyModuleRecipients = (): ModuleRecipientsMap => ({
 const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   enabled: false,
   phone_e164: '',
+  home_address: '',
   timezone: 'America/New_York',
   morning_digest_enabled: true,
   morning_digest_time: '07:00',
@@ -96,6 +98,7 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
   return {
     enabled: !!raw.enabled,
     phone_e164: raw.phone_e164 || '',
+    home_address: raw.home_address || '',
     timezone: raw.timezone || DEFAULT_SMS_PREFERENCES.timezone,
     morning_digest_enabled: raw.morning_digest_enabled ?? DEFAULT_SMS_PREFERENCES.morning_digest_enabled,
     morning_digest_time: raw.morning_digest_time || DEFAULT_SMS_PREFERENCES.morning_digest_time,

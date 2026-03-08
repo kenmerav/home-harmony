@@ -73,6 +73,7 @@ function buildGoogleEventUrl(event: CalendarEvent): string {
     text: event.title,
     dates,
     details: event.description || '',
+    location: event.location || '',
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -101,6 +102,7 @@ export default function CalendarPlannerPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
+  const [draftLocation, setDraftLocation] = useState('');
   const [draftDate, setDraftDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [draftTime, setDraftTime] = useState('18:00');
   const [draftEndTime, setDraftEndTime] = useState('');
@@ -122,6 +124,16 @@ export default function CalendarPlannerPage() {
 
   useEffect(() => {
     void refreshEvents();
+  }, [refreshEvents]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handler = () => {
+      void refreshEvents();
+    };
+    window.addEventListener('homehub:calendar-events-updated', handler);
+    return () => window.removeEventListener('homehub:calendar-events-updated', handler);
   }, [refreshEvents]);
 
   const filteredEvents = useMemo(() => events.filter((event) => filters[event.module]), [events, filters]);
@@ -175,6 +187,7 @@ export default function CalendarPlannerPage() {
     setDraftAllDay(false);
     setDraftTitle('');
     setDraftDescription('');
+    setDraftLocation('');
     setAddDialogOpen(true);
   };
 
@@ -193,6 +206,7 @@ export default function CalendarPlannerPage() {
       {
         title: draftTitle,
         description: draftDescription,
+        location: draftLocation.trim() || undefined,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
         allDay: draftAllDay,
@@ -432,6 +446,14 @@ export default function CalendarPlannerPage() {
                 className="min-h-[96px]"
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Location (optional)</label>
+              <Input
+                value={draftLocation}
+                onChange={(e) => setDraftLocation(e.target.value)}
+                placeholder="Address or place"
+              />
+            </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
@@ -471,6 +493,7 @@ function EventRow({
             </Badge>
           </div>
           {event.description && !compact && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{event.description}</p>}
+          {event.location && !compact && <p className="mt-1 text-xs text-muted-foreground">Location: {event.location}</p>}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {googleEnabled && (

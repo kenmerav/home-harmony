@@ -39,6 +39,7 @@ import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { loadTasks } from '@/lib/taskStore';
+import { estimateCommuteEta } from '@/lib/api/commute';
 import {
   defaultSmsPreferences,
   loadSmsPreferences,
@@ -171,6 +172,7 @@ function buildGoogleEventUrl(event: CalendarEvent): string {
     text: event.title,
     dates,
     details: event.description || '',
+    location: event.location || '',
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -349,6 +351,14 @@ export default function CalendarPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
+  const [draftLocation, setDraftLocation] = useState('');
+  const [draftHomeAddress, setDraftHomeAddress] = useState('');
+  const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
+  const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
+  const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
+  const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
+  const [draftTravelLoading, setDraftTravelLoading] = useState(false);
+  const [draftTravelError, setDraftTravelError] = useState<string | null>(null);
   const [draftDate, setDraftDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [draftTime, setDraftTime] = useState('18:00');
   const [draftEndTime, setDraftEndTime] = useState('');
@@ -724,12 +734,83 @@ export default function CalendarPage() {
     setDraftAllDay(false);
     setDraftTitle('');
     setDraftDescription('');
+    setDraftLocation('');
+    setDraftHomeAddress((smsPrefs.home_address || '').trim());
+    setDraftTravelMinutes(null);
+    setDraftTrafficMinutes(null);
+    setDraftLeaveByIso(null);
+    setDraftLeaveReminderEnabled(false);
+    setDraftTravelError(null);
     setAddDialogOpen(true);
   };
 
   const openDayDetail = (day: Date) => {
     setSelectedDate(day);
     setDayDetailOpen(true);
+  };
+
+  const estimateTravelForDraft = async () => {
+    if (draftAllDay) {
+      setDraftTravelError('Travel estimate is available for timed events only.');
+      return;
+    }
+    const origin = draftHomeAddress.trim() || smsPrefs.home_address.trim();
+    const destination = draftLocation.trim();
+    if (!origin || !destination) {
+      setDraftTravelError('Add both home address and event location to estimate travel time.');
+      return;
+    }
+
+    const departureIso = withTime(parseISO(`${draftDate}T00:00:00`), draftTime || '18:00').toISOString();
+    setDraftTravelLoading(true);
+    setDraftTravelError(null);
+    try {
+      const estimate = await estimateCommuteEta({
+        origin,
+        destination,
+        departureTimeIso: departureIso,
+      });
+      const leaveAt = addMinutes(parseISO(departureIso), -Math.max(1, estimate.trafficDurationMinutes));
+      setDraftTravelMinutes(estimate.durationMinutes);
+      setDraftTrafficMinutes(estimate.trafficDurationMinutes);
+      setDraftLeaveByIso(leaveAt.toISOString());
+      toast({
+        title: 'Travel time updated',
+        description: `Leave by ${format(leaveAt, 'h:mm a')} (${estimate.trafficDurationMinutes} min with traffic).`,
+      });
+    } catch (error) {
+      setDraftTravelError(error instanceof Error ? error.message : 'Could not estimate drive time.');
+    } finally {
+      setDraftTravelLoading(false);
+    }
+  };
+
+  const saveHomeAddressFromDraft = async () => {
+    const nextAddress = draftHomeAddress.trim();
+    if (!nextAddress) {
+      toast({ title: 'Enter your home address first', variant: 'destructive' });
+      return;
+    }
+    if (!canUseRemoteSms) {
+      setSmsPrefs((prev) => ({ ...prev, home_address: nextAddress }));
+      toast({ title: 'Home address saved for this session' });
+      return;
+    }
+    setSmsSaving(true);
+    try {
+      const saved = await saveSmsPreferences({ ...smsPrefs, home_address: nextAddress });
+      setSmsPrefs(saved);
+      setDraftHomeAddress(saved.home_address || nextAddress);
+      toast({ title: 'Home address saved' });
+    } catch (error) {
+      toast({
+        title: 'Could not save home address',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSmsSaving(false);
+    }
   };
 
   const createManualEvent = () => {
@@ -757,6 +838,14 @@ export default function CalendarPage() {
       {
         title: draftTitle,
         description: draftDescription,
+        location: draftLocation.trim() || undefined,
+        travelFromAddress: (draftHomeAddress.trim() || smsPrefs.home_address.trim()) || undefined,
+        travelMode: 'driving',
+        travelDurationMinutes: draftTravelMinutes,
+        trafficDurationMinutes: draftTrafficMinutes,
+        recommendedLeaveAt: draftLeaveByIso,
+        leaveReminderEnabled: draftLeaveReminderEnabled,
+        leaveReminderLeadMinutes: 10,
         startsAt,
         endsAt,
         allDay: draftAllDay,
@@ -802,6 +891,7 @@ export default function CalendarPage() {
       lines.push(event.allDay ? `DTEND;VALUE=DATE:${dtEnd}` : `DTEND:${dtEnd}`);
       lines.push(`SUMMARY:${escapeIcsText(event.title)}`);
       if (event.description) lines.push(`DESCRIPTION:${escapeIcsText(event.description)}`);
+      if (event.location) lines.push(`LOCATION:${escapeIcsText(event.location)}`);
       lines.push(`CATEGORIES:${escapeIcsText(moduleMeta[event.module].label)}`);
       lines.push('END:VEVENT');
     });
@@ -1359,7 +1449,16 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Date</label>
-              <Input type="date" value={draftDate} onChange={(e) => setDraftDate(e.target.value)} />
+              <Input
+                type="date"
+                value={draftDate}
+                onChange={(e) => {
+                  setDraftDate(e.target.value);
+                  setDraftTravelMinutes(null);
+                  setDraftTrafficMinutes(null);
+                  setDraftLeaveByIso(null);
+                }}
+              />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
               <span className="text-sm">All-day event</span>
@@ -1369,7 +1468,16 @@ export default function CalendarPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Start</label>
-                  <Input type="time" value={draftTime} onChange={(e) => setDraftTime(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={draftTime}
+                    onChange={(e) => {
+                      setDraftTime(e.target.value);
+                      setDraftTravelMinutes(null);
+                      setDraftTrafficMinutes(null);
+                      setDraftLeaveByIso(null);
+                    }}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">End (optional)</label>
@@ -1377,6 +1485,65 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Location</label>
+              <Input
+                placeholder="123 Main St, Phoenix, AZ"
+                value={draftLocation}
+                onChange={(e) => {
+                  setDraftLocation(e.target.value);
+                  setDraftTravelMinutes(null);
+                  setDraftTrafficMinutes(null);
+                  setDraftLeaveByIso(null);
+                }}
+              />
+            </div>
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Home address (for travel time)</label>
+                <Input
+                  placeholder="Set your home address"
+                  value={draftHomeAddress}
+                  onChange={(e) => {
+                    setDraftHomeAddress(e.target.value);
+                    setDraftTravelMinutes(null);
+                    setDraftTrafficMinutes(null);
+                    setDraftLeaveByIso(null);
+                  }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void saveHomeAddressFromDraft()} disabled={smsSaving}>
+                  {smsSaving ? 'Saving...' : 'Save as home address'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void estimateTravelForDraft()}
+                  disabled={draftTravelLoading || draftAllDay}
+                >
+                  {draftTravelLoading ? 'Estimating...' : 'Estimate travel (live traffic)'}
+                </Button>
+              </div>
+              {draftAllDay && <p className="text-xs text-muted-foreground">Set a start time to estimate commute.</p>}
+              {draftTravelError && <p className="text-xs text-destructive">{draftTravelError}</p>}
+              {draftLeaveByIso && (
+                <p className="text-xs text-muted-foreground">
+                  Estimated drive: {draftTrafficMinutes || draftTravelMinutes} min
+                  {draftTrafficMinutes && draftTravelMinutes && draftTrafficMinutes > draftTravelMinutes
+                    ? ` (${draftTrafficMinutes - draftTravelMinutes} min traffic delay)`
+                    : ''}
+                  . Leave by {format(parseISO(draftLeaveByIso), 'h:mm a')}.
+                </p>
+              )}
+              {draftLeaveByIso && (
+                <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                  <span className="text-sm">Text me 10 min before I need to leave</span>
+                  <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                </label>
+              )}
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Notes</label>
               <Textarea
@@ -1427,6 +1594,19 @@ function EventRow({
           </div>
           {event.description && !compact && (
             <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{event.description}</p>
+          )}
+          {!compact && event.location && (
+            <p className="mt-1 text-xs text-muted-foreground">Location: {event.location}</p>
+          )}
+          {!compact && event.recommendedLeaveAt && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Leave by {format(parseISO(event.recommendedLeaveAt), 'h:mm a')}
+              {event.trafficDurationMinutes
+                ? ` (${event.trafficDurationMinutes} min with traffic)`
+                : event.travelDurationMinutes
+                ? ` (${event.travelDurationMinutes} min)`
+                : ''}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
