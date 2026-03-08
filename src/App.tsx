@@ -30,6 +30,7 @@ const TasksPage = lazy(() => import("./pages/TasksPage"));
 const FamilyPage = lazy(() => import("./pages/FamilyPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const GetStartedPage = lazy(() => import("./pages/GetStartedPage"));
+const GetStartedDetailPage = lazy(() => import("./pages/GetStartedDetailPage"));
 const GrowthAnalyticsPage = lazy(() => import("./pages/GrowthAnalyticsPage"));
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -278,6 +279,16 @@ const App = () => (
                   <RequireProfileComplete>
                     <RequireSubscription>
                       <GetStartedPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/getting-started/:topic"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <GetStartedDetailPage />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }
