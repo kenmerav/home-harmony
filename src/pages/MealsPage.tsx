@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2, Calculator } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2, Calculator, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -63,6 +63,7 @@ import {
   type PlannedFoodEntry,
   type PlannedMealType,
 } from '@/lib/mealBudgetPlanner';
+import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/macroMealSuggestions';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -208,6 +209,15 @@ export default function MealsPage() {
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [gridQuickAddContext, setGridQuickAddContext] = useState<GridQuickAddContext | null>(null);
+  const [macroSuggestions, setMacroSuggestions] = useState<MacroMealSuggestion[]>([]);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionDate, setSuggestionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [suggestionRemaining, setSuggestionRemaining] = useState<{
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+  } | null>(null);
   const [plannerForm, setPlannerForm] = useState<{
     date: string;
     mealType: PlannedMealType;
@@ -716,6 +726,7 @@ export default function MealsPage() {
     }));
     setPlannerRecipeQuery('');
     setPlannerDay(date);
+    setSuggestionDate(date);
     setGridQuickAddContext({ date, mealType });
   };
 
@@ -772,6 +783,86 @@ export default function MealsPage() {
     acc[row.date] = totals;
     return acc;
   }, {});
+
+  const getProjectedForDate = (date: string) => {
+    const dinnerBase = dinnerBaseByDate.get(date);
+    const entries = entriesByDate[date] || [];
+    const totals = {
+      calories: dinnerBase?.calories || 0,
+      protein_g: dinnerBase?.protein_g || 0,
+      carbs_g: dinnerBase?.carbs_g || 0,
+      fat_g: dinnerBase?.fat_g || 0,
+    };
+    for (const entry of entries) {
+      totals.calories += entry.calories;
+      totals.protein_g += entry.protein_g;
+      totals.carbs_g += entry.carbs_g;
+      totals.fat_g += entry.fat_g;
+    }
+    return totals;
+  };
+
+  const applyMacroSuggestionToPlanner = (suggestion: MacroMealSuggestion) => {
+    setPlannerForm((prev) => ({
+      ...prev,
+      date: suggestionDate,
+      recipeId: suggestion.recipeId,
+      name: suggestion.name,
+      calories: String(suggestion.calories),
+      protein_g: String(suggestion.protein_g),
+      carbs_g: String(suggestion.carbs_g),
+      fat_g: String(suggestion.fat_g),
+    }));
+    setPlannerRecipeQuery('');
+    toast({
+      title: 'Suggestion applied',
+      description: 'Added to planner form. Click "Add to plan" to save it.',
+    });
+  };
+
+  const runMacroSuggestions = async () => {
+    if (!suggestionDate) {
+      toast({ title: 'Pick a date first', variant: 'destructive' });
+      return;
+    }
+    setSuggestionLoading(true);
+    try {
+      const recipes = await ensureRecipesLoaded();
+      const projected = getProjectedForDate(suggestionDate);
+      const remaining = {
+        calories: macroTarget.calories - projected.calories,
+        protein_g: macroTarget.protein_g - projected.protein_g,
+        carbs_g: macroTarget.carbs_g - projected.carbs_g,
+        fat_g: macroTarget.fat_g - projected.fat_g,
+      };
+      setSuggestionRemaining(remaining);
+
+      const suggestions = suggestMealsForRemainingMacros({
+        recipes,
+        target: macroTarget,
+        projected,
+        desiredMealType: plannerForm.mealType,
+        limit: 6,
+      });
+
+      setMacroSuggestions(suggestions);
+      if (!suggestions.length) {
+        toast({
+          title: 'No suggestions yet',
+          description: 'Add recipes first, then try suggestions again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Could not generate suggestions',
+        description: getErrorMessage(error, 'Please try again.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setSuggestionLoading(false);
+    }
+  };
 
   const plannerRows =
     plannerViewMode === 'daily-all'
@@ -1217,6 +1308,7 @@ export default function MealsPage() {
               onChange={(event) => {
                 setPlannerDay(event.target.value);
                 setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+                setSuggestionDate(event.target.value);
               }}
               className="w-[180px]"
             />
@@ -1229,7 +1321,10 @@ export default function MealsPage() {
             <Input
               type="date"
               value={plannerForm.date}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, date: event.target.value }))}
+              onChange={(event) => {
+                setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+                setSuggestionDate(event.target.value);
+              }}
             />
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1348,6 +1443,63 @@ export default function MealsPage() {
                 {food}
               </Button>
             ))}
+          </div>
+
+          <div className="border-t border-border pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">AI meal suggestions for remaining macros</p>
+                <p className="text-xs text-muted-foreground">
+                  Uses your current daily target and what is already planned.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="date"
+                  value={suggestionDate}
+                  onChange={(event) => setSuggestionDate(event.target.value)}
+                  className="w-[170px]"
+                />
+                <Button variant="outline" onClick={() => void runMacroSuggestions()} disabled={suggestionLoading}>
+                  <Sparkles className={cn('mr-1.5 h-4 w-4', suggestionLoading && 'animate-pulse')} />
+                  {suggestionLoading ? 'Thinking...' : 'Suggest meals'}
+                </Button>
+              </div>
+            </div>
+
+            {suggestionRemaining ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Remaining for {format(new Date(`${suggestionDate}T00:00:00`), 'EEE, MMM d')}: {suggestionRemaining.calories} cal •{' '}
+                {suggestionRemaining.protein_g}P • {suggestionRemaining.carbs_g}C • {suggestionRemaining.fat_g}F
+              </p>
+            ) : null}
+
+            {macroSuggestions.length > 0 ? (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {macroSuggestions.map((suggestion) => (
+                  <div key={`macro-suggestion-${suggestion.recipeId}`} className="rounded-md border border-border p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium leading-tight">{suggestion.name}</p>
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                        {suggestion.score}% fit
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {suggestion.calories} cal • {suggestion.protein_g}P • {suggestion.carbs_g}C • {suggestion.fat_g}F
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{suggestion.reason}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 h-7 text-xs"
+                      onClick={() => applyMacroSuggestionToPlanner(suggestion)}
+                    >
+                      Use in planner
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -1911,7 +2063,10 @@ export default function MealsPage() {
               <Input
                 type="date"
                 value={plannerForm.date}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, date: event.target.value }))}
+                onChange={(event) => {
+                  setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+                  setSuggestionDate(event.target.value);
+                }}
               />
               <select
                 className="rounded-md border border-input bg-background px-3 py-2 text-sm"
