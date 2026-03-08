@@ -582,6 +582,38 @@ export default function MealsPage() {
       ? recipe.name.toLowerCase().includes(manualRecipeQuery.trim().toLowerCase())
       : true,
   );
+  const plannerRecipeTypeahead = plannerRecipeQuery.trim() ? plannerRecipeOptions.slice(0, 8) : [];
+  const chooseRecipeTypeahead = chooseRecipeQuery.trim() ? chooseRecipeOptions.slice(0, 8) : [];
+  const manualRecipeTypeahead = manualRecipeQuery.trim() ? manualRecipeOptions.slice(0, 8) : [];
+
+  const selectRecipeForPlanner = (recipeId: string) => {
+    const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+    if (!recipe) {
+      setPlannerForm((prev) => ({ ...prev, recipeId }));
+      return;
+    }
+    setPlannerForm((prev) => ({
+      ...prev,
+      recipeId: recipe.id,
+      name: recipe.name,
+      calories: String(Math.round(recipe.calories || 0)),
+      protein_g: String(Math.round(recipe.protein_g || 0)),
+      carbs_g: String(Math.round(recipe.carbs_g || 0)),
+      fat_g: String(Math.round(recipe.fat_g || 0)),
+    }));
+  };
+
+  const selectRecipeForSwap = (recipeId: string) => {
+    const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+    setSelectedRecipeId(recipeId);
+    if (recipe) setChooseRecipeQuery(recipe.name);
+  };
+
+  const selectRecipeForManual = (recipeId: string) => {
+    const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+    setManualRecipeId(recipeId);
+    if (recipe) setManualRecipeQuery(recipe.name);
+  };
 
   const openManualDialog = async (day: DayOfWeek) => {
     setManualDialogDay(day);
@@ -1219,30 +1251,26 @@ export default function MealsPage() {
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
+            {plannerRecipeTypeahead.length > 0 ? (
+              <div className="md:col-span-2 rounded-md border border-border bg-background p-1">
+                {plannerRecipeTypeahead.map((recipe) => (
+                  <button
+                    key={`planner-typeahead-${recipe.id}`}
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => selectRecipeForPlanner(recipe.id)}
+                  >
+                    <span className="truncate">{recipe.name}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={plannerForm.recipeId}
               disabled={recipesLoading}
-              onChange={(event) => {
-                const recipeId = event.target.value;
-                const recipe = recipeOptions.find((entry) => entry.id === recipeId);
-                if (!recipe) {
-                  setPlannerForm((prev) => ({ ...prev, recipeId }));
-                  return;
-                }
-                setPlannerForm((prev) => ({
-                  ...prev,
-                  recipeId: recipe.id,
-                  name: recipe.name,
-                  mealType: (PLANNED_MEAL_TYPE_OPTIONS.includes(recipe.meal_type as PlannedMealType)
-                    ? (recipe.meal_type as PlannedMealType)
-                    : prev.mealType),
-                  calories: String(Math.round(recipe.calories || 0)),
-                  protein_g: String(Math.round(recipe.protein_g || 0)),
-                  carbs_g: String(Math.round(recipe.carbs_g || 0)),
-                  fat_g: String(Math.round(recipe.fat_g || 0)),
-                }));
-              }}
+              onChange={(event) => selectRecipeForPlanner(event.target.value)}
             >
               <option value="">Optional: choose from recipes</option>
               {plannerRecipeOptions.map((recipe) => (
@@ -1800,10 +1828,25 @@ export default function MealsPage() {
                   }}
                   placeholder="Search recipe title..."
                 />
+                {chooseRecipeTypeahead.length > 0 ? (
+                  <div className="rounded-md border border-border bg-background p-1">
+                    {chooseRecipeTypeahead.map((recipe) => (
+                      <button
+                        key={`swap-typeahead-${recipe.id}`}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        onClick={() => selectRecipeForSwap(recipe.id)}
+                      >
+                        <span className="truncate">{recipe.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={selectedRecipeId}
-                  onChange={(e) => setSelectedRecipeId(e.target.value)}
+                  onChange={(e) => selectRecipeForSwap(e.target.value)}
                   disabled={recipesLoading}
                 >
                   <option value="">Select recipe...</option>
@@ -1889,30 +1932,26 @@ export default function MealsPage() {
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
+            {plannerRecipeTypeahead.length > 0 ? (
+              <div className="rounded-md border border-border bg-background p-1">
+                {plannerRecipeTypeahead.map((recipe) => (
+                  <button
+                    key={`grid-planner-typeahead-${recipe.id}`}
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => selectRecipeForPlanner(recipe.id)}
+                  >
+                    <span className="truncate">{recipe.name}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={plannerForm.recipeId}
               disabled={recipesLoading}
-              onChange={(event) => {
-                const recipeId = event.target.value;
-                const recipe = recipeOptions.find((entry) => entry.id === recipeId);
-                if (!recipe) {
-                  setPlannerForm((prev) => ({ ...prev, recipeId }));
-                  return;
-                }
-                setPlannerForm((prev) => ({
-                  ...prev,
-                  recipeId: recipe.id,
-                  name: recipe.name,
-                  mealType: (PLANNED_MEAL_TYPE_OPTIONS.includes(recipe.meal_type as PlannedMealType)
-                    ? (recipe.meal_type as PlannedMealType)
-                    : prev.mealType),
-                  calories: String(Math.round(recipe.calories || 0)),
-                  protein_g: String(Math.round(recipe.protein_g || 0)),
-                  carbs_g: String(Math.round(recipe.carbs_g || 0)),
-                  fat_g: String(Math.round(recipe.fat_g || 0)),
-                }));
-              }}
+              onChange={(event) => selectRecipeForPlanner(event.target.value)}
             >
               <option value="">Optional: choose from recipes</option>
               {plannerRecipeOptions.map((recipe) => (
@@ -2006,10 +2045,25 @@ export default function MealsPage() {
               }}
               placeholder="Search recipes..."
             />
+            {manualRecipeTypeahead.length > 0 ? (
+              <div className="rounded-md border border-border bg-background p-1">
+                {manualRecipeTypeahead.map((recipe) => (
+                  <button
+                    key={`manual-typeahead-${recipe.id}`}
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => selectRecipeForManual(recipe.id)}
+                  >
+                    <span className="truncate">{recipe.name}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={manualRecipeId}
-              onChange={(event) => setManualRecipeId(event.target.value)}
+              onChange={(event) => selectRecipeForManual(event.target.value)}
               disabled={recipesLoading}
             >
               <option value="">Select recipe...</option>
