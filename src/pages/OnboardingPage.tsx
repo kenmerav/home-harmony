@@ -839,17 +839,25 @@ export default function OnboardingPage() {
     setAccountSubmitting(true);
     setAccountError(null);
     try {
-      await signUp(account.email.trim(), account.password.trim(), {
+      const { sessionCreated } = await signUp(account.email.trim(), account.password.trim(), {
         fullName: account.fullName.trim(),
         householdName: account.householdName.trim() || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
-      toast({
-        title: 'Account created',
-        description: 'Sign in to apply your personalized plan.',
-      });
-      navigate('/signin?onboarding=1', { replace: true });
+      if (sessionCreated) {
+        toast({
+          title: 'Account created',
+          description: 'Great. Finishing your setup now.',
+        });
+        setCurrentStepId('paywallPrep');
+      } else {
+        toast({
+          title: 'Account created',
+          description: 'Check your email if verification is enabled, then sign in to apply your plan.',
+        });
+        navigate('/signin?onboarding=1', { replace: true });
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not create account.';
       setAccountError(message);
@@ -1580,7 +1588,7 @@ export default function OnboardingPage() {
         />
       ) : (
         <BottomCTA
-          primaryLabel="Create free account"
+          primaryLabel="Continue"
           onPrimary={goNext}
           secondaryLabel="I already have an account"
           onSecondary={() => navigate('/signin?onboarding=1')}

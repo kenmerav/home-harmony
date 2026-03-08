@@ -44,7 +44,7 @@ interface AuthContextValue {
     email: string,
     password: string,
     profile?: { fullName?: string; householdName?: string; timezone?: string },
-  ) => Promise<void>;
+  ) => Promise<{ sessionCreated: boolean }>;
   requestPasswordReset: (email: string, redirectTo?: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   updateEmail: (email: string) => Promise<void>;
@@ -270,7 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error('Failed to clear demo session before sign up:', demoSignOutError.message);
           }
         }
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -282,6 +282,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           },
         });
         if (error) throw error;
+        return { sessionCreated: Boolean(data.session) };
       },
       requestPasswordReset: async (email, redirectTo) => {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
