@@ -34,7 +34,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '8 to 12 min',
     primaryRoute: '/onboarding?force=1',
     primaryCta: 'Run onboarding',
-    heroImage: '/landing/hero-family.jpg',
+    heroImage: '/tutorials/onboarding-flow.jpg',
     heroAlt: 'Family reviewing a weekly home plan together',
     outcomes: [
       'Personalized week rhythm based on your real schedule',
@@ -50,7 +50,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Add food restrictions, favorite meal styles, and avoid foods to shape recipe matching.',
         ],
         screenshot: {
-          src: '/seo/household-templates.jpg',
+          src: '/tutorials/onboarding-flow.jpg',
           alt: 'Onboarding-style family planning view with a calm setup flow',
           caption: 'Use real week constraints, not ideal-week assumptions.',
         },
@@ -63,7 +63,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Choose reminder style so notifications fit your household pace.',
         ],
         screenshot: {
-          src: '/seo/meal-plans.jpg',
+          src: '/tutorials/onboarding-flow.jpg',
           alt: 'Sample weekly family meal plan with consistent dinner anchors',
           caption: 'Anchors reduce last-minute decision fatigue every week.',
         },
@@ -76,7 +76,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Finish account creation so the plan is saved to your profile.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/today-dashboard.jpg',
           alt: 'Family viewing a personalized weekly plan',
           caption: 'This is the first real value moment before you enter the app.',
         },
@@ -108,7 +108,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '10 to 20 min',
     primaryRoute: '/recipes',
     primaryCta: 'Open Recipes',
-    heroImage: '/seo/recipe-collections.jpg',
+    heroImage: '/tutorials/recipes-library.jpg',
     heroAlt: 'Recipe collection planning board with structured meal options',
     outcomes: [
       'Recipe library ready for swaps and weekly planning',
@@ -124,7 +124,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Use manual recipe input for quick entry or cleanup corrections.',
         ],
         screenshot: {
-          src: '/landing/usecase-mealprep.jpg',
+          src: '/tutorials/recipes-library.jpg',
           alt: 'Recipe import workflow with multiple input options',
           caption: 'Pick the import method that matches your source.',
         },
@@ -137,7 +137,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Fix odd lines immediately with manual edit while context is fresh.',
         ],
         screenshot: {
-          src: '/seo/meal-plans.jpg',
+          src: '/tutorials/recipes-library.jpg',
           alt: 'Recipe review panel showing parsed ingredients and metadata',
           caption: 'Two minutes of review prevents ongoing grocery errors.',
         },
@@ -150,7 +150,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Save changes and re-check grocery output on the Grocery page.',
         ],
         screenshot: {
-          src: '/seo/grocery-lists.jpg',
+          src: '/tutorials/grocery-rollup.jpg',
           alt: 'Grocery list output reflecting clean ingredient formatting',
           caption: 'Clean ingredients drive reliable grocery consolidation.',
         },
@@ -177,7 +177,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '7 to 12 min per week',
     primaryRoute: '/meals',
     primaryCta: 'Open Meals',
-    heroImage: '/seo/meal-plans.jpg',
+    heroImage: '/tutorials/meals-weekly.jpg',
     heroAlt: 'Weekly meal schedule with recipe swaps and day locks',
     outcomes: [
       'Full weekly dinner plan with easy swap controls',
@@ -193,7 +193,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Choose recipes from the full dropdown list or type to search quickly.',
         ],
         screenshot: {
-          src: '/landing/usecase-mealprep.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Weekly meal planning view with generated dinner cards',
           caption: 'Draft fast, then refine based on your family schedule.',
         },
@@ -206,7 +206,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Save the swap and verify tonight dinner updates automatically.',
         ],
         screenshot: {
-          src: '/seo/meal-plans.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Meal swap dialog with recipe search and selection options',
           caption: 'Swap flows keep the plan flexible without restarting.',
         },
@@ -219,7 +219,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Confirm meal types save to the correct slot (not dinner by default).',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Meal grid layout showing weekly meal slots by day and meal type',
           caption: 'Grid view keeps all meal types visible in one pass.',
         },
@@ -246,7 +246,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '5 to 10 min',
     primaryRoute: '/grocery',
     primaryCta: 'Open Grocery',
-    heroImage: '/seo/grocery-lists.jpg',
+    heroImage: '/tutorials/grocery-rollup.jpg',
     heroAlt: 'Consolidated family grocery list grouped for efficient shopping',
     outcomes: [
       'Duplicate ingredients merged into practical quantities',
@@ -262,7 +262,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Check ingredient wording for any remaining import artifacts.',
         ],
         screenshot: {
-          src: '/seo/grocery-lists.jpg',
+          src: '/tutorials/grocery-rollup.jpg',
           alt: 'Grocery view showing combined item quantities from multiple meals',
           caption: 'This page is your single source of truth before checkout.',
         },
@@ -275,7 +275,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Expand weekly ads only when needed to keep the page clean.',
         ],
         screenshot: {
-          src: '/seo/pantry-meals.jpg',
+          src: '/tutorials/grocery-rollup.jpg',
           alt: 'Store planning panel with saved zip and linked weekly ads',
           caption: 'Store context helps reduce spend without extra planning.',
         },
@@ -288,7 +288,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Use reply flows to trigger meal generation when needed.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/grocery-rollup.jpg',
           alt: 'Household task completion flow tied to shopping status',
           caption: 'Completion tracking prevents repeat reminder noise.',
         },
@@ -315,7 +315,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '10 min setup + daily use',
     primaryRoute: '/calendar',
     primaryCta: 'Open Calendar',
-    heroImage: '/seo/task-systems.jpg',
+    heroImage: '/tutorials/calendar-planner.jpg',
     heroAlt: 'Family planner calendar with color-coded filters and reminders',
     outcomes: [
       'Planner view as default weekly control center',
@@ -331,7 +331,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Save and verify reminders appear in the correct layer.',
         ],
         screenshot: {
-          src: '/seo/task-systems.jpg',
+          src: '/tutorials/calendar-planner.jpg',
           alt: 'Planner day pop-out showing grouped daily events',
           caption: 'Day pop-out helps avoid missing same-day collisions.',
         },
@@ -344,7 +344,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Edit existing filters directly from the list when your setup changes.',
         ],
         screenshot: {
-          src: '/seo/lifestyle-tracking.jpg',
+          src: '/tutorials/calendar-planner.jpg',
           alt: 'Filter setup panel with custom tags and color choices',
           caption: 'Filters should match your real household roles and lanes.',
         },
@@ -357,7 +357,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Confirm recipients receive test reminders before relying on live events.',
         ],
         screenshot: {
-          src: '/seo/chore-systems.jpg',
+          src: '/tutorials/calendar-planner.jpg',
           alt: 'Reminder routing setup with multiple recipients',
           caption: 'Per-filter routing prevents over-notifying everyone.',
         },
@@ -384,7 +384,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '4 to 6 min',
     primaryRoute: '/calendar/connect-apple',
     primaryCta: 'Connect Apple Calendar',
-    heroImage: '/seo/task-systems.svg',
+    heroImage: '/tutorials/calendar-apple-connect.jpg',
     heroAlt: 'Calendar sync concept showing one-way subscription from Home Harmony',
     outcomes: [
       'Secure private feed URL per household',
@@ -400,7 +400,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Copy URL and keep it private; anyone with the URL can view that feed.',
         ],
         screenshot: {
-          src: '/seo/task-systems.svg',
+          src: '/tutorials/calendar-apple-connect.jpg',
           alt: 'Apple calendar connect page with secure tokenized feed URLs',
           caption: 'Use separate feeds when you want cleaner calendars.',
         },
@@ -413,7 +413,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Name the calendar so family members know it is read-only from Home Harmony.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/calendar-apple-connect.jpg',
           alt: 'Family schedule view synced into an external calendar client',
           caption: 'Edits stay in Home Harmony; Apple reflects updates.',
         },
@@ -426,7 +426,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Old URLs stop working immediately after regeneration.',
         ],
         screenshot: {
-          src: '/seo/task-systems.jpg',
+          src: '/tutorials/calendar-apple-connect.jpg',
           alt: 'Security settings concept for rotating feed access tokens',
           caption: 'Token rotation is the fast way to revoke old calendar access.',
         },
@@ -453,7 +453,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '8 to 15 min setup',
     primaryRoute: '/chores',
     primaryCta: 'Open Chores',
-    heroImage: '/seo/chore-systems.jpg',
+    heroImage: '/tutorials/chores-board.jpg',
     heroAlt: 'Family chore board with assignments and completion tracking',
     outcomes: [
       'Clear daily assignments with ownership',
@@ -469,7 +469,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Check completion behavior on mobile to match kid usage.',
         ],
         screenshot: {
-          src: '/seo/chore-systems.jpg',
+          src: '/tutorials/chores-board.jpg',
           alt: 'Daily family chore schedule with clear assignees',
           caption: 'Simple task wording makes accountability smoother.',
         },
@@ -482,7 +482,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Set reward and deadline rules where appropriate.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/chores-board.jpg',
           alt: 'Shared extra chore list with eligibility rules',
           caption: 'Extra chores work best when unlock rules are explicit.',
         },
@@ -495,7 +495,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Review winner at end of week to keep engagement high.',
         ],
         screenshot: {
-          src: '/seo/lifestyle-tracking.jpg',
+          src: '/tutorials/chores-board.jpg',
           alt: 'Family leaderboard with weekly points and prize',
           caption: 'Small weekly rewards keep the system active.',
         },
@@ -522,7 +522,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '5 to 10 min',
     primaryRoute: '/tasks',
     primaryCta: 'Open Tasks',
-    heroImage: '/seo/task-systems.jpg',
+    heroImage: '/tutorials/tasks-board.jpg',
     heroAlt: 'Task management board for a busy family week',
     outcomes: [
       'Priority tasks visible at a glance',
@@ -538,7 +538,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Use concise titles that describe completion clearly.',
         ],
         screenshot: {
-          src: '/seo/task-systems.jpg',
+          src: '/tutorials/tasks-board.jpg',
           alt: 'Task creation panel with owner and due date fields',
           caption: 'Capture now, organize once, complete faster.',
         },
@@ -551,7 +551,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Use persistent reminders only for high-stakes items.',
         ],
         screenshot: {
-          src: '/seo/lifestyle-tracking.jpg',
+          src: '/tutorials/tasks-board.jpg',
           alt: 'Reminder settings with multiple intensity options',
           caption: 'Right reminder intensity reduces alert fatigue.',
         },
@@ -564,7 +564,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Close each day with a quick next-day check.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/today-dashboard.jpg',
           alt: 'Daily household dashboard with key tasks highlighted',
           caption: 'Daily review keeps backlog from expanding.',
         },
@@ -591,7 +591,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '10 to 15 min setup',
     primaryRoute: '/workouts',
     primaryCta: 'Open Workouts',
-    heroImage: '/seo/workout-tracking.jpg',
+    heroImage: '/tutorials/workouts-home.jpg',
     heroAlt: 'Workout planner dashboard with templates and progress tracking',
     outcomes: [
       'Templates matched to goal and available equipment',
@@ -607,7 +607,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Edit sets and exercise selection to your current level.',
         ],
         screenshot: {
-          src: '/seo/workout-tracking.jpg',
+          src: '/tutorials/workouts-templates.jpg',
           alt: 'Workout template gallery with goal labels',
           caption: 'Start with a realistic template, then customize.',
         },
@@ -620,7 +620,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Save each session before leaving to preserve progress history.',
         ],
         screenshot: {
-          src: '/seo/workout-tracking.jpg',
+          src: '/tutorials/workouts-home.jpg',
           alt: 'Workout session logging view with set rows',
           caption: 'Consistency beats complexity in long-term tracking.',
         },
@@ -633,7 +633,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Keep progression conservative to avoid burnout.',
         ],
         screenshot: {
-          src: '/seo/workout-tracking.svg',
+          src: '/tutorials/workouts-home.jpg',
           alt: 'Workout progress chart showing trend lines over time',
           caption: 'Weekly trend review keeps goals measurable.',
         },
@@ -660,7 +660,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '8 to 14 min',
     primaryRoute: '/meals',
     primaryCta: 'Open macro planner',
-    heroImage: '/seo/macro-plans.jpg',
+    heroImage: '/tutorials/meals-weekly.jpg',
     heroAlt: 'Macro planner with calorie and macro target visualization',
     outcomes: [
       'Personalized calorie and macro targets',
@@ -676,7 +676,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Edit targets manually if needed for practical adherence.',
         ],
         screenshot: {
-          src: '/seo/macro-plans.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Macro calculator screen with editable final targets',
           caption: 'Targets should be realistic and sustainable for your week.',
         },
@@ -689,7 +689,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Set portion sizes like 0.75 or 1.5 servings for accurate math.',
         ],
         screenshot: {
-          src: '/seo/macro-plans.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Meal slot planner with recipe search and portion selection',
           caption: 'Portion-level planning improves projection accuracy.',
         },
@@ -702,7 +702,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Review bar/pie progress and adjust before the day ends over budget.',
         ],
         screenshot: {
-          src: '/seo/lifestyle-tracking.jpg',
+          src: '/tutorials/meals-weekly.jpg',
           alt: 'Daily macro progress view with remaining-budget indicator',
           caption: 'Use remaining-macro suggestions to recover the day quickly.',
         },
@@ -729,7 +729,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
     timeToComplete: '6 to 10 min',
     primaryRoute: '/family',
     primaryCta: 'Open Family',
-    heroImage: '/seo/household-templates.jpg',
+    heroImage: '/tutorials/family-members.jpg',
     heroAlt: 'Family account setup showing multiple member profiles',
     outcomes: [
       'Clear person-level dashboards',
@@ -745,7 +745,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Confirm each member sees only relevant sections.',
         ],
         screenshot: {
-          src: '/seo/household-templates.jpg',
+          src: '/tutorials/family-members.jpg',
           alt: 'Family management page with member list and invite controls',
           caption: 'Role clarity keeps household workflows cleaner.',
         },
@@ -758,7 +758,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Switch dashboards to validate data is scoped correctly.',
         ],
         screenshot: {
-          src: '/landing/usecase-family.jpg',
+          src: '/tutorials/today-dashboard.jpg',
           alt: 'Dashboard switcher showing multiple family profiles',
           caption: 'Separate dashboards reduce cross-person confusion.',
         },
@@ -771,7 +771,7 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
           'Run a quick test reminder to verify phone numbers.',
         ],
         screenshot: {
-          src: '/seo/task-systems.jpg',
+          src: '/tutorials/settings-page.jpg',
           alt: 'Household reminder setup with invite confirmations',
           caption: 'One test now avoids missed reminders later.',
         },
