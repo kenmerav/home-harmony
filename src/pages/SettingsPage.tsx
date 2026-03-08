@@ -33,6 +33,8 @@ import {
   type SmsPreferences,
 } from '@/lib/api/sms';
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const PRIMARY_GOAL_OPTIONS = [
   'Meals & groceries',
   'Chores & routines',
@@ -229,9 +231,15 @@ function buildPersonalizedPlan(answers: OnboardingAnswers): PersonalizedPlan {
 }
 
 export default function SettingsPage() {
-  const { user, isDemoUser } = useAuth();
+  const { user, isDemoUser, profile, updateProfile, updateEmail } = useAuth();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<OnboardingAnswers>(DEFAULT_ANSWERS);
+  const [accountDetails, setAccountDetails] = useState({
+    fullName: '',
+    householdName: '',
+    email: '',
+  });
+  const [accountSaving, setAccountSaving] = useState(false);
   const [bodyUnits, setBodyUnits] = useState<Record<'me' | 'wife', BodyUnitSystem>>({
     me: 'imperial',
     wife: 'imperial',
@@ -254,6 +262,14 @@ export default function SettingsPage() {
   const [smsSaving, setSmsSaving] = useState(false);
   const [smsTesting, setSmsTesting] = useState(false);
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
+
+  useEffect(() => {
+    setAccountDetails({
+      fullName: profile?.fullName || '',
+      householdName: profile?.householdName || '',
+      email: user?.email || '',
+    });
+  }, [profile?.fullName, profile?.householdName, user?.email]);
 
   useEffect(() => {
     let mounted = true;
@@ -503,6 +519,65 @@ export default function SettingsPage() {
     }
   };
 
+  const saveAccountDetails = async () => {
+    if (!user?.id || isDemoUser) {
+      toast({
+        title: 'Sign in required',
+        description: 'Account details can only be changed from a signed-in account.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const fullName = accountDetails.fullName.trim();
+    const householdName = accountDetails.householdName.trim();
+    const nextEmail = accountDetails.email.trim().toLowerCase();
+    const currentEmail = user.email?.trim().toLowerCase() || '';
+
+    if (fullName.length < 2) {
+      toast({
+        title: 'Full name is required',
+        description: 'Enter at least 2 characters for your name.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!EMAIL_PATTERN.test(nextEmail)) {
+      toast({
+        title: 'Valid email required',
+        description: 'Enter a valid account email address.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setAccountSaving(true);
+    try {
+      await updateProfile({
+        full_name: fullName,
+        household_name: householdName || null,
+      });
+
+      if (nextEmail !== currentEmail) {
+        await updateEmail(nextEmail);
+        toast({
+          title: 'Account details saved',
+          description: 'Email change requested. Confirm the new email from your inbox if prompted.',
+        });
+      } else {
+        toast({ title: 'Account details saved' });
+      }
+    } catch (error) {
+      toast({
+        title: 'Could not save account details',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -521,6 +596,50 @@ export default function SettingsPage() {
       />
 
       <div className="space-y-6">
+        <SectionCard title="Account details" subtitle="Manage your name, household name, and login email">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Full name</p>
+              <Input
+                value={accountDetails.fullName}
+                onChange={(event) =>
+                  setAccountDetails((prev) => ({ ...prev, fullName: event.target.value }))
+                }
+                placeholder="Your full name"
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Household name</p>
+              <Input
+                value={accountDetails.householdName}
+                onChange={(event) =>
+                  setAccountDetails((prev) => ({ ...prev, householdName: event.target.value }))
+                }
+                placeholder="Optional household name"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <p className="text-sm font-medium">Email</p>
+              <Input
+                type="email"
+                value={accountDetails.email}
+                onChange={(event) =>
+                  setAccountDetails((prev) => ({ ...prev, email: event.target.value }))
+                }
+                placeholder="you@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                This is the email used for sign-in and account notifications.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => void saveAccountDetails()} disabled={accountSaving}>
+              {accountSaving ? 'Saving account...' : 'Save account details'}
+            </Button>
+          </div>
+        </SectionCard>
+
         <SectionCard title="Primary goals" subtitle="Pick up to 3 focus areas">
           <OptionList
             options={PRIMARY_GOAL_OPTIONS}
@@ -894,19 +1013,6 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
-        </SectionCard>
-
-        <SectionCard title="Growth dashboards" subtitle="Track funnel and conversion performance">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              Open event funnel analytics for onboarding and activation performance.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link to="/growth-analytics">
-                <Button variant="outline">Open Growth Funnel</Button>
-              </Link>
-            </div>
-          </div>
         </SectionCard>
 
         <div className="flex flex-wrap gap-3">

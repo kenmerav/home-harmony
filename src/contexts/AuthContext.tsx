@@ -47,6 +47,7 @@ interface AuthContextValue {
   ) => Promise<void>;
   requestPasswordReset: (email: string, redirectTo?: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
+  updateEmail: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   startDemoSession: () => Promise<void>;
   updateProfile: (updates: TablesUpdate<'profiles'>) => Promise<void>;
@@ -66,18 +67,7 @@ const DEMO_PROFILE: ProfileInfo = {
   timezone: 'America/New_York',
 };
 
-const DEFAULT_ADMIN_EMAILS = ['kroberts035@gmail.com'];
-
-function parseAdminEmails(raw: string | undefined): Set<string> {
-  if (!raw) return new Set(DEFAULT_ADMIN_EMAILS);
-  const parsed = raw
-    .split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
-  return parsed.length ? new Set(parsed) : new Set(DEFAULT_ADMIN_EMAILS);
-}
-
-const ADMIN_EMAILS = parseAdminEmails(import.meta.env.VITE_ADMIN_EMAILS);
+const ADMIN_EMAIL = 'kroberts035@gmail.com';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -240,7 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const status = subscription?.status || 'inactive';
     const isSubscribed = !BILLING_ENABLED || status === 'active' || status === 'trialing';
     const userEmail = user?.email?.trim().toLowerCase() || '';
-    const isAdmin = !isDemoUser && Boolean(userEmail && ADMIN_EMAILS.has(userEmail));
+    const isAdmin = !isDemoUser && userEmail === ADMIN_EMAIL;
 
     return {
       user,
@@ -302,6 +292,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updatePassword: async (password) => {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
+      },
+      updateEmail: async (email) => {
+        const { error } = await supabase.auth.updateUser({ email });
+        if (error) throw error;
+        const { data, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        setUser(data.user ?? null);
       },
       signOut: async () => {
         if (isDemoUser) {

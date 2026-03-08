@@ -284,11 +284,9 @@ const App = () => (
               <Route
                 path="/growth-analytics"
                 element={
-                  <RequireProfileComplete>
-                    <RequireSubscription>
-                      <GrowthAnalyticsPage />
-                    </RequireSubscription>
-                  </RequireProfileComplete>
+                  <RequireAdmin>
+                    <GrowthAnalyticsPage />
+                  </RequireAdmin>
                 }
               />
               <Route
