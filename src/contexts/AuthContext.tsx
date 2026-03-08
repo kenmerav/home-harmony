@@ -74,17 +74,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
-  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
       setProfile(null);
+      setProfileLoading(false);
       return;
     }
     if (isDemoUser) {
       setProfile(DEMO_PROFILE);
+      setProfileLoading(false);
       return;
     }
     setProfileLoading(true);
@@ -114,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshSubscription = useCallback(async () => {
     if (!user) {
       setSubscription(null);
+      setSubscriptionLoading(false);
       return;
     }
     if (!BILLING_ENABLED) {
@@ -133,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         trialEndsAt: null,
         priceId: 'demo-price',
       });
+      setSubscriptionLoading(false);
       return;
     }
     setSubscriptionLoading(true);
@@ -171,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setIsDemoUser(false);
       setUser(data.session?.user ?? null);
+      setProfileLoading(Boolean(data.session?.user));
+      setSubscriptionLoading(Boolean(data.session?.user) && BILLING_ENABLED);
       setLoading(false);
     };
     init();
@@ -178,6 +184,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsDemoUser(false);
       setUser(session?.user ?? null);
+      setProfileLoading(Boolean(session?.user));
+      setSubscriptionLoading(Boolean(session?.user) && BILLING_ENABLED);
       setLoading(false);
     });
 

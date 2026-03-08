@@ -10,7 +10,16 @@ import { getPostAuthRoute } from '@/lib/billing';
 import { sendWelcomeEmail } from '@/lib/api/emails';
 
 export default function AuthPage() {
-  const { user, isSubscribed, isProfileComplete, signIn, signUp, requestPasswordReset } = useAuth();
+  const {
+    user,
+    isSubscribed,
+    isProfileComplete,
+    profileLoading,
+    subscriptionLoading,
+    signIn,
+    signUp,
+    requestPasswordReset,
+  } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,6 +45,7 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (!user) return;
+    if (profileLoading || subscriptionLoading) return;
     if (onboardingIntent) {
       navigate('/onboarding?force=1', { replace: true });
       return;
@@ -45,7 +55,15 @@ export default function AuthPage() {
       return;
     }
     navigate(getPostAuthRoute(isSubscribed), { replace: true });
-  }, [isProfileComplete, isSubscribed, navigate, onboardingIntent, user]);
+  }, [
+    isProfileComplete,
+    isSubscribed,
+    navigate,
+    onboardingIntent,
+    profileLoading,
+    subscriptionLoading,
+    user,
+  ]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
