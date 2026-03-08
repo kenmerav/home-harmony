@@ -345,6 +345,7 @@ export default function CalendarPage() {
     setupModeFromQuery || 'google',
   );
   const [calendarSetupOpen, setCalendarSetupOpen] = useState(Boolean(setupModeFromQuery));
+  const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
@@ -726,6 +727,11 @@ export default function CalendarPage() {
     setAddDialogOpen(true);
   };
 
+  const openDayDetail = (day: Date) => {
+    setSelectedDate(day);
+    setDayDetailOpen(true);
+  };
+
   const createManualEvent = () => {
     if (!draftTitle.trim()) {
       toast({ title: 'Add a title first', variant: 'destructive' });
@@ -956,7 +962,7 @@ export default function CalendarPage() {
             <Calendar
               mode="single"
               selected={selectedDate}
-              onSelect={(day) => day && setSelectedDate(day)}
+              onSelect={(day) => day && openDayDetail(day)}
               month={currentMonth}
               onMonthChange={setCurrentMonth}
               modifiers={{ hasEvent: eventDates }}
@@ -1196,7 +1202,11 @@ export default function CalendarPage() {
                   const dayKey = format(day, 'yyyy-MM-dd');
                   const dayEvents = eventsByWeekDay.get(dayKey) || [];
                   return (
-                    <div key={dayKey} className="rounded-lg border border-border p-3">
+                    <div
+                      key={dayKey}
+                      className="rounded-lg border border-border p-3 cursor-pointer transition-colors hover:bg-muted/30"
+                      onClick={() => openDayDetail(day)}
+                    >
                       <p className="mb-2 text-sm font-medium">{format(day, 'EEEE, MMM d')}</p>
                       {dayEvents.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No scheduled items</p>
@@ -1304,6 +1314,33 @@ export default function CalendarPage() {
             <Button variant="outline" onClick={closeCalendarSetupDialog}>
               Done
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">{format(selectedDate, 'EEEE, MMMM d')}</DialogTitle>
+            <DialogDescription>
+              {selectedDayEvents.length} item{selectedDayEvents.length === 1 ? '' : 's'} based on your current filters.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            {selectedDayEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No events scheduled for this day.</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedDayEvents.map((event) => (
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    googleEnabled={googlePrefs.enabled}
+                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
