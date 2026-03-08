@@ -64,6 +64,12 @@ import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 type PlannerMode = 'month' | 'twoWeek';
+type ModuleLabelOverrides = Partial<Record<CalendarEventModule, string>>;
+type CalendarModuleFilterSettings = {
+  labelOverrides: ModuleLabelOverrides;
+};
+
+const CALENDAR_MODULE_FILTER_SETTINGS_KEY = 'homehub.calendar.module-filter-settings.v1';
 
 function toGoogleDateToken(input: Date): string {
   return input.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -111,6 +117,36 @@ function formatPhoneList(input: string[]): string {
   return input.join(', ');
 }
 
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function scopedModuleFilterSettingsKey(userId?: string | null): string {
+  return `${CALENDAR_MODULE_FILTER_SETTINGS_KEY}:${userId || 'anon'}`;
+}
+
+function loadModuleFilterSettings(userId?: string | null): CalendarModuleFilterSettings {
+  if (!canUseStorage()) return { labelOverrides: {} };
+  try {
+    const raw = window.localStorage.getItem(scopedModuleFilterSettingsKey(userId));
+    if (!raw) return { labelOverrides: {} };
+    const parsed = JSON.parse(raw) as Partial<CalendarModuleFilterSettings>;
+    const labelOverrides = (parsed.labelOverrides || {}) as ModuleLabelOverrides;
+    return { labelOverrides };
+  } catch {
+    return { labelOverrides: {} };
+  }
+}
+
+function saveModuleFilterSettings(settings: CalendarModuleFilterSettings, userId?: string | null) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(scopedModuleFilterSettingsKey(userId), JSON.stringify(settings));
+}
+
+function isSmsFilterModule(module: CalendarEventModule): module is SmsReminderModule {
+  return module === 'manual' || module === 'meals';
+}
+
 function withTime(baseDate: Date, hhmm: string): Date {
   const [hourRaw, minuteRaw] = hhmm.split(':');
   const date = new Date(baseDate);
@@ -139,6 +175,13 @@ export default function CalendarPlannerPage() {
   const [currentFilterName, setCurrentFilterName] = useState('Current filter');
   const [currentFilterRecipients, setCurrentFilterRecipients] = useState('');
   const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
+  const [moduleFilterSettings, setModuleFilterSettings] = useState<CalendarModuleFilterSettings>(() =>
+    loadModuleFilterSettings(user?.id),
+  );
+  const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
+  const [editingModule, setEditingModule] = useState<CalendarEventModule | null>(null);
+  const [editingModuleName, setEditingModuleName] = useState('');
+  const [editingModuleRecipients, setEditingModuleRecipients] = useState('');
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() => getGoogleCalendarPrefs(user?.id));
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
@@ -170,6 +213,7 @@ export default function CalendarPlannerPage() {
   useEffect(() => {
     setFilters(loadStoredCalendarFilters(user?.id));
     setFilterPresets(loadStoredCalendarFilterPresets(user?.id));
+    setModuleFilterSettings(loadModuleFilterSettings(user?.id));
   }, [user?.id]);
 
   useEffect(() => {
@@ -179,6 +223,10 @@ export default function CalendarPlannerPage() {
   useEffect(() => {
     saveStoredCalendarFilterPresets(filterPresets, user?.id);
   }, [filterPresets, user?.id]);
+
+  useEffect(() => {
+    saveModuleFilterSettings(moduleFilterSettings, user?.id);
+  }, [moduleFilterSettings, user?.id]);
 
   useEffect(() => {
     const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
@@ -408,6 +456,64 @@ export default function CalendarPlannerPage() {
     deleteManualCalendarEvent(eventId, user?.id);
     toast({ title: 'Event removed' });
     void refreshEvents();
+  };
+
+  const getModuleLabel = (module: CalendarEventModule): string => {
+    const override = moduleFilterSettings.labelOverrides[module];
+    return override?.trim() || CALENDAR_MODULE_META[module].label;
+  };
+
+  const openModuleEditor = (module: CalendarEventModule) => {
+    setEditingModule(module);
+    setEditingModuleName(getModuleLabel(module));
+    setEditingModuleRecipients(
+      isSmsFilterModule(module) ? formatPhoneList(smsPrefs.module_recipients[module] || []) : '',
+    );
+    setModuleEditorOpen(true);
+  };
+
+  const saveModuleEditor = async () => {
+    if (!editingModule) return;
+    const trimmedName = editingModuleName.trim();
+    const defaultName = CALENDAR_MODULE_META[editingModule].label;
+    const finalName = trimmedName || defaultName;
+    const nextOverrides: ModuleLabelOverrides = { ...moduleFilterSettings.labelOverrides };
+
+    if (!trimmedName || trimmedName.toLowerCase() === defaultName.toLowerCase()) {
+      delete nextOverrides[editingModule];
+    } else {
+      nextOverrides[editingModule] = trimmedName;
+    }
+    setModuleFilterSettings({ labelOverrides: nextOverrides });
+
+    if (isSmsFilterModule(editingModule)) {
+      const recipients = parsePhoneList(editingModuleRecipients);
+      const nextPrefs: SmsPreferences = {
+        ...smsPrefs,
+        include_modules: [...new Set([...smsPrefs.include_modules, editingModule])],
+        module_recipients: {
+          ...smsPrefs.module_recipients,
+          [editingModule]: recipients,
+        },
+      };
+      setSmsPrefs(nextPrefs);
+      if (canUseRemoteSms) {
+        try {
+          const saved = await saveSmsPreferences(nextPrefs);
+          setSmsPrefs(saved);
+        } catch (error) {
+          toast({
+            title: 'Could not save reminder recipients',
+            description: error instanceof Error ? error.message : 'Please try again.',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+    }
+
+    toast({ title: `${finalName} filter updated` });
+    setModuleEditorOpen(false);
   };
 
   const setFilter = (module: CalendarEventModule, checked: boolean) => {
@@ -694,9 +800,11 @@ export default function CalendarPlannerPage() {
             <div className="space-y-2">
               {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
                 <div key={module} className="flex items-center justify-between">
-                  <Badge variant="outline" className={cn('border', CALENDAR_MODULE_META[module].badgeClass)}>
-                    {CALENDAR_MODULE_META[module].label}
-                  </Badge>
+                  <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
+                    <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
+                      {getModuleLabel(module)}
+                    </Badge>
+                  </button>
                   <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
                 </div>
               ))}
@@ -875,9 +983,11 @@ export default function CalendarPlannerPage() {
           <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
               <div key={module} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <Badge variant="outline" className={cn('border', CALENDAR_MODULE_META[module].badgeClass)}>
-                  {CALENDAR_MODULE_META[module].label}
-                </Badge>
+                <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
+                  <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
+                    {getModuleLabel(module)}
+                  </Badge>
+                </button>
                 <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
               </div>
             ))}
@@ -963,6 +1073,52 @@ export default function CalendarPlannerPage() {
                 </p>
               )}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={moduleEditorOpen} onOpenChange={setModuleEditorOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {editingModule ? `Edit ${getModuleLabel(editingModule)} filter` : 'Edit filter'}
+            </DialogTitle>
+            <DialogDescription>
+              Rename this filter and choose who gets reminder texts from it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Filter name</label>
+              <Input
+                value={editingModuleName}
+                onChange={(event) => setEditingModuleName(event.target.value)}
+                placeholder="Filter name"
+              />
+            </div>
+            {editingModule && isSmsFilterModule(editingModule) ? (
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Reminder recipients</label>
+                <Input
+                  value={editingModuleRecipients}
+                  onChange={(event) => setEditingModuleRecipients(event.target.value)}
+                  placeholder="+16155551234, +16155550999"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Numbers in this field get reminder texts for {getModuleLabel(editingModule)}.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Reminder recipient routing is currently available for Meals and Manual filters.
+              </p>
+            )}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setModuleEditorOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveModuleEditor()}>Save</Button>
           </div>
         </DialogContent>
       </Dialog>
