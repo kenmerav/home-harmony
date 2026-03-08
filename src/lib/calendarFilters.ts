@@ -2,27 +2,40 @@ import { CalendarEventModule } from '@/lib/calendarStore';
 
 const CALENDAR_FILTERS_KEY = 'homehub.calendar.filters.v1';
 const CALENDAR_FILTER_PRESETS_KEY = 'homehub.calendar.filter-presets.v1';
+export const DEFAULT_CALENDAR_FILTER_PRESET_COLOR = '#5A8F72';
 
 export type CalendarModuleFilters = Record<CalendarEventModule, boolean>;
-export type CalendarFilterPresetColor =
-  | 'family'
-  | 'meals'
-  | 'tasks'
-  | 'chores'
-  | 'workouts'
-  | 'reminders';
+export type CalendarFilterPresetColor = string;
 
-const CALENDAR_FILTER_PRESET_COLORS: CalendarFilterPresetColor[] = [
-  'family',
-  'meals',
-  'tasks',
-  'chores',
-  'workouts',
-  'reminders',
-];
+const LEGACY_PRESET_COLOR_MAP: Record<string, string> = {
+  family: '#8A78E8',
+  meals: '#54B888',
+  tasks: '#4D86E5',
+  chores: '#C98A2E',
+  workouts: '#D35F82',
+  reminders: '#7D8FA8',
+};
 
-function isCalendarFilterPresetColor(value: unknown): value is CalendarFilterPresetColor {
-  return typeof value === 'string' && CALENDAR_FILTER_PRESET_COLORS.includes(value as CalendarFilterPresetColor);
+function normalizeHexColor(input: string): string | null {
+  const compact = input.trim();
+  if (!compact) return null;
+
+  const withHash = compact.startsWith('#') ? compact : `#${compact}`;
+  if (/^#[0-9a-fA-F]{3}$/.test(withHash)) {
+    const [r, g, b] = withHash.slice(1).split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(withHash)) {
+    return withHash.toUpperCase();
+  }
+  return null;
+}
+
+function normalizePresetColor(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_CALENDAR_FILTER_PRESET_COLOR;
+  const lowered = value.trim().toLowerCase();
+  if (LEGACY_PRESET_COLOR_MAP[lowered]) return LEGACY_PRESET_COLOR_MAP[lowered];
+  return normalizeHexColor(value) || DEFAULT_CALENDAR_FILTER_PRESET_COLOR;
 }
 
 export interface CalendarFilterPreset {
@@ -111,7 +124,7 @@ function normalizePreset(input: unknown, index: number): CalendarFilterPreset | 
         .map((value) => value.trim())
         .filter((value) => value.length > 0)
     : [];
-  const color = isCalendarFilterPresetColor(row.color) ? row.color : 'family';
+  const color = normalizePresetColor(row.color);
   return { id, name, modules, reminderRecipients, color };
 }
 
@@ -142,7 +155,7 @@ export function saveStoredCalendarFilterPresets(
     reminderRecipients: Array.isArray(preset.reminderRecipients)
       ? preset.reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0)
       : [],
-    color: isCalendarFilterPresetColor(preset.color) ? preset.color : 'family',
+    color: normalizePresetColor(preset.color),
   }));
   window.localStorage.setItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId), JSON.stringify(normalized));
 }
@@ -163,7 +176,7 @@ export function createCalendarFilterPreset(
   modules: CalendarModuleFilters,
   existingCount: number,
   reminderRecipients: string[] = [],
-  color: CalendarFilterPresetColor = 'family',
+  color: CalendarFilterPresetColor = DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
 ): CalendarFilterPreset {
   const trimmed = normalizeFilterPresetName(name || defaultPresetName(existingCount));
   return {
@@ -171,7 +184,7 @@ export function createCalendarFilterPreset(
     name: trimmed,
     modules: normalizeModules(modules),
     reminderRecipients: reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0),
-    color: isCalendarFilterPresetColor(color) ? color : 'family',
+    color: normalizePresetColor(color),
   };
 }
 

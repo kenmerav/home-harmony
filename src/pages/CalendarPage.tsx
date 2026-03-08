@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDays,
   addHours,
@@ -64,6 +64,7 @@ import {
   CalendarFilterPreset,
   CalendarFilterPresetColor,
   createCalendarFilterPreset,
+  DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
   filtersEqual,
   loadStoredCalendarFilterPresets,
   loadStoredCalendarFilters,
@@ -125,17 +126,49 @@ const moduleMeta: Record<CalendarEventModule, { label: string; badgeClass: strin
   workouts: { label: 'Workouts', badgeClass: 'border-rose-200 bg-rose-100/70 text-rose-800' },
   reminders: { label: 'Reminders', badgeClass: 'border-slate-200 bg-slate-100/80 text-slate-700' },
 };
-const FILTER_PRESET_COLOR_META: Record<
-  CalendarFilterPresetColor,
-  { label: string; badgeClass: string }
-> = {
-  family: { label: 'Family', badgeClass: moduleMeta.manual.badgeClass },
-  meals: { label: 'Meals', badgeClass: moduleMeta.meals.badgeClass },
-  tasks: { label: 'Tasks', badgeClass: moduleMeta.tasks.badgeClass },
-  chores: { label: 'Chores', badgeClass: moduleMeta.chores.badgeClass },
-  workouts: { label: 'Workouts', badgeClass: moduleMeta.workouts.badgeClass },
-  reminders: { label: 'Reminders', badgeClass: moduleMeta.reminders.badgeClass },
-};
+const FILTER_COLOR_SWATCHES = [
+  '#5A8F72',
+  '#8A78E8',
+  '#4D86E5',
+  '#54B888',
+  '#C98A2E',
+  '#D35F82',
+  '#E76F51',
+  '#2A9D8F',
+  '#7D8FA8',
+  '#7C5A45',
+];
+
+function normalizeHexColor(input: string, fallback = DEFAULT_CALENDAR_FILTER_PRESET_COLOR): string {
+  const compact = input.trim();
+  if (!compact) return fallback;
+  const withHash = compact.startsWith('#') ? compact : `#${compact}`;
+  if (/^#[0-9a-fA-F]{3}$/.test(withHash)) {
+    const [r, g, b] = withHash.slice(1).split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(withHash)) return withHash.toUpperCase();
+  return fallback;
+}
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const normalized = normalizeHexColor(hex, '');
+  if (!/^#[0-9A-F]{6}$/.test(normalized)) return null;
+  return [
+    Number.parseInt(normalized.slice(1, 3), 16),
+    Number.parseInt(normalized.slice(3, 5), 16),
+    Number.parseInt(normalized.slice(5, 7), 16),
+  ];
+}
+
+function filterBadgeStyle(color: string): CSSProperties {
+  const [r, g, b] = hexToRgb(color) || [90, 143, 114];
+  return {
+    borderColor: `rgba(${r}, ${g}, ${b}, 0.48)`,
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.16)`,
+    color: `rgb(${Math.round(r * 0.72)}, ${Math.round(g * 0.72)}, ${Math.round(b * 0.72)})`,
+  };
+}
 
 const smsModuleLabel: Record<SmsReminderModule, string> = {
   meals: 'Meal schedule',
@@ -325,7 +358,9 @@ export default function CalendarPage() {
   const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
   const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
   const [filterPresetDraftRecipients, setFilterPresetDraftRecipients] = useState('');
-  const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>('family');
+  const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>(
+    DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
+  );
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
       typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
@@ -995,7 +1030,7 @@ export default function CalendarPage() {
     setEditingFilterPresetId(null);
     setFilterPresetDraftName(nextFilterNameSuggestion());
     setFilterPresetDraftRecipients('');
-    setFilterPresetDraftColor('family');
+    setFilterPresetDraftColor(DEFAULT_CALENDAR_FILTER_PRESET_COLOR);
     setFilterPresetDialogOpen(true);
   };
 
@@ -1005,14 +1040,14 @@ export default function CalendarPage() {
     setEditingFilterPresetId(presetId);
     setFilterPresetDraftName(preset.name);
     setFilterPresetDraftRecipients(formatPhoneList(preset.reminderRecipients || []));
-    setFilterPresetDraftColor(preset.color || 'family');
+    setFilterPresetDraftColor(normalizeHexColor(preset.color || DEFAULT_CALENDAR_FILTER_PRESET_COLOR));
     setFilterPresetDialogOpen(true);
   };
 
   const saveFilterPresetDialog = () => {
     const normalizedName = normalizeCalendarFilterName(filterPresetDraftName || nextFilterNameSuggestion());
     const recipients = parsePhoneList(filterPresetDraftRecipients);
-    const color = filterPresetDraftColor;
+    const color = normalizeHexColor(filterPresetDraftColor);
 
     if (editingFilterPresetId) {
       setFilterPresets((prev) =>
@@ -1245,7 +1280,8 @@ export default function CalendarPage() {
                     <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
                       <Badge
                         variant="outline"
-                        className={cn('border cursor-pointer', FILTER_PRESET_COLOR_META[preset.color || 'family'].badgeClass)}
+                        className="border cursor-pointer"
+                        style={filterBadgeStyle(preset.color || DEFAULT_CALENDAR_FILTER_PRESET_COLOR)}
                       >
                         {preset.name}
                       </Badge>
@@ -1630,27 +1666,40 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Color</label>
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(FILTER_PRESET_COLOR_META) as CalendarFilterPresetColor[]).map((color) => {
-                  const isSelected = filterPresetDraftColor === color;
+              <div className="flex items-center gap-3">
+                <Input
+                  type="color"
+                  value={normalizeHexColor(filterPresetDraftColor)}
+                  onChange={(event) => setFilterPresetDraftColor(normalizeHexColor(event.target.value))}
+                  className="h-10 w-14 p-1"
+                  aria-label="Choose filter color"
+                />
+                <Input
+                  value={filterPresetDraftColor}
+                  onChange={(event) => setFilterPresetDraftColor(event.target.value)}
+                  onBlur={() => setFilterPresetDraftColor(normalizeHexColor(filterPresetDraftColor))}
+                  placeholder="#5A8F72"
+                  className="w-32"
+                />
+                <Badge variant="outline" className="border" style={filterBadgeStyle(filterPresetDraftColor)}>
+                  Preview
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {FILTER_COLOR_SWATCHES.map((color) => {
+                  const isSelected = normalizeHexColor(filterPresetDraftColor) === normalizeHexColor(color);
                   return (
                     <button
                       key={color}
                       type="button"
+                      className={cn(
+                        'h-6 w-6 rounded-full border-2 transition',
+                        isSelected ? 'ring-2 ring-primary/50' : 'border-border',
+                      )}
+                      style={{ backgroundColor: color }}
                       onClick={() => setFilterPresetDraftColor(color)}
-                      aria-label={`Set filter color to ${FILTER_PRESET_COLOR_META[color].label}`}
-                    >
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'border cursor-pointer',
-                          FILTER_PRESET_COLOR_META[color].badgeClass,
-                          isSelected && 'ring-2 ring-primary/50',
-                        )}
-                      >
-                        {FILTER_PRESET_COLOR_META[color].label}
-                      </Badge>
-                    </button>
+                      aria-label={`Use color ${color}`}
+                    />
                   );
                 })}
               </div>
