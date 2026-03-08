@@ -1,0 +1,143 @@
+import { CalendarEventModule } from '@/lib/calendarStore';
+
+const CALENDAR_FILTERS_KEY = 'homehub.calendar.filters.v1';
+const CALENDAR_FILTER_PRESETS_KEY = 'homehub.calendar.filter-presets.v1';
+
+export type CalendarModuleFilters = Record<CalendarEventModule, boolean>;
+
+export interface CalendarFilterPreset {
+  id: string;
+  name: string;
+  modules: CalendarModuleFilters;
+}
+
+function canUseStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function scopedKey(baseKey: string, userId?: string | null): string {
+  return `${baseKey}:${userId || 'anon'}`;
+}
+
+export function moduleDefaultFilters(): CalendarModuleFilters {
+  return {
+    manual: true,
+    meals: true,
+    tasks: true,
+    chores: true,
+    workouts: true,
+    reminders: true,
+  };
+}
+
+function normalizeModules(input: Partial<CalendarModuleFilters> | undefined): CalendarModuleFilters {
+  const fallback = moduleDefaultFilters();
+  return {
+    manual: input?.manual ?? fallback.manual,
+    meals: input?.meals ?? fallback.meals,
+    tasks: input?.tasks ?? fallback.tasks,
+    chores: input?.chores ?? fallback.chores,
+    workouts: input?.workouts ?? fallback.workouts,
+    reminders: input?.reminders ?? fallback.reminders,
+  };
+}
+
+export function loadStoredCalendarFilters(userId?: string | null): CalendarModuleFilters {
+  const fallback = moduleDefaultFilters();
+  if (!canUseStorage()) return fallback;
+  try {
+    const raw = window.localStorage.getItem(scopedKey(CALENDAR_FILTERS_KEY, userId));
+    if (!raw) return fallback;
+    return normalizeModules(JSON.parse(raw) as Partial<CalendarModuleFilters>);
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveStoredCalendarFilters(filters: CalendarModuleFilters, userId?: string | null): void {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(
+    scopedKey(CALENDAR_FILTERS_KEY, userId),
+    JSON.stringify(normalizeModules(filters)),
+  );
+}
+
+function normalizeFilterPresetName(input: string): string {
+  const collapsed = input.replace(/\s+/g, ' ').trim();
+  return collapsed || 'Custom filter';
+}
+
+function defaultPresetName(existingCount: number): string {
+  return `Custom filter ${existingCount + 1}`;
+}
+
+function normalizePreset(input: unknown, index: number): CalendarFilterPreset | null {
+  if (!input || typeof input !== 'object') return null;
+  const row = input as { id?: unknown; name?: unknown; modules?: unknown };
+  const id = typeof row.id === 'string' && row.id.trim() ? row.id : `filter-${index + 1}`;
+  const name =
+    typeof row.name === 'string' && row.name.trim()
+      ? normalizeFilterPresetName(row.name)
+      : defaultPresetName(index);
+  const modules =
+    row.modules && typeof row.modules === 'object'
+      ? normalizeModules(row.modules as Partial<CalendarModuleFilters>)
+      : moduleDefaultFilters();
+  return { id, name, modules };
+}
+
+export function loadStoredCalendarFilterPresets(userId?: string | null): CalendarFilterPreset[] {
+  if (!canUseStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((preset, index) => normalizePreset(preset, index))
+      .filter((preset): preset is CalendarFilterPreset => preset !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveStoredCalendarFilterPresets(
+  presets: CalendarFilterPreset[],
+  userId?: string | null,
+): void {
+  if (!canUseStorage()) return;
+  const normalized = presets.map((preset, index) => ({
+    id: preset.id,
+    name: normalizeFilterPresetName(preset.name || defaultPresetName(index)),
+    modules: normalizeModules(preset.modules),
+  }));
+  window.localStorage.setItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId), JSON.stringify(normalized));
+}
+
+export function filtersEqual(a: CalendarModuleFilters, b: CalendarModuleFilters): boolean {
+  return (
+    a.manual === b.manual &&
+    a.meals === b.meals &&
+    a.tasks === b.tasks &&
+    a.chores === b.chores &&
+    a.workouts === b.workouts &&
+    a.reminders === b.reminders
+  );
+}
+
+export function createCalendarFilterPreset(
+  name: string,
+  modules: CalendarModuleFilters,
+  existingCount: number,
+): CalendarFilterPreset {
+  const trimmed = normalizeFilterPresetName(name || defaultPresetName(existingCount));
+  return {
+    id: `filter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: trimmed,
+    modules: normalizeModules(modules),
+  };
+}
+
+export function normalizeCalendarFilterName(name: string): string {
+  return normalizeFilterPresetName(name);
+}

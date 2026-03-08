@@ -48,22 +48,21 @@ import {
   GoogleCalendarPrefs,
   setGoogleCalendarPrefs,
 } from '@/lib/calendarStore';
+import {
+  CalendarFilterPreset,
+  createCalendarFilterPreset,
+  filtersEqual,
+  loadStoredCalendarFilterPresets,
+  loadStoredCalendarFilters,
+  normalizeCalendarFilterName,
+  saveStoredCalendarFilterPresets,
+  saveStoredCalendarFilters,
+} from '@/lib/calendarFilters';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 type PlannerMode = 'month' | 'twoWeek';
-
-function moduleDefaultFilters(): Record<CalendarEventModule, boolean> {
-  return {
-    manual: true,
-    meals: true,
-    tasks: true,
-    chores: true,
-    workouts: true,
-    reminders: true,
-  };
-}
 
 function toGoogleDateToken(input: Date): string {
   return input.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -113,7 +112,14 @@ export default function CalendarPlannerPage() {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(moduleDefaultFilters);
+  const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(() =>
+    loadStoredCalendarFilters(user?.id),
+  );
+  const [filterPresets, setFilterPresets] = useState<CalendarFilterPreset[]>(() =>
+    loadStoredCalendarFilterPresets(user?.id),
+  );
+  const [newFilterPresetName, setNewFilterPresetName] = useState('');
+  const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() => getGoogleCalendarPrefs(user?.id));
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
@@ -141,6 +147,24 @@ export default function CalendarPlannerPage() {
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    setFilters(loadStoredCalendarFilters(user?.id));
+    setFilterPresets(loadStoredCalendarFilterPresets(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    saveStoredCalendarFilters(filters, user?.id);
+  }, [filters, user?.id]);
+
+  useEffect(() => {
+    saveStoredCalendarFilterPresets(filterPresets, user?.id);
+  }, [filterPresets, user?.id]);
+
+  useEffect(() => {
+    const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
+    setActiveFilterPresetId(activeMatch?.id || null);
+  }, [filterPresets, filters]);
 
   useEffect(() => {
     let mounted = true;
@@ -363,6 +387,48 @@ export default function CalendarPlannerPage() {
     setFilters((prev) => ({ ...prev, [module]: checked }));
   };
 
+  const createFilterPreset = () => {
+    const nextPreset = createCalendarFilterPreset(newFilterPresetName, filters, filterPresets.length);
+    setFilterPresets((prev) => [...prev, nextPreset]);
+    setNewFilterPresetName('');
+    setActiveFilterPresetId(nextPreset.id);
+    toast({ title: `Filter "${nextPreset.name}" saved` });
+  };
+
+  const renameFilterPreset = (presetId: string, name: string) => {
+    setFilterPresets((prev) =>
+      prev.map((preset) => (preset.id === presetId ? { ...preset, name } : preset)),
+    );
+  };
+
+  const commitFilterPresetName = (presetId: string) => {
+    setFilterPresets((prev) =>
+      prev.map((preset) =>
+        preset.id === presetId ? { ...preset, name: normalizeCalendarFilterName(preset.name) } : preset,
+      ),
+    );
+  };
+
+  const applyFilterPreset = (presetId: string) => {
+    const preset = filterPresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setFilters(preset.modules);
+    setActiveFilterPresetId(preset.id);
+  };
+
+  const updatePresetFromCurrent = (presetId: string) => {
+    setFilterPresets((prev) =>
+      prev.map((preset) => (preset.id === presetId ? { ...preset, modules: { ...filters } } : preset)),
+    );
+    toast({ title: 'Filter updated from current toggles' });
+  };
+
+  const deleteFilterPreset = (presetId: string) => {
+    setFilterPresets((prev) => prev.filter((preset) => preset.id !== presetId));
+    setActiveFilterPresetId((prev) => (prev === presetId ? null : prev));
+    toast({ title: 'Filter removed' });
+  };
+
   const updateGooglePrefs = (updates: Partial<GoogleCalendarPrefs>) => {
     const next = { ...googlePrefs, ...updates };
     setGooglePrefsState(next);
@@ -505,6 +571,73 @@ export default function CalendarPlannerPage() {
                   <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
                 </div>
               ))}
+
+              <div className="pt-3 border-t border-border space-y-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={newFilterPresetName}
+                    onChange={(event) => setNewFilterPresetName(event.target.value)}
+                    placeholder="Name this filter (example: Meals + chores)"
+                  />
+                  <Button type="button" variant="outline" onClick={createFilterPreset}>
+                    Add filter
+                  </Button>
+                </div>
+                {filterPresets.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No custom filters yet. Save your current toggles so you can switch quickly.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {filterPresets.map((preset) => {
+                      const isActive = activeFilterPresetId === preset.id;
+                      return (
+                        <div
+                          key={preset.id}
+                          className={cn(
+                            'rounded-lg border border-border p-2 space-y-2',
+                            isActive && 'border-primary/50 bg-primary/5',
+                          )}
+                        >
+                          <Input
+                            value={preset.name}
+                            onChange={(event) => renameFilterPreset(preset.id, event.target.value)}
+                            onBlur={() => commitFilterPresetName(preset.id)}
+                            aria-label={`Filter name for ${preset.name}`}
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isActive ? 'default' : 'outline'}
+                              onClick={() => applyFilterPreset(preset.id)}
+                            >
+                              Apply
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updatePresetFromCurrent(preset.id)}
+                            >
+                              Update
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => deleteFilterPreset(preset.id)}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </SectionCard>
 
@@ -577,7 +710,7 @@ export default function CalendarPlannerPage() {
             <DialogTitle className="font-display">Calendar filters</DialogTitle>
             <DialogDescription>Choose which event types show in your planner and day popout.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
               <div key={module} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                 <Badge variant="outline" className={cn('border', CALENDAR_MODULE_META[module].badgeClass)}>
@@ -586,6 +719,62 @@ export default function CalendarPlannerPage() {
                 <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
               </div>
             ))}
+            <div className="pt-2 border-t border-border space-y-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Saved filters</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={newFilterPresetName}
+                  onChange={(event) => setNewFilterPresetName(event.target.value)}
+                  placeholder="Name this filter"
+                />
+                <Button type="button" variant="outline" onClick={createFilterPreset}>
+                  Add
+                </Button>
+              </div>
+              {filterPresets.map((preset) => {
+                const isActive = activeFilterPresetId === preset.id;
+                return (
+                  <div key={preset.id} className="rounded-lg border border-border p-2 space-y-2">
+                    <Input
+                      value={preset.name}
+                      onChange={(event) => renameFilterPreset(preset.id, event.target.value)}
+                      onBlur={() => commitFilterPresetName(preset.id)}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={isActive ? 'default' : 'outline'}
+                        onClick={() => applyFilterPreset(preset.id)}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updatePresetFromCurrent(preset.id)}
+                      >
+                        Update
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteFilterPreset(preset.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {filterPresets.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No custom filters yet.
+                </p>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
