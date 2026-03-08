@@ -172,9 +172,6 @@ export default function GrowthAnalyticsPage() {
           <Link to="/settings">
             <Button variant="outline">Back to Settings</Button>
           </Link>
-          <Link to="/free-tools-analytics">
-            <Button variant="outline">Free Tools Dashboard</Button>
-          </Link>
         </div>
       </div>
     </AppLayout>

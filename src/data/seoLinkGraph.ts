@@ -225,26 +225,4 @@ export const seoCrossLinks: Record<string, SeoCrossLink[]> = {
       description: 'Tune meal complexity to fit sleep quality and weekly rhythm.',
     },
   ],
-  '/free-tools': [
-    {
-      href: '/meal-plans',
-      title: 'Meal Plan Frameworks',
-      description: 'Use structured weekly dinner systems to turn tool outputs into a live meal cadence.',
-    },
-    {
-      href: '/grocery-lists',
-      title: 'Grocery List Guides',
-      description: 'Convert free-tool outputs into cleaner rollups and lower-waste shopping execution.',
-    },
-    {
-      href: '/task-systems',
-      title: 'Task Systems',
-      description: 'Assign ownership and reminders so plans do not stall after setup.',
-    },
-    {
-      href: '/workout-tracking',
-      title: 'Workout Tracking',
-      description: 'Connect nutrition, routines, and schedule tools with consistent fitness execution.',
-    },
-  ],
 };

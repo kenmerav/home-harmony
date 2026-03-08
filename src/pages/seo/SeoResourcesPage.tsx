@@ -66,16 +66,6 @@ export default function SeoResourcesPage() {
         ]}
       />
 
-      <section className="mx-auto mb-12 max-w-4xl rounded-2xl border border-primary/30 bg-primary/10 p-6">
-        <h2 className="font-display text-3xl leading-tight">Free tool library</h2>
-        <p className="mt-2 text-sm leading-7 text-muted-foreground">
-          Use quick generators for meal structure, grocery cleanup, chores, macros, and weekly reset planning.
-        </p>
-        <Link to="/free-tools" className="mt-4 inline-block">
-          <Button>Explore Free Tools</Button>
-        </Link>
-      </section>
-
       <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-2">
         <article className="rounded-2xl border border-border/60 bg-card p-6">
           <h2 className="font-display text-2xl leading-tight">Comparison Guides</h2>

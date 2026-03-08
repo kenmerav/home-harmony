@@ -331,7 +331,7 @@ export function TemplateDetailPage() {
           links: [
             { title: 'Meal Plan Frameworks', href: '/meal-plans' },
             { title: 'Task Systems', href: '/task-systems' },
-            { title: 'Free Tools', href: '/free-tools' },
+            { title: 'Grocery List Guides', href: '/grocery-lists' },
           ],
         },
       ]}

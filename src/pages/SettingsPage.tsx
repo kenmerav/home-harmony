@@ -899,14 +899,11 @@ export default function SettingsPage() {
         <SectionCard title="Growth dashboards" subtitle="Track funnel and conversion performance">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Open event funnel analytics and free-tools conversion reporting.
+              Open event funnel analytics for onboarding and activation performance.
             </p>
             <div className="flex flex-wrap gap-2">
               <Link to="/growth-analytics">
                 <Button variant="outline">Open Growth Funnel</Button>
-              </Link>
-              <Link to="/free-tools-analytics">
-                <Button variant="outline">Open Free-Tools Dashboard</Button>
               </Link>
             </div>
           </div>

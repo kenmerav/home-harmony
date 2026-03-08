@@ -230,7 +230,6 @@ const seoFooterGroups = [
     title: 'Resources',
     links: [
       { label: 'All Resources', href: '/resources' },
-      { label: 'Free Tools', href: '/free-tools' },
       { label: 'Template Library', href: '/templates' },
       { label: 'Household Templates', href: '/household-templates' },
       { label: 'Recipe Collections', href: '/recipe-collections' },

@@ -29,7 +29,6 @@ const TasksPage = lazy(() => import("./pages/TasksPage"));
 const FamilyPage = lazy(() => import("./pages/FamilyPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const GetStartedPage = lazy(() => import("./pages/GetStartedPage"));
-const FreeToolsAnalyticsPage = lazy(() => import("./pages/FreeToolsAnalyticsPage"));
 const GrowthAnalyticsPage = lazy(() => import("./pages/GrowthAnalyticsPage"));
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -77,12 +76,6 @@ const LifestyleTrackingHubPage = lazy(() =>
 );
 const LifestyleTrackingDetailPage = lazy(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.LifestyleTrackingDetailPage })),
-);
-const FreeToolsHubPage = lazy(() =>
-  import("./pages/seo/FreeToolsPages").then((m) => ({ default: m.FreeToolsHubPage })),
-);
-const FreeToolsDetailPage = lazy(() =>
-  import("./pages/seo/FreeToolsPages").then((m) => ({ default: m.FreeToolsDetailPage })),
 );
 const ComparisonHubPage = lazy(() =>
   import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonHubPage })),
@@ -139,8 +132,8 @@ const App = () => (
               <Route path="/workout-tracking/:slug" element={<WorkoutTrackingDetailPage />} />
               <Route path="/lifestyle-tracking" element={<LifestyleTrackingHubPage />} />
               <Route path="/lifestyle-tracking/:slug" element={<LifestyleTrackingDetailPage />} />
-              <Route path="/free-tools" element={<FreeToolsHubPage />} />
-              <Route path="/free-tools/:slug" element={<FreeToolsDetailPage />} />
+              <Route path="/free-tools" element={<Navigate to="/resources" replace />} />
+              <Route path="/free-tools/:slug" element={<Navigate to="/resources" replace />} />
               <Route path="/compare" element={<ComparisonHubPage />} />
               <Route path="/compare/:slug" element={<ComparisonDetailPage />} />
               <Route path="/templates" element={<TemplatesHubPage />} />
@@ -283,7 +276,7 @@ const App = () => (
                 element={
                   <RequireProfileComplete>
                     <RequireSubscription>
-                      <FreeToolsAnalyticsPage />
+                      <Navigate to="/growth-analytics" replace />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }
