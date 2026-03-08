@@ -246,6 +246,7 @@ function dbRecipeToDisplayRecipe(
 }
 
 export default function RecipesPage() {
+  type ImportEntryMode = 'import' | 'manual';
   const [searchQuery, setSearchQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
@@ -274,6 +275,17 @@ export default function RecipesPage() {
   const [isResolvingLinkTitles, setIsResolvingLinkTitles] = useState(false);
   const [linkPreviewByUrl, setLinkPreviewByUrl] = useState<Record<string, LinkPreviewRecord>>({});
   const [currentImportUrl, setCurrentImportUrl] = useState('');
+  const [importEntryMode, setImportEntryMode] = useState<ImportEntryMode>('import');
+  const [manualRecipeForm, setManualRecipeForm] = useState({
+    name: '',
+    servings: '4',
+    ingredients: '',
+    instructions: '',
+    calories: '',
+    protein_g: '',
+    carbs_g: '',
+    fat_g: '',
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
@@ -1122,6 +1134,55 @@ export default function RecipesPage() {
     }
   };
 
+  const queueManualRecipeForReview = () => {
+    const name = manualRecipeForm.name.trim();
+    const ingredientsList = manualRecipeForm.ingredients
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const instructions = manualRecipeForm.instructions.trim();
+    const servings = Number.parseInt(manualRecipeForm.servings, 10);
+    const calories = Number.parseInt(manualRecipeForm.calories, 10) || 0;
+    const protein_g = Number.parseInt(manualRecipeForm.protein_g, 10) || 0;
+    const carbs_g = Number.parseInt(manualRecipeForm.carbs_g, 10) || 0;
+    const fat_g = Number.parseInt(manualRecipeForm.fat_g, 10) || 0;
+
+    if (!name) {
+      toast({ title: 'Add recipe name', variant: 'destructive' });
+      return;
+    }
+    if (ingredientsList.length === 0) {
+      toast({ title: 'Add at least one ingredient', variant: 'destructive' });
+      return;
+    }
+    if (!instructions) {
+      toast({ title: 'Add instructions', variant: 'destructive' });
+      return;
+    }
+
+    const manualRecipe: ExtractedRecipe = {
+      name,
+      servings: Number.isFinite(servings) && servings > 0 ? servings : 4,
+      ingredients: ingredientsList,
+      ingredientsRaw: ingredientsList.join('\n'),
+      instructions,
+      macrosPerServing: {
+        calories: Math.max(0, calories),
+        protein_g: Math.max(0, protein_g),
+        carbs_g: Math.max(0, carbs_g),
+        fat_g: Math.max(0, fat_g),
+      },
+    };
+
+    setExtractedRecipes([manualRecipe]);
+    setSelectedRecipes(new Set([0]));
+    setUploadStep('review');
+    toast({
+      title: 'Manual recipe ready',
+      description: 'Review it and click import.',
+    });
+  };
+
   const closeModal = () => {
     setUploadModalOpen(false);
     setUploadStep('upload');
@@ -1141,6 +1202,17 @@ export default function RecipesPage() {
     setIsResolvingLinkTitles(false);
     setLinkPreviewByUrl({});
     setCurrentImportUrl('');
+    setImportEntryMode('import');
+    setManualRecipeForm({
+      name: '',
+      servings: '4',
+      ingredients: '',
+      instructions: '',
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+    });
     setProcessingStatus('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -1321,7 +1393,7 @@ export default function RecipesPage() {
             </DialogTitle>
             <DialogDescription>
               {uploadStep === 'upload' 
-                ? 'Upload JSON/PDF/photo, import one URL, or bulk import many links. PDF imports run in the background.'
+                ? 'Upload JSON/PDF/photo, import links, or choose manual entry. PDF imports run in the background.'
                 : `${extractedRecipes.length} recipes found. Select which ones to import.`
               }
             </DialogDescription>
@@ -1329,6 +1401,115 @@ export default function RecipesPage() {
 
           {uploadStep === 'upload' ? (
             <div className="space-y-4">
+              <div className="rounded-lg border border-border/70 bg-card p-4">
+                <p className="mb-2 font-medium">Import option</p>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={importEntryMode}
+                  onChange={(event) => setImportEntryMode(event.target.value as ImportEntryMode)}
+                  disabled={isProcessing || isResolvingLinkTitles}
+                >
+                  <option value="import">Import from file or links</option>
+                  <option value="manual">Input recipe manually</option>
+                </select>
+              </div>
+
+              {importEntryMode === 'manual' && (
+                <div className="rounded-lg border border-border/70 bg-card p-4 space-y-3">
+                  <p className="font-medium">Manual recipe input</p>
+                  <Input
+                    value={manualRecipeForm.name}
+                    onChange={(event) =>
+                      setManualRecipeForm((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                    placeholder="Recipe name"
+                    disabled={isProcessing}
+                  />
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      value={manualRecipeForm.servings}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({ ...prev, servings: event.target.value }))
+                      }
+                      placeholder="Servings"
+                      disabled={isProcessing}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={manualRecipeForm.calories}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({ ...prev, calories: event.target.value }))
+                      }
+                      placeholder="Calories per serving"
+                      disabled={isProcessing}
+                    />
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <Input
+                      type="number"
+                      min="0"
+                      value={manualRecipeForm.protein_g}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({ ...prev, protein_g: event.target.value }))
+                      }
+                      placeholder="Protein (g)"
+                      disabled={isProcessing}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={manualRecipeForm.carbs_g}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({ ...prev, carbs_g: event.target.value }))
+                      }
+                      placeholder="Carbs (g)"
+                      disabled={isProcessing}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={manualRecipeForm.fat_g}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({ ...prev, fat_g: event.target.value }))
+                      }
+                      placeholder="Fat (g)"
+                      disabled={isProcessing}
+                    />
+                  </div>
+                  <Textarea
+                    value={manualRecipeForm.ingredients}
+                    onChange={(event) =>
+                      setManualRecipeForm((prev) => ({ ...prev, ingredients: event.target.value }))
+                    }
+                    rows={5}
+                    placeholder={'Ingredients (one per line)\n1 lb ground turkey\n1 tbsp olive oil\n1 tsp garlic powder'}
+                    disabled={isProcessing}
+                  />
+                  <Textarea
+                    value={manualRecipeForm.instructions}
+                    onChange={(event) =>
+                      setManualRecipeForm((prev) => ({ ...prev, instructions: event.target.value }))
+                    }
+                    rows={6}
+                    placeholder={'Instructions\n1. Prep ingredients...\n2. Cook...\n3. Serve...'}
+                    disabled={isProcessing}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={queueManualRecipeForReview}
+                      disabled={isProcessing}
+                    >
+                      Add to review
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {importEntryMode === 'import' && (
+                <>
               <div 
                 className={cn(
                   "border-2 border-dashed border-border rounded-xl p-8 text-center transition-gentle cursor-pointer",
@@ -1655,6 +1836,8 @@ export default function RecipesPage() {
                   <span className="font-medium text-foreground">{currentImportUrl}</span>
                 </p>
               ) : null}
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
