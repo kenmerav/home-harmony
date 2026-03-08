@@ -59,6 +59,7 @@ import {
   GoogleCalendarPrefs,
   setGoogleCalendarPrefs,
 } from '@/lib/calendarStore';
+import { syncDerivedCalendarEvents } from '@/lib/calendarFeed';
 import {
   CalendarFilterPreset,
   createCalendarFilterPreset,
@@ -649,6 +650,7 @@ export default function CalendarPage() {
       nextEvents.push(...getManualCalendarEvents(user?.id));
 
       nextEvents.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1));
+      void syncDerivedCalendarEvents(user?.id, rangeStart, rangeEnd, nextEvents);
       setEvents(nextEvents);
     } finally {
       setIsLoading(false);

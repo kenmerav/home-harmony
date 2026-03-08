@@ -21,6 +21,7 @@ const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const CalendarPlannerPage = lazy(() => import("./pages/CalendarPlannerPage"));
+const AppleCalendarConnectPage = lazy(() => import("./pages/AppleCalendarConnectPage"));
 const MealsPage = lazy(() => import("./pages/MealsPage"));
 const RecipesPage = lazy(() => import("./pages/RecipesPage"));
 const GroceryPage = lazy(() => import("./pages/GroceryPage"));
@@ -177,6 +178,16 @@ const App = () => (
                   <RequireProfileComplete>
                     <RequireSubscription>
                       <CalendarPlannerPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/calendar/connect-apple"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <AppleCalendarConnectPage />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }

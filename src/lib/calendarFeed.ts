@@ -21,10 +21,12 @@ import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { loadTasks } from '@/lib/taskStore';
 import { getManualCalendarEvents, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
+import { supabase } from '@/integrations/supabase/client';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
+const DERIVED_SYNC_SOURCES = ['task', 'chore', 'workout'] as const;
 
 type WeekdayChore = {
   name: string;
@@ -74,8 +76,47 @@ export const CALENDAR_MODULE_META: Record<
   },
 };
 
+type SyncCalendarEventSource = (typeof DERIVED_SYNC_SOURCES)[number];
+
+type ExistingDerivedCalendarRow = {
+  id: string;
+  related_id: string | null;
+  is_deleted: boolean;
+};
+
+type CalendarSyncError = { message?: string } | null;
+
+type SupabaseCalendarSyncClient = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        gte: (column: string, value: string) => {
+          lt: (column: string, value: string) => {
+            in: (column: string, values: string[]) => Promise<{
+              data: ExistingDerivedCalendarRow[] | null;
+              error: CalendarSyncError;
+            }>;
+          };
+        };
+      };
+    };
+    insert: (values: Record<string, unknown>) => Promise<{ error: CalendarSyncError }>;
+    update: (values: Record<string, unknown>) => {
+      eq: (column: string, value: string) => Promise<{ error: CalendarSyncError }>;
+    };
+  };
+};
+
+const supabaseCalendarSync = supabase as unknown as SupabaseCalendarSyncClient;
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function guessUserTimeZone(): string {
+  if (typeof Intl === 'undefined') return 'UTC';
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return zone && zone.trim() ? zone : 'UTC';
 }
 
 function choresStateKey(userId?: string | null): string {
@@ -112,6 +153,117 @@ function normalizeDay(raw: unknown): DayOfWeek | null {
 
 function inRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
   return !isBefore(date, rangeStart) && !isAfter(date, rangeEnd);
+}
+
+function calendarLayerForDerivedEvent(event: CalendarEvent): string {
+  if (event.source === 'task') return 'kids';
+  if (event.source === 'chore') return 'chores';
+  if (event.source === 'workout') return 'family';
+  return 'family';
+}
+
+export async function syncDerivedCalendarEvents(
+  userId: string | null | undefined,
+  rangeStart: Date,
+  rangeEnd: Date,
+  events: CalendarEvent[],
+): Promise<void> {
+  if (!userId || userId === 'demo-user') return;
+
+  const desiredEvents = events
+    .filter((event) => DERIVED_SYNC_SOURCES.includes(event.source as SyncCalendarEventSource))
+    .map((event) => ({ ...event, relatedKey: event.relatedId || event.id }))
+    .filter((event) => typeof event.relatedKey === 'string' && event.relatedKey.trim().length > 0);
+
+  const desiredByRelated = new Map<string, (typeof desiredEvents)[number]>();
+  desiredEvents.forEach((event) => {
+    desiredByRelated.set(event.relatedKey, event);
+  });
+
+  const windowStart = addDays(rangeStart, -1).toISOString();
+  const windowEnd = addDays(rangeEnd, 1).toISOString();
+
+  const { data: existingRows, error: existingError } = await supabaseCalendarSync
+    .from('calendar_events')
+    .select('id,related_id,is_deleted')
+    .eq('owner_id', userId)
+    .gte('starts_at', windowStart)
+    .lt('starts_at', windowEnd)
+    .in('source', [...DERIVED_SYNC_SOURCES]);
+
+  if (existingError) {
+    console.error('Failed loading derived calendar rows for sync:', existingError.message || existingError);
+    return;
+  }
+
+  const existingByRelated = new Map<string, ExistingDerivedCalendarRow>();
+  (existingRows || []).forEach((row) => {
+    if (typeof row.related_id === 'string' && row.related_id.trim()) {
+      existingByRelated.set(row.related_id, row);
+    }
+  });
+
+  const timezoneName = guessUserTimeZone();
+  const ops: Promise<{ error: CalendarSyncError }>[] = [];
+
+  desiredByRelated.forEach((event, relatedKey) => {
+    const existing = existingByRelated.get(relatedKey);
+    const payload = {
+      title: event.title,
+      description: event.description || null,
+      starts_at: event.startsAt,
+      ends_at: event.endsAt || null,
+      all_day: !!event.allDay,
+      module: event.module,
+      source: event.source,
+      related_id: relatedKey,
+      calendar_layer: calendarLayerForDerivedEvent(event),
+      timezone_name: timezoneName,
+      location_text: event.location || null,
+      recurrence_rule: null,
+      is_deleted: false,
+      deleted_at: null,
+    };
+
+    if (existing) {
+      ops.push(
+        supabaseCalendarSync
+          .from('calendar_events')
+          .update(payload)
+          .eq('id', existing.id),
+      );
+    } else {
+      ops.push(
+        supabaseCalendarSync
+          .from('calendar_events')
+          .insert({
+            owner_id: userId,
+            ...payload,
+          }),
+      );
+    }
+  });
+
+  const desiredRelatedIds = new Set(desiredByRelated.keys());
+  (existingRows || []).forEach((row) => {
+    if (!row.related_id || desiredRelatedIds.has(row.related_id) || row.is_deleted) return;
+    ops.push(
+      supabaseCalendarSync
+        .from('calendar_events')
+        .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+        .eq('id', row.id),
+    );
+  });
+
+  if (!ops.length) return;
+  const results = await Promise.all(ops);
+  const errors = results.map((result) => result.error).filter((error) => !!error);
+  if (errors.length > 0) {
+    console.error(
+      'One or more derived calendar sync operations failed:',
+      errors.map((error) => error?.message || 'unknown'),
+    );
+  }
 }
 
 function withTime(baseDate: Date, hhmm: string): Date {
@@ -443,5 +595,6 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
 
   nextEvents.push(...getManualCalendarEvents(userId));
   nextEvents.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1));
+  void syncDerivedCalendarEvents(userId, rangeStart, rangeEnd, nextEvents);
   return nextEvents;
 }

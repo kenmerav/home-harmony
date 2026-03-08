@@ -187,6 +187,12 @@ function normalizeTime(value: string | null | undefined): string {
   return value;
 }
 
+function guessUserTimeZone(): string {
+  if (typeof Intl === 'undefined') return 'UTC';
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return zone && zone.trim() ? zone : 'UTC';
+}
+
 function mealStartDate(weekOf: string, day: string, hhmm: string): Date | null {
   const dayIndex = dayToIndexMonday[String(day || '').toLowerCase()];
   if (typeof dayIndex !== 'number') return null;
@@ -284,7 +290,7 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
       ops.push(
         raw
           .from('calendar_events')
-          .update({ ...payload, is_deleted: false })
+          .update({ ...payload, is_deleted: false, deleted_at: null })
           .eq('id', existing.id),
       );
       return;
@@ -294,6 +300,7 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
         owner_id: userId,
         related_id: relatedId,
         is_deleted: false,
+        deleted_at: null,
         ...payload,
       }),
     );
@@ -302,8 +309,15 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
   const markDeleted = (relatedId: string) => {
     const existing = existingByRelated.get(relatedId);
     if (!existing || existing.is_deleted) return;
-    ops.push(raw.from('calendar_events').update({ is_deleted: true }).eq('id', existing.id));
+    ops.push(
+      raw
+        .from('calendar_events')
+        .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+        .eq('id', existing.id),
+    );
   };
+
+  const timezoneName = guessUserTimeZone();
 
   const desiredRelatedIds = new Set<string>();
 
@@ -325,6 +339,9 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
         all_day: false,
         module: 'meals',
         source: 'meal',
+        calendar_layer: 'meals',
+        timezone_name: timezoneName,
+        recurrence_rule: null,
       });
 
       if (prepEnabled) {
@@ -339,6 +356,9 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
           all_day: false,
           module: 'reminders',
           source: 'reminder',
+          calendar_layer: 'deliveries',
+          timezone_name: timezoneName,
+          recurrence_rule: null,
         });
       } else {
         markDeleted(prepRelatedId);
@@ -432,6 +452,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
   writeJson(key, [row, ...current]);
 
   if (userId) {
+    const timezoneName = guessUserTimeZone();
     void supabaseCalendarSync
       .from('calendar_events')
       .insert({
@@ -451,7 +472,11 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
         all_day: row.allDay,
         module: 'manual',
         source: 'manual',
+        calendar_layer: 'family',
+        timezone_name: timezoneName,
+        recurrence_rule: null,
         is_deleted: false,
+        deleted_at: null,
       })
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to sync manual event to Supabase:', error.message || error);
@@ -496,7 +521,7 @@ export function deleteManualCalendarEvent(eventId: string, userId?: string | nul
   if (userId && remoteId) {
     void supabaseCalendarSync
       .from('calendar_events')
-      .update({ is_deleted: true })
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
       .eq('id', remoteId)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to delete manual event in Supabase:', error.message || error);

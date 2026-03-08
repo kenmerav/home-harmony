@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.transactional-email]
 verify_jwt = false
+
+[functions.apple-calendar-feed]
+verify_jwt = false
