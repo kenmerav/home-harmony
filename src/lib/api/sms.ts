@@ -1,5 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
 
+export const SMS_REMINDER_MODULES = ['meals', 'manual'] as const;
+export type SmsReminderModule = (typeof SMS_REMINDER_MODULES)[number];
+
+type ModuleRecipientsMap = Record<SmsReminderModule, string[]>;
+
 export interface SmsPreferences {
   enabled: boolean;
   phone_e164: string;
@@ -12,9 +17,15 @@ export interface SmsPreferences {
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
   include_modules: string[];
+  module_recipients: ModuleRecipientsMap;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
 }
+
+const emptyModuleRecipients = (): ModuleRecipientsMap => ({
+  meals: [],
+  manual: [],
+});
 
 const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   enabled: false,
@@ -28,6 +39,7 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: '18:00',
   include_modules: ['meals', 'manual'],
+  module_recipients: emptyModuleRecipients(),
   quiet_hours_start: null,
   quiet_hours_end: null,
 };
@@ -57,7 +69,30 @@ async function invokeSmsPreferences(body: Record<string, unknown>): Promise<Reco
 }
 
 function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPreferences {
-  if (!raw) return { ...DEFAULT_SMS_PREFERENCES };
+  if (!raw) {
+    return {
+      ...DEFAULT_SMS_PREFERENCES,
+      module_recipients: emptyModuleRecipients(),
+    };
+  }
+  const includeModules =
+    Array.isArray(raw.include_modules) && raw.include_modules.length > 0
+      ? raw.include_modules.filter((value): value is SmsReminderModule =>
+          SMS_REMINDER_MODULES.includes(value as SmsReminderModule),
+        )
+      : DEFAULT_SMS_PREFERENCES.include_modules;
+  const moduleRecipientsRaw =
+    raw.module_recipients && typeof raw.module_recipients === 'object'
+      ? (raw.module_recipients as Partial<Record<SmsReminderModule, unknown>>)
+      : {};
+  const moduleRecipients = emptyModuleRecipients();
+  SMS_REMINDER_MODULES.forEach((moduleName) => {
+    const value = moduleRecipientsRaw[moduleName];
+    moduleRecipients[moduleName] = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+  });
+
   return {
     enabled: !!raw.enabled,
     phone_e164: raw.phone_e164 || '',
@@ -72,10 +107,8 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
         ? raw.reminder_offsets_minutes
         : DEFAULT_SMS_PREFERENCES.reminder_offsets_minutes,
     preferred_dinner_time: raw.preferred_dinner_time || DEFAULT_SMS_PREFERENCES.preferred_dinner_time,
-    include_modules:
-      Array.isArray(raw.include_modules) && raw.include_modules.length > 0
-        ? raw.include_modules
-        : DEFAULT_SMS_PREFERENCES.include_modules,
+    include_modules: includeModules.length > 0 ? includeModules : DEFAULT_SMS_PREFERENCES.include_modules,
+    module_recipients: moduleRecipients,
     quiet_hours_start: raw.quiet_hours_start || null,
     quiet_hours_end: raw.quiet_hours_end || null,
   };
@@ -119,5 +152,6 @@ export function defaultSmsPreferences(timezoneGuess?: string): SmsPreferences {
   return {
     ...DEFAULT_SMS_PREFERENCES,
     timezone: timezoneGuess || DEFAULT_SMS_PREFERENCES.timezone,
+    module_recipients: emptyModuleRecipients(),
   };
 }

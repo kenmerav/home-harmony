@@ -40,6 +40,15 @@ import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs'
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { loadTasks } from '@/lib/taskStore';
 import {
+  defaultSmsPreferences,
+  loadSmsPreferences,
+  saveSmsPreferences,
+  sendSmsTestMessage,
+  SMS_REMINDER_MODULES,
+  SmsPreferences,
+  SmsReminderModule,
+} from '@/lib/api/sms';
+import {
   addManualCalendarEvent,
   CalendarEvent,
   CalendarEventModule,
@@ -51,13 +60,14 @@ import {
 } from '@/lib/calendarStore';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
-import { CalendarDays, ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarDays, ExternalLink, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
+const CALENDAR_FILTERS_KEY = 'homehub.calendar.filters.v1';
 
 type CalendarViewMode = 'month' | 'week';
 type CalendarSetupMode = 'google' | 'apple';
@@ -104,12 +114,34 @@ const moduleMeta: Record<CalendarEventModule, { label: string; badgeClass: strin
   reminders: { label: 'Reminders', badgeClass: 'border-slate-200 bg-slate-100/80 text-slate-700' },
 };
 
+const smsModuleLabel: Record<SmsReminderModule, string> = {
+  meals: 'Meal schedule',
+  manual: 'Manual calendar events',
+};
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function parsePhoneList(input: string): string[] {
+  return [...new Set(
+    input
+      .split(/[\n,;]+/g)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0),
+  )];
+}
+
+function formatPhoneList(input: string[]): string {
+  return input.join(', ');
+}
+
 function choresStateKey(userId?: string | null): string {
   return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+}
+
+function calendarFiltersKey(userId?: string | null): string {
+  return `${CALENDAR_FILTERS_KEY}:${userId || 'anon'}`;
 }
 
 function inRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
@@ -258,6 +290,26 @@ function moduleDefaultFilters(): Record<CalendarEventModule, boolean> {
   };
 }
 
+function loadStoredCalendarFilters(userId?: string | null): Record<CalendarEventModule, boolean> {
+  const fallback = moduleDefaultFilters();
+  if (!canUseStorage()) return fallback;
+  try {
+    const raw = window.localStorage.getItem(calendarFiltersKey(userId));
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Record<CalendarEventModule, boolean>>;
+    return {
+      manual: parsed.manual ?? fallback.manual,
+      meals: parsed.meals ?? fallback.meals,
+      tasks: parsed.tasks ?? fallback.tasks,
+      chores: parsed.chores ?? fallback.chores,
+      workouts: parsed.workouts ?? fallback.workouts,
+      reminders: parsed.reminders ?? fallback.reminders,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function parseCalendarSetupMode(value: string | null): CalendarSetupMode | null {
   if (value === 'google') return 'google';
   if (value === 'apple') return 'apple';
@@ -273,7 +325,18 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(moduleDefaultFilters);
+  const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(() =>
+    loadStoredCalendarFilters(user?.id),
+  );
+  const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
+    defaultSmsPreferences(
+      typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
+    ),
+  );
+  const [smsLoading, setSmsLoading] = useState(false);
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsTesting, setSmsTesting] = useState(false);
+  const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const [googlePrefs, setGooglePrefsState] = useState<GoogleCalendarPrefs>(() =>
     getGoogleCalendarPrefs(user?.id),
   );
@@ -293,6 +356,48 @@ export default function CalendarPage() {
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    setFilters(loadStoredCalendarFilters(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!canUseStorage()) return;
+    window.localStorage.setItem(calendarFiltersKey(user?.id), JSON.stringify(filters));
+  }, [filters, user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      if (!canUseRemoteSms) {
+        setSmsPrefs(
+          defaultSmsPreferences(
+            typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
+          ),
+        );
+        return;
+      }
+      setSmsLoading(true);
+      try {
+        const loaded = await loadSmsPreferences();
+        if (mounted) setSmsPrefs(loaded);
+      } catch (error) {
+        if (mounted) {
+          toast({
+            title: 'Could not load reminder texts',
+            description: error instanceof Error ? error.message : 'Please try again.',
+            variant: 'destructive',
+          });
+        }
+      } finally {
+        if (mounted) setSmsLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [canUseRemoteSms, toast]);
 
   useEffect(() => {
     if (!setupModeFromQuery) return;
@@ -717,6 +822,82 @@ export default function CalendarPage() {
     setFilters((prev) => ({ ...prev, [module]: enabled }));
   };
 
+  const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
+    setSmsPrefs((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleSmsModule = (moduleName: SmsReminderModule, checked: boolean) => {
+    setSmsPrefs((prev) => {
+      const next = checked
+        ? [...new Set([...prev.include_modules, moduleName])]
+        : prev.include_modules.filter((name) => name !== moduleName);
+      return {
+        ...prev,
+        include_modules: next,
+      };
+    });
+  };
+
+  const updateModuleRecipientsInput = (moduleName: SmsReminderModule, input: string) => {
+    const nextList = parsePhoneList(input);
+    setSmsPrefs((prev) => ({
+      ...prev,
+      module_recipients: {
+        ...prev.module_recipients,
+        [moduleName]: nextList,
+      },
+    }));
+  };
+
+  const saveSmsSettings = async () => {
+    if (!canUseRemoteSms) {
+      toast({
+        title: 'Sign in required',
+        description: 'Create an account to enable SMS reminder texts.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setSmsSaving(true);
+    try {
+      const saved = await saveSmsPreferences(smsPrefs);
+      setSmsPrefs(saved);
+      toast({ title: 'Reminder text filters saved' });
+    } catch (error) {
+      toast({
+        title: 'Could not save reminder text filters',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSmsSaving(false);
+    }
+  };
+
+  const sendSmsTest = async () => {
+    if (!canUseRemoteSms) {
+      toast({
+        title: 'Sign in required',
+        description: 'Create an account to send test reminder texts.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setSmsTesting(true);
+    try {
+      await sendSmsTestMessage();
+      toast({ title: 'Test SMS sent' });
+    } catch (error) {
+      toast({
+        title: 'Could not send test SMS',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSmsTesting(false);
+    }
+  };
+
   const updateGooglePrefs = (updates: Partial<GoogleCalendarPrefs>) => {
     const next = { ...googlePrefs, ...updates };
     setGooglePrefsState(next);
@@ -804,6 +985,128 @@ export default function CalendarPage() {
                 </div>
               ))}
             </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Reminder text filters"
+            subtitle="Choose which calendar filters send SMS and who should receive them"
+          >
+            {!canUseRemoteSms ? (
+              <p className="text-sm text-muted-foreground">
+                Sign in to enable reminder texts and assign family phone numbers by filter.
+              </p>
+            ) : smsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading reminder text settings...</p>
+            ) : (
+              <div className="space-y-4">
+                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm">Enable SMS updates</span>
+                  <Switch
+                    checked={smsPrefs.enabled}
+                    onCheckedChange={(checked) => updateSmsPref('enabled', Boolean(checked))}
+                  />
+                </label>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Fallback number</p>
+                    <Input
+                      placeholder="+15551234567"
+                      value={smsPrefs.phone_e164}
+                      onChange={(e) => updateSmsPref('phone_e164', e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Used when a filter has no custom recipients.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Timezone</p>
+                    <Input
+                      placeholder="America/New_York"
+                      value={smsPrefs.timezone}
+                      onChange={(e) => updateSmsPref('timezone', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm">Event reminder texts</span>
+                  <Switch
+                    checked={smsPrefs.event_reminders_enabled}
+                    onCheckedChange={(checked) => updateSmsPref('event_reminders_enabled', Boolean(checked))}
+                  />
+                </label>
+
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Reminder offsets</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[60, 30].map((offset) => {
+                      const active = smsPrefs.reminder_offsets_minutes.includes(offset);
+                      return (
+                        <Button
+                          key={offset}
+                          type="button"
+                          variant={active ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            const nextOffsets = active
+                              ? smsPrefs.reminder_offsets_minutes.filter((value) => value !== offset)
+                              : [...smsPrefs.reminder_offsets_minutes, offset];
+                            updateSmsPref(
+                              'reminder_offsets_minutes',
+                              [...new Set(nextOffsets)].sort((a, b) => b - a),
+                            );
+                          }}
+                        >
+                          {offset} min before
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {SMS_REMINDER_MODULES.map((moduleName) => {
+                    const enabled = smsPrefs.include_modules.includes(moduleName);
+                    const value = formatPhoneList(smsPrefs.module_recipients[moduleName] || []);
+                    return (
+                      <div key={moduleName} className="rounded-lg border border-border p-3 space-y-2">
+                        <label className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{smsModuleLabel[moduleName]}</span>
+                          <Switch
+                            checked={enabled}
+                            onCheckedChange={(checked) => toggleSmsModule(moduleName, Boolean(checked))}
+                          />
+                        </label>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">
+                            Recipients for this filter
+                          </p>
+                          <Input
+                            placeholder="+16155551234, +16155550999"
+                            value={value}
+                            onChange={(e) => updateModuleRecipientsInput(moduleName, e.target.value)}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Add one or more numbers, separated by commas. Example: mom + dad.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => void saveSmsSettings()} disabled={smsSaving}>
+                    {smsSaving ? 'Saving...' : 'Save reminder text filters'}
+                  </Button>
+                  <Button variant="outline" onClick={() => void sendSmsTest()} disabled={smsTesting}>
+                    <Phone className="mr-2 h-4 w-4" />
+                    {smsTesting ? 'Sending test...' : 'Send test SMS'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </SectionCard>
 
           <SectionCard title="Calendar integrations" subtitle="Set up Google quick add or Apple Calendar import">

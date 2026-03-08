@@ -7,9 +7,13 @@ import { sendTwilioSms } from "../_shared/twilio.ts";
 type CalendarEvent = {
   id: string;
   title: string;
+  module: SmsReminderModule;
   startsAtUtc: DateTime;
   startsAtLocal: DateTime;
 };
+
+type SmsReminderModule = "meals" | "manual";
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual"];
 
 type SmsPreferenceRow = {
   user_id: string;
@@ -24,6 +28,7 @@ type SmsPreferenceRow = {
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
   include_modules: string[];
+  module_recipients: Record<string, unknown> | null;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
 };
@@ -131,12 +136,69 @@ function isUsableDateTime(value: DateTime): boolean {
   return value.isValid && Number.isFinite(value.toMillis());
 }
 
+function normalizeIncludeModules(input: unknown): SmsReminderModule[] {
+  if (!Array.isArray(input)) return ["meals", "manual"];
+  const allowed = new Set(SMS_REMINDER_MODULES);
+  const cleaned = [...new Set(
+    input
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim().toLowerCase())
+      .filter((item) => allowed.has(item as SmsReminderModule)),
+  )] as SmsReminderModule[];
+  return cleaned.length ? cleaned : ["meals", "manual"];
+}
+
+function normalizeRecipientMap(input: unknown): Record<SmsReminderModule, string[]> {
+  const map: Record<SmsReminderModule, string[]> = {
+    meals: [],
+    manual: [],
+  };
+  if (!input || typeof input !== "object") return map;
+  const raw = input as Record<string, unknown>;
+  for (const moduleName of SMS_REMINDER_MODULES) {
+    const value = raw[moduleName];
+    if (!Array.isArray(value)) continue;
+    map[moduleName] = [...new Set(
+      value
+        .filter((entry) => typeof entry === "string")
+        .map((entry) => String(entry).trim())
+        .filter((entry) => entry.length > 0),
+    )];
+  }
+  return map;
+}
+
+function recipientListForModules(
+  includeModules: SmsReminderModule[],
+  moduleRecipients: Record<SmsReminderModule, string[]>,
+  fallbackPhone: string | null,
+): string[] {
+  const recipients = new Set<string>();
+  for (const moduleName of includeModules) {
+    for (const phone of moduleRecipients[moduleName] || []) {
+      recipients.add(phone);
+    }
+  }
+  if (recipients.size === 0 && fallbackPhone) recipients.add(fallbackPhone);
+  return Array.from(recipients);
+}
+
+function recipientListForModule(
+  moduleName: SmsReminderModule,
+  moduleRecipients: Record<SmsReminderModule, string[]>,
+  fallbackRecipients: string[],
+): string[] {
+  const moduleSpecific = moduleRecipients[moduleName] || [];
+  if (moduleSpecific.length > 0) return moduleSpecific;
+  return fallbackRecipients;
+}
+
 async function fetchDailyEvents(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   timezone: string,
   localDate: DateTime,
-  includeModules: string[],
+  includeModules: SmsReminderModule[],
   preferredDinnerTime: string,
 ): Promise<CalendarEvent[]> {
   const events: CalendarEvent[] = [];
@@ -166,6 +228,7 @@ async function fetchDailyEvents(
       events.push({
         id: `meal-${row.id}`,
         title: mealName,
+        module: "meals",
         startsAtLocal: startLocal,
         startsAtUtc: startLocal.toUTC(),
       });
@@ -189,6 +252,7 @@ async function fetchDailyEvents(
       events.push({
         id: `manual-${row.id}`,
         title: String(row.title || "Event"),
+        module: "manual",
         startsAtUtc,
         startsAtLocal: startsAtUtc.setZone(timezone),
       });
@@ -234,7 +298,10 @@ serve(async (req) => {
         usersProcessed += 1;
         const timezone = row.timezone || "America/New_York";
         const phone = row.phone_e164 || "";
-        if (!phone) continue;
+        const includeModules = normalizeIncludeModules(row.include_modules);
+        const moduleRecipients = normalizeRecipientMap(row.module_recipients);
+        const digestRecipients = recipientListForModules(includeModules, moduleRecipients, phone || null);
+        if (digestRecipients.length === 0) continue;
 
         const localNow = nowUtc.setZone(timezone);
         if (!localNow.isValid) continue;
@@ -250,7 +317,7 @@ serve(async (req) => {
           row.user_id,
           timezone,
           todayLocal,
-          row.include_modules || ["meals", "manual"],
+          includeModules,
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
         const tomorrowEvents = await fetchDailyEvents(
@@ -258,52 +325,64 @@ serve(async (req) => {
           row.user_id,
           timezone,
           tomorrowLocal,
-          row.include_modules || ["meals", "manual"],
+          includeModules,
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
 
         if (row.morning_digest_enabled && isDueAt(localNow, String(row.morning_digest_time || "07:00"), windowMinutes)) {
-          const dedupeKey = `morning:${row.user_id}:${todayLocal.toISODate()}`;
-          const logId = await insertDedupeLog(
-            supabase,
-            row.user_id,
-            dedupeKey,
-            "morning_digest",
-            nowUtc.toISO(),
-            { timezone, day: todayLocal.toISODate() },
-          );
-          if (logId) {
-            try {
-              const body = renderDigestText("today", todayLocal, todayEvents, timezone);
-              const result = await sendTwilioSms(phone, body);
-              messagesSent += 1;
-              await markLogStatus(supabase, logId, "sent", result.sid, { timezone, eventCount: todayEvents.length });
-            } catch (sendError) {
-              errors.push(`morning:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
-              await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
+          for (const recipient of digestRecipients) {
+            const dedupeKey = `morning:${row.user_id}:${todayLocal.toISODate()}:${recipient}`;
+            const logId = await insertDedupeLog(
+              supabase,
+              row.user_id,
+              dedupeKey,
+              "morning_digest",
+              nowUtc.toISO(),
+              { timezone, day: todayLocal.toISODate(), to: recipient },
+            );
+            if (logId) {
+              try {
+                const body = renderDigestText("today", todayLocal, todayEvents, timezone);
+                const result = await sendTwilioSms(recipient, body);
+                messagesSent += 1;
+                await markLogStatus(supabase, logId, "sent", result.sid, {
+                  timezone,
+                  eventCount: todayEvents.length,
+                  to: recipient,
+                });
+              } catch (sendError) {
+                errors.push(`morning:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+              }
             }
           }
         }
 
         if (row.night_before_enabled && isDueAt(localNow, String(row.night_before_time || "20:00"), windowMinutes)) {
-          const dedupeKey = `night:${row.user_id}:${tomorrowLocal.toISODate()}`;
-          const logId = await insertDedupeLog(
-            supabase,
-            row.user_id,
-            dedupeKey,
-            "night_before_digest",
-            nowUtc.toISO(),
-            { timezone, day: tomorrowLocal.toISODate() },
-          );
-          if (logId) {
-            try {
-              const body = renderDigestText("tomorrow", tomorrowLocal, tomorrowEvents, timezone);
-              const result = await sendTwilioSms(phone, body);
-              messagesSent += 1;
-              await markLogStatus(supabase, logId, "sent", result.sid, { timezone, eventCount: tomorrowEvents.length });
-            } catch (sendError) {
-              errors.push(`night:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
-              await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
+          for (const recipient of digestRecipients) {
+            const dedupeKey = `night:${row.user_id}:${tomorrowLocal.toISODate()}:${recipient}`;
+            const logId = await insertDedupeLog(
+              supabase,
+              row.user_id,
+              dedupeKey,
+              "night_before_digest",
+              nowUtc.toISO(),
+              { timezone, day: tomorrowLocal.toISODate(), to: recipient },
+            );
+            if (logId) {
+              try {
+                const body = renderDigestText("tomorrow", tomorrowLocal, tomorrowEvents, timezone);
+                const result = await sendTwilioSms(recipient, body);
+                messagesSent += 1;
+                await markLogStatus(supabase, logId, "sent", result.sid, {
+                  timezone,
+                  eventCount: tomorrowEvents.length,
+                  to: recipient,
+                });
+              } catch (sendError) {
+                errors.push(`night:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+              }
             }
           }
         }
@@ -360,13 +439,44 @@ serve(async (req) => {
                   const body = `Home Harmony: We noticed you have not ${missingParts.join(
                     " and ",
                   )} for next week. Reply YES and we will auto-generate your meals and prep your grocery list.`;
-                  const result = await sendTwilioSms(phone, body);
-                  messagesSent += 1;
-                  await markLogStatus(supabase, logId, "sent", result.sid, {
-                    timezone,
-                    weekOf: nextWeekOf,
-                    mealsPlanned,
-                    groceriesOrdered,
+                  for (const recipient of digestRecipients) {
+                    const recipientDedupeKey = `${dedupeKey}:${recipient}`;
+                    const recipientLogId = await insertDedupeLog(
+                      supabase,
+                      row.user_id,
+                      recipientDedupeKey,
+                      "weekly_planning_nudge",
+                      nowUtc.toISO(),
+                      {
+                        timezone,
+                        weekOf: nextWeekOf,
+                        mealsPlanned,
+                        groceriesOrdered,
+                        to: recipient,
+                      },
+                    );
+                    if (!recipientLogId) continue;
+                    try {
+                      const result = await sendTwilioSms(recipient, body);
+                      messagesSent += 1;
+                      await markLogStatus(supabase, recipientLogId, "sent", result.sid, {
+                        timezone,
+                        weekOf: nextWeekOf,
+                        mealsPlanned,
+                        groceriesOrdered,
+                        to: recipient,
+                      });
+                    } catch (recipientError) {
+                      errors.push(`weekly-plan:${row.user_id}:${recipientError instanceof Error ? recipientError.message : "send failed"}`);
+                      await markLogStatus(supabase, recipientLogId, "failed", null, {
+                        error: String(recipientError),
+                        to: recipient,
+                      });
+                    }
+                  }
+                  await markLogStatus(supabase, logId, "skipped", null, {
+                    reason: "per-recipient log entries created",
+                    recipients: digestRecipients.length,
                   });
                 } catch (sendError) {
                   errors.push(`weekly-plan:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
@@ -399,29 +509,36 @@ serve(async (req) => {
               if (!sendAtIso) continue;
 
               const dedupeKey = `event:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
-              const logId = await insertDedupeLog(
-                supabase,
-                row.user_id,
-                dedupeKey,
-                "event_reminder",
-                sendAtIso,
-                { timezone, eventId: event.id, offsetMinutes: leadMinutes },
-              );
-              if (!logId) continue;
+              const eventRecipients = recipientListForModule(event.module, moduleRecipients, digestRecipients);
+              if (eventRecipients.length === 0) continue;
 
-              try {
-                const eventTime = event.startsAtLocal.toFormat("h:mm a");
-                const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
-                const result = await sendTwilioSms(phone, body);
-                messagesSent += 1;
-                await markLogStatus(supabase, logId, "sent", result.sid, {
-                  timezone,
-                  eventId: event.id,
-                  eventStart: event.startsAtLocal.toISO(),
-                });
-              } catch (sendError) {
-                errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
-                await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
+              for (const recipient of eventRecipients) {
+                const recipientDedupeKey = `${dedupeKey}:${recipient}`;
+                const logId = await insertDedupeLog(
+                  supabase,
+                  row.user_id,
+                  recipientDedupeKey,
+                  "event_reminder",
+                  sendAtIso,
+                  { timezone, eventId: event.id, offsetMinutes: leadMinutes, to: recipient },
+                );
+                if (!logId) continue;
+
+                try {
+                  const eventTime = event.startsAtLocal.toFormat("h:mm a");
+                  const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                  const result = await sendTwilioSms(recipient, body);
+                  messagesSent += 1;
+                  await markLogStatus(supabase, logId, "sent", result.sid, {
+                    timezone,
+                    eventId: event.id,
+                    eventStart: event.startsAtLocal.toISO(),
+                    to: recipient,
+                  });
+                } catch (sendError) {
+                  errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                }
               }
             }
           }

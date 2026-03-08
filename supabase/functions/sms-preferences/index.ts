@@ -4,6 +4,8 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { isValidE164, normalizePhone, sendTwilioSms } from "../_shared/twilio.ts";
 
 type Action = "get" | "save" | "send_test";
+type SmsReminderModule = "meals" | "manual";
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual"];
 
 const DEFAULT_PREFS = {
   enabled: false,
@@ -17,6 +19,10 @@ const DEFAULT_PREFS = {
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: "18:00",
   include_modules: ["meals", "manual"],
+  module_recipients: {
+    meals: [],
+    manual: [],
+  } as Record<SmsReminderModule, string[]>,
   quiet_hours_start: null as string | null,
   quiet_hours_end: null as string | null,
 };
@@ -50,7 +56,7 @@ function normalizeOffsets(input: unknown): number[] {
 }
 
 function normalizeModules(input: unknown): string[] {
-  const allowed = new Set(["meals", "manual"]);
+  const allowed = new Set(SMS_REMINDER_MODULES);
   if (!Array.isArray(input)) return ["meals", "manual"];
   const cleaned = [...new Set(
     input
@@ -59,6 +65,40 @@ function normalizeModules(input: unknown): string[] {
       .filter((item) => allowed.has(item)),
   )];
   return cleaned.length ? cleaned : ["meals", "manual"];
+}
+
+function normalizeModuleRecipients(input: unknown): Record<SmsReminderModule, string[]> {
+  const normalized: Record<SmsReminderModule, string[]> = {
+    meals: [],
+    manual: [],
+  };
+  if (!input || typeof input !== "object") return normalized;
+  const map = input as Record<string, unknown>;
+  for (const moduleName of SMS_REMINDER_MODULES) {
+    const rawList = map[moduleName];
+    if (!Array.isArray(rawList)) continue;
+    normalized[moduleName] = [...new Set(
+      rawList
+        .map((value) => normalizePhoneInput(value))
+        .filter((value): value is string => Boolean(value)),
+    )];
+  }
+  return normalized;
+}
+
+function uniqueFallbackRecipients(
+  moduleRecipients: Record<SmsReminderModule, string[]>,
+  fallbackPhone: string | null,
+): Record<SmsReminderModule, string[]> {
+  if (!fallbackPhone) return moduleRecipients;
+  const next: Record<SmsReminderModule, string[]> = {
+    meals: [...moduleRecipients.meals],
+    manual: [...moduleRecipients.manual],
+  };
+  for (const moduleName of SMS_REMINDER_MODULES) {
+    if (next[moduleName].length === 0) next[moduleName] = [fallbackPhone];
+  }
+  return next;
 }
 
 function normalizePhoneInput(input: unknown): string | null {
@@ -127,7 +167,8 @@ serve(async (req) => {
             ? data.reminder_offsets_minutes
             : DEFAULT_PREFS.reminder_offsets_minutes,
           preferred_dinner_time: String(data.preferred_dinner_time || DEFAULT_PREFS.preferred_dinner_time).slice(0, 5),
-          include_modules: Array.isArray(data.include_modules) ? data.include_modules : DEFAULT_PREFS.include_modules,
+          include_modules: normalizeModules(data.include_modules),
+          module_recipients: normalizeModuleRecipients(data.module_recipients),
           quiet_hours_start: data.quiet_hours_start ? String(data.quiet_hours_start).slice(0, 5) : null,
           quiet_hours_end: data.quiet_hours_end ? String(data.quiet_hours_end).slice(0, 5) : null,
         },
@@ -139,6 +180,11 @@ serve(async (req) => {
       if (payload?.phone_e164 && !normalizedPhone) {
         return json({ error: "Phone number must be E.164 format like +15551234567." });
       }
+      const includeModules = normalizeModules(payload?.include_modules);
+      const moduleRecipients = uniqueFallbackRecipients(
+        normalizeModuleRecipients(payload?.module_recipients),
+        normalizedPhone,
+      );
 
       const next = {
         user_id: userId,
@@ -152,7 +198,8 @@ serve(async (req) => {
         event_reminders_enabled: !!payload?.event_reminders_enabled,
         reminder_offsets_minutes: normalizeOffsets(payload?.reminder_offsets_minutes),
         preferred_dinner_time: validTime(payload?.preferred_dinner_time, DEFAULT_PREFS.preferred_dinner_time),
-        include_modules: normalizeModules(payload?.include_modules),
+        include_modules: includeModules,
+        module_recipients: moduleRecipients,
         quiet_hours_start: payload?.quiet_hours_start
           ? validTime(payload?.quiet_hours_start, DEFAULT_PREFS.night_before_time)
           : null,
@@ -174,12 +221,16 @@ serve(async (req) => {
     if (action === "send_test") {
       const { data, error } = await supabase
         .from("sms_preferences")
-        .select("phone_e164,timezone")
+        .select("phone_e164,timezone,module_recipients")
         .eq("user_id", userId)
         .maybeSingle();
       if (error) return json({ error: error.message }, 500);
 
-      const to = data?.phone_e164;
+      const recipients = normalizeModuleRecipients(data?.module_recipients);
+      const to =
+        recipients.meals[0] ||
+        recipients.manual[0] ||
+        data?.phone_e164;
       if (!to) return json({ error: "Save a phone number first." });
 
       const tz = data?.timezone || DEFAULT_PREFS.timezone;
