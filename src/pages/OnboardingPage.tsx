@@ -71,7 +71,6 @@ const DIET_PREFERENCE_OPTIONS = [
   'Mix of everything',
 ] as const;
 
-const FOOD_RESTRICTION_OPTIONS = ['No pork', 'No beef', 'Allergy-aware'] as const;
 const KID_AGE_RANGE_OPTIONS = ['0-4', '5-8', '9-12', '13-17'] as const;
 const WEEKLY_STAPLE_OPTIONS = [
   'Taco Tuesday',
@@ -163,7 +162,6 @@ type MainPainPoint = (typeof PAIN_POINT_OPTIONS)[number];
 type WeeklyRhythm = (typeof WEEKLY_RHYTHM_OPTIONS)[number];
 type MealStylePreference = (typeof MEAL_STYLE_OPTIONS)[number];
 type DietPreference = (typeof DIET_PREFERENCE_OPTIONS)[number];
-type FoodRestriction = (typeof FOOD_RESTRICTION_OPTIONS)[number];
 type KidAgeRange = (typeof KID_AGE_RANGE_OPTIONS)[number];
 type WeeklyStaple = (typeof WEEKLY_STAPLE_OPTIONS)[number];
 type GroceryStorePreference = (typeof GROCERY_STORE_OPTIONS)[number];
@@ -218,7 +216,8 @@ interface OnboardingAnswers {
   weeklyRhythm: WeeklyRhythm[];
   mealStylePreferences: MealStylePreference[];
   dietPreferences: DietPreference[];
-  foodRestrictions: FoodRestriction[];
+  foodRestrictions: string[];
+  foodRestrictionsText: string;
   avoidFoods: string;
   mealDietNotes: string;
   weeklyStaples: WeeklyStaple[];
@@ -267,6 +266,7 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   mealStylePreferences: [],
   dietPreferences: [],
   foodRestrictions: [],
+  foodRestrictionsText: '',
   avoidFoods: '',
   mealDietNotes: '',
   weeklyStaples: [],
@@ -414,6 +414,7 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     `Weekly rhythm: ${answers.weeklyRhythm.join(', ') || 'not provided'}.`,
     `Meal style: ${answers.mealStylePreferences.join(', ') || 'not provided'}.`,
     `Diet preferences: ${answers.dietPreferences.join(', ') || 'not provided'}.`,
+    answers.foodRestrictions.length > 0 ? `Food restrictions: ${answers.foodRestrictions.join(', ')}.` : null,
     answers.mealDietNotes.trim() ? `Meal notes: ${answers.mealDietNotes.trim()}.` : null,
     avoidFoods.length > 0 ? `Avoid foods: ${avoidFoods.join(', ')}.` : null,
     answers.weeklyStaples.length > 0 ? `Staples: ${answers.weeklyStaples.join(', ')}.` : null,
@@ -561,7 +562,23 @@ export default function OnboardingPage() {
     }
 
     if (draft?.onboarding) {
-      setAnswers((prev) => ({ ...prev, ...(draft?.onboarding as Partial<OnboardingAnswers>) }));
+      const incoming = draft.onboarding as Partial<OnboardingAnswers> & { foodRestrictionsText?: string };
+      const restrictions = Array.isArray(incoming.foodRestrictions)
+        ? incoming.foodRestrictions
+            .map((item) => (typeof item === 'string' ? item.trim() : ''))
+            .filter((item) => item.length > 0)
+        : [];
+      const restrictionText =
+        typeof incoming.foodRestrictionsText === 'string' && incoming.foodRestrictionsText.trim().length > 0
+          ? incoming.foodRestrictionsText
+          : restrictions.join(', ');
+
+      setAnswers((prev) => ({
+        ...prev,
+        ...incoming,
+        foodRestrictions: restrictions,
+        foodRestrictionsText: restrictionText,
+      }));
       if (draft.stepId) setCurrentStepId(draft.stepId as StepId);
     } else {
       setAnswers(DEFAULT_ONBOARDING);
@@ -1081,13 +1098,25 @@ export default function OnboardingPage() {
 
     case 'foodRestrictions':
       content = (
-        <QuestionScreen title="Any hard food restrictions?" helper="These are enforced when we build meal suggestions.">
-          <OptionList
-            options={FOOD_RESTRICTION_OPTIONS}
-            selected={answers.foodRestrictions}
-            onToggle={(value) => setAnswers((prev) => ({ ...prev, foodRestrictions: toggleValue(prev.foodRestrictions, value) }))}
-            multi
-          />
+        <QuestionScreen
+          title="Do you have any food restrictions?"
+          helper="Optional. Type any restrictions and we will use them in meal suggestions."
+        >
+          <div className="space-y-3">
+            <Textarea
+              value={answers.foodRestrictionsText}
+              onChange={(event) =>
+                setAnswers((prev) => ({
+                  ...prev,
+                  foodRestrictionsText: event.target.value,
+                  foodRestrictions: parseListText(event.target.value),
+                }))
+              }
+              placeholder="Examples: no pork, shellfish allergy, peanut allergy, no beef"
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">Separate items with commas or new lines.</p>
+          </div>
         </QuestionScreen>
       );
       footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
