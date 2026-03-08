@@ -901,7 +901,11 @@ export default function MealsPage() {
         title="Weekly Meals"
         subtitle="Dinner plan for the week"
         action={
-          <div className="flex gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+            <Button size="sm" onClick={() => handleRegenerate()} disabled={regenerating}>
+              <RefreshCw className={cn("w-4 h-4 mr-2", regenerating && "animate-spin")} />
+              Regenerate
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
               <Calculator className="w-4 h-4 mr-2" />
               Macro Calculator
@@ -916,10 +920,6 @@ export default function MealsPage() {
             <Button size="sm" variant="outline" onClick={openSelectiveRegenerate} disabled={regenerating}>
               <Shuffle className="w-4 h-4 mr-2" />
               Choose
-            </Button>
-            <Button size="sm" onClick={() => handleRegenerate()} disabled={regenerating}>
-              <RefreshCw className={cn("w-4 h-4 mr-2", regenerating && "animate-spin")} />
-              Regenerate
             </Button>
           </div>
         }
