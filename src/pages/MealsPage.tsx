@@ -204,7 +204,7 @@ export default function MealsPage() {
   const [pantryInput, setPantryInput] = useState('');
   const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
   const [plannerEntries, setPlannerEntries] = useState<PlannedFoodEntry[]>([]);
-  const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('weekly-meal-grid');
+  const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('list');
   const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
@@ -943,6 +943,7 @@ export default function MealsPage() {
           size="sm"
           variant={topMealsViewMode === 'weekly-meal-grid' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('weekly-meal-grid')}
+          className="hidden md:inline-flex"
         >
           Weekly meal grid
         </Button>
@@ -971,7 +972,21 @@ export default function MealsPage() {
             </div>
           )}
           {topMealsViewMode === 'weekly-meal-grid' ? (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <>
+            <div className="rounded-lg border border-border bg-card p-4 md:hidden">
+              <p className="text-sm text-muted-foreground">
+                Weekly meal grid is optimized for tablet/desktop.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3"
+                onClick={() => setTopMealsViewMode('list')}
+              >
+                Switch to dinner list
+              </Button>
+            </div>
+            <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
                 className="grid min-w-[860px]"
                 style={{ gridTemplateColumns: '140px repeat(7, minmax(100px, 1fr))' }}
@@ -1083,6 +1098,7 @@ export default function MealsPage() {
                 ))}
               </div>
             </div>
+            </>
           ) : (
             <div className="space-y-3 stagger-children">
               {days.map((day, index) => {
@@ -1318,6 +1334,7 @@ export default function MealsPage() {
             size="sm"
             variant={plannerViewMode === 'weekly-meal-grid' ? 'default' : 'outline'}
             onClick={() => setPlannerViewMode('weekly-meal-grid')}
+            className="hidden md:inline-flex"
           >
             Weekly - meal grid
           </Button>
@@ -1560,7 +1577,21 @@ export default function MealsPage() {
 
           <div className="grid gap-3">
           {plannerViewMode === 'weekly-meal-grid' ? (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <>
+            <div className="rounded-lg border border-border bg-card p-4 md:hidden">
+              <p className="text-sm text-muted-foreground">
+                Weekly meal grid is optimized for tablet/desktop.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3"
+                onClick={() => setPlannerViewMode('daily-all')}
+              >
+                Switch to daily view
+              </Button>
+            </div>
+            <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
                 className="grid min-w-[860px]"
                 style={{ gridTemplateColumns: '140px repeat(7, minmax(100px, 1fr))' }}
@@ -1645,6 +1676,7 @@ export default function MealsPage() {
                 ))}
               </div>
             </div>
+            </>
           ) : (
           plannerRows.map((row) => {
             const allEntries = entriesByDate[row.date] || [];

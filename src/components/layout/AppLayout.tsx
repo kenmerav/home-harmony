@@ -18,7 +18,8 @@ import {
   Plus,
   Pencil,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const [dashboards, setDashboards] = useState(() => listDashboardProfiles());
   const [mobileDashboardsOpen, setMobileDashboardsOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -94,6 +96,24 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
     if (location.pathname === '/wife') return 'wife';
     return null;
   }, [location.pathname]);
+
+  const mobilePrimaryNavItems = useMemo(
+    () =>
+      visibleNavItems.filter((item) =>
+        ['/app', '/calendar', '/meals', '/grocery'].includes(item.to),
+      ),
+    [visibleNavItems],
+  );
+
+  const mobileOverflowNavItems = useMemo(
+    () => visibleNavItems.filter((item) => !mobilePrimaryNavItems.some((primary) => primary.to === item.to)),
+    [mobilePrimaryNavItems, visibleNavItems],
+  );
+
+  const isMobileMoreActive = useMemo(
+    () => mobileOverflowNavItems.some((item) => location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)),
+    [location.pathname, mobileOverflowNavItems],
+  );
 
   const handleSignOut = async () => {
     await signOut();
@@ -133,7 +153,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-hidden bg-background">
       {/* Main Content */}
       <main
         className={cn(
@@ -264,8 +284,8 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border safe-area-inset-bottom">
-        <div className="flex items-center gap-1 overflow-x-auto px-2 py-2">
-          {visibleNavItems.map((item) => {
+        <div className="grid grid-cols-5 gap-1 px-2 py-2">
+          {mobilePrimaryNavItems.map((item) => {
             const isActive =
               location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
             return (
@@ -273,7 +293,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg transition-gentle min-w-[64px] shrink-0",
+                  "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 transition-gentle",
                   isActive 
                     ? "text-primary" 
                     : "text-muted-foreground"
@@ -284,8 +304,52 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               </NavLink>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setMobileMoreOpen(true)}
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 transition-gentle",
+              isMobileMoreActive ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <MoreHorizontal className={cn("w-5 h-5", isMobileMoreActive && "stroke-[2.5px]")} />
+            <span className="text-[10px] font-medium">More</span>
+          </button>
         </div>
       </nav>
+
+      <Dialog open={mobileMoreOpen} onOpenChange={setMobileMoreOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">More</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-2">
+            {mobileOverflowNavItems.map((item) => {
+              const isActive =
+                location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+              return (
+                <button
+                  key={`mobile-more-${item.to}`}
+                  type="button"
+                  onClick={() => {
+                    navigate(item.to);
+                    setMobileMoreOpen(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-gentle",
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-foreground hover:bg-muted/40",
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={mobileDashboardsOpen} onOpenChange={setMobileDashboardsOpen}>
         <DialogContent className="sm:max-w-md">

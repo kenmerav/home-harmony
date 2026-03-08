@@ -131,10 +131,10 @@ export function ExerciseCard({
       {/* Sets */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-2">
-          <div className="overflow-x-auto pb-1">
-            <div className="min-w-[300px] space-y-2">
+          <div className="pb-1">
+            <div className="space-y-2">
               {/* Header row */}
-              <div className="grid grid-cols-[32px_72px_72px_72px_32px] sm:grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 text-xs text-muted-foreground font-medium px-2">
+              <div className="grid grid-cols-[24px_56px_minmax(0,1fr)_56px_24px] sm:grid-cols-[40px_1fr_1fr_1fr_40px] gap-2 px-2 text-[11px] font-medium text-muted-foreground sm:text-xs">
                 <span>SET</span>
                 <span className="text-center">PREV</span>
                 <span className="text-center">{weightUnit.toUpperCase()}</span>

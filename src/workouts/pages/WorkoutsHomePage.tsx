@@ -221,13 +221,13 @@ export default function Index() {
             <h2 className="font-semibold text-foreground">Quick Start</h2>
             <Link to="/workouts/templates" className="text-sm text-primary">View all</Link>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {templates.slice(0, 4).map(template => (
               <Link
                 key={template.id}
                 to={`/workouts/new?template=${template.id}`}
                 className={cn(
-                  "flex-shrink-0 w-36 p-4 rounded-xl bg-secondary border border-border",
+                  "min-w-0 p-4 rounded-xl bg-secondary border border-border",
                   "hover:bg-secondary/80 transition-colors"
                 )}
               >
