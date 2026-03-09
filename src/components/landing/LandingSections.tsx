@@ -25,7 +25,7 @@ const heroModules = [
   '✅ Tasks & Reminders',
   '📅 Shared Calendar',
   '🛒 Smart Shopping',
-  '📁 Home Docs',
+  '📈 Goal Tracking',
 ];
 
 const dashboardPanels = [
@@ -70,12 +70,12 @@ const dashboardPanels = [
     footer: '📲 Daily schedule text + reminders before key events',
   },
   {
-    id: 'docs',
-    emoji: '📁',
-    label: 'Docs',
-    title: 'Home document vault',
-    rows: ['Insurance cards · updated', 'Car warranty · expires 2029', 'School forms · signed', 'Medical records · synced'],
-    footer: '🔒 Secure document storage for your household',
+    id: 'wellness',
+    emoji: '📈',
+    label: 'Goals',
+    title: 'Wellness + habit tracking',
+    rows: ['Water goal · 64 oz target', 'Steps goal · 8,000 daily', 'Protein target · on track', 'Alcohol goal · within weekly limit'],
+    footer: '🎯 Daily progress updates for each family goal',
   },
 ] as const;
 
