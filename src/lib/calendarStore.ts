@@ -9,6 +9,7 @@ export interface CalendarEvent {
   id: string;
   title: string;
   description?: string;
+  calendarLayer?: string;
   location?: string;
   travelFromAddress?: string;
   travelMode?: 'driving';
@@ -29,6 +30,7 @@ export interface CalendarEvent {
 export interface ManualCalendarEventInput {
   title: string;
   description?: string;
+  calendarLayer?: string;
   location?: string;
   travelFromAddress?: string;
   travelMode?: 'driving';
@@ -66,6 +68,7 @@ interface StoredManualEvent {
   id: string;
   title: string;
   description?: string;
+  calendarLayer?: string;
   location?: string;
   travelFromAddress?: string;
   travelMode?: 'driving';
@@ -125,10 +128,15 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<StoredManualEvent>;
   if (!input.id || !input.title || !input.startsAt) return null;
+  const calendarLayer =
+    typeof input.calendarLayer === 'string' && input.calendarLayer.trim()
+      ? input.calendarLayer.trim()
+      : 'family';
   return {
     id: input.id,
     title: input.title,
     description: input.description,
+    calendarLayer,
     location: typeof input.location === 'string' ? input.location : undefined,
     travelFromAddress: typeof input.travelFromAddress === 'string' ? input.travelFromAddress : undefined,
     travelMode: input.travelMode === 'driving' ? 'driving' : 'driving',
@@ -396,6 +404,7 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
     id: row.id,
     title: row.title,
     description: row.description,
+    calendarLayer: row.calendarLayer || 'family',
     location: row.location,
     travelFromAddress: row.travelFromAddress,
     travelMode: row.travelMode,
@@ -421,6 +430,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     id: localId,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
+    calendarLayer: input.calendarLayer?.trim() || 'family',
     location: input.location?.trim() || undefined,
     travelFromAddress: input.travelFromAddress?.trim() || undefined,
     travelMode: input.travelMode || 'driving',
@@ -472,7 +482,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
         all_day: row.allDay,
         module: 'manual',
         source: 'manual',
-        calendar_layer: 'family',
+        calendar_layer: row.calendarLayer || 'family',
         timezone_name: timezoneName,
         recurrence_rule: null,
         is_deleted: false,
@@ -490,6 +500,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     id: row.id,
     title: row.title,
     description: row.description,
+    calendarLayer: row.calendarLayer || 'family',
     location: row.location,
     travelFromAddress: row.travelFromAddress,
     travelMode: row.travelMode,

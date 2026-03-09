@@ -20,6 +20,7 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -161,6 +162,11 @@ function formatPhoneList(input: string[]): string {
   return input.join(', ');
 }
 
+function normalizeCalendarLayerName(value: string | null | undefined): string {
+  const compact = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return compact || 'family';
+}
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
@@ -251,6 +257,7 @@ export default function CalendarPlannerPage() {
   const [draftTime, setDraftTime] = useState('18:00');
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
+  const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
 
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
@@ -322,7 +329,41 @@ export default function CalendarPlannerPage() {
     return () => window.removeEventListener('homehub:calendar-events-updated', handler);
   }, [refreshEvents]);
 
-  const filteredEvents = useMemo(() => events.filter((event) => filters[event.module]), [events, filters]);
+  const customManualLayerSet = useMemo(
+    () => new Set(filterPresets.map((preset) => normalizeCalendarLayerName(preset.name))),
+    [filterPresets],
+  );
+
+  const enabledManualLayerSet = useMemo(
+    () => new Set(filterPresets.filter((preset) => preset.enabled).map((preset) => normalizeCalendarLayerName(preset.name))),
+    [filterPresets],
+  );
+
+  const manualLayerOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [{ value: 'family', label: 'Family' }];
+    const seen = new Set<string>(['family']);
+    filterPresets.forEach((preset) => {
+      const label = normalizeCalendarFilterName(preset.name);
+      const value = normalizeCalendarLayerName(label);
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    });
+    return options;
+  }, [filterPresets]);
+
+  const filteredEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        if (!filters[event.module]) return false;
+        if (event.module !== 'manual') return true;
+
+        const layer = normalizeCalendarLayerName(event.calendarLayer);
+        if (!customManualLayerSet.has(layer)) return true;
+        return enabledManualLayerSet.has(layer);
+      }),
+    [events, filters, customManualLayerSet, enabledManualLayerSet],
+  );
 
   const monthGridDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
@@ -371,6 +412,11 @@ export default function CalendarPlannerPage() {
     setDraftTime('18:00');
     setDraftEndTime('');
     setDraftAllDay(false);
+    const firstEnabledPreset = filterPresets.find((preset) => preset.enabled);
+    const fallbackPreset = filterPresets[0];
+    setDraftCalendarLayer(
+      normalizeCalendarLayerName(firstEnabledPreset?.name || fallbackPreset?.name || 'family'),
+    );
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
@@ -456,6 +502,10 @@ export default function CalendarPlannerPage() {
       toast({ title: 'Add a title first', variant: 'destructive' });
       return;
     }
+    if (!draftCalendarLayer.trim()) {
+      toast({ title: 'Choose a filter first', variant: 'destructive' });
+      return;
+    }
     const startsAt = draftAllDay ? `${draftDate}T00:00:00.000Z` : `${draftDate}T${draftTime || '18:00'}:00`;
     const endsAt = draftAllDay
       ? undefined
@@ -466,6 +516,7 @@ export default function CalendarPlannerPage() {
       {
         title: draftTitle,
         description: draftDescription,
+        calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
         location: draftLocation.trim() || undefined,
         travelFromAddress: (draftHomeAddress.trim() || smsPrefs.home_address.trim()) || undefined,
         travelMode: 'driving',
@@ -1139,6 +1190,21 @@ export default function CalendarPlannerPage() {
             <div className="space-y-1">
               <label className="text-sm font-medium">Title</label>
               <Input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder="Event title" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Assign filter</label>
+              <Select value={draftCalendarLayer} onValueChange={setDraftCalendarLayer}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  {manualLayerOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Date</label>
