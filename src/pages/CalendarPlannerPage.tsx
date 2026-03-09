@@ -2,6 +2,7 @@ import { CSSProperties, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   addDays,
   addHours,
+  addMinutes,
   addMonths,
   endOfMonth,
   endOfWeek,
