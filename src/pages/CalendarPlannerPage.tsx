@@ -54,7 +54,6 @@ import {
   CalendarFilterPresetColor,
   createCalendarFilterPreset,
   DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
-  filtersEqual,
   loadStoredCalendarFilterPresets,
   loadStoredCalendarFilters,
   normalizeCalendarFilterName,
@@ -215,7 +214,6 @@ export default function CalendarPlannerPage() {
   const [filterPresets, setFilterPresets] = useState<CalendarFilterPreset[]>(() =>
     loadStoredCalendarFilterPresets(user?.id),
   );
-  const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
   const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
   const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
@@ -275,11 +273,6 @@ export default function CalendarPlannerPage() {
   useEffect(() => {
     saveModuleFilterSettings(moduleFilterSettings, user?.id);
   }, [moduleFilterSettings, user?.id]);
-
-  useEffect(() => {
-    const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
-    setActiveFilterPresetId(activeMatch?.id || null);
-  }, [filterPresets, filters]);
 
   useEffect(() => {
     let mounted = true;
@@ -359,14 +352,6 @@ export default function CalendarPlannerPage() {
     map.forEach((list) => list.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1)));
     return map;
   }, [filteredEvents]);
-
-  const allFiltersEnabled = useMemo(() => {
-    const next = {} as Record<CalendarEventModule, boolean>;
-    (Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).forEach((module) => {
-      next[module] = true;
-    });
-    return next;
-  }, []);
 
   const selectedDayEvents = useMemo(() => {
     const key = isoDayKey(selectedDate);
@@ -658,16 +643,14 @@ export default function CalendarPlannerPage() {
             : preset,
         ),
       );
-      if (activeFilterPresetId === editingFilterPresetId) {
-        const active = filterPresets.find((preset) => preset.id === editingFilterPresetId);
-        if (active) {
-          void applyPresetRecipientsToSms({
-            ...active,
-            name: normalizedName,
-            reminderRecipients: recipients,
-            color,
-          });
-        }
+      const editedPreset = filterPresets.find((preset) => preset.id === editingFilterPresetId);
+      if (editedPreset?.enabled) {
+        void applyPresetRecipientsToSms({
+          ...editedPreset,
+          name: normalizedName,
+          reminderRecipients: recipients,
+          color,
+        });
       }
       toast({ title: 'Filter updated' });
       setFilterPresetDialogOpen(false);
@@ -681,34 +664,35 @@ export default function CalendarPlannerPage() {
       recipients,
       color,
     );
+    nextPreset.enabled = true;
     setFilterPresets((prev) => [...prev, nextPreset]);
-    setActiveFilterPresetId(nextPreset.id);
     toast({ title: `Filter "${nextPreset.name}" saved` });
     setFilterPresetDialogOpen(false);
     void applyPresetRecipientsToSms(nextPreset);
   };
 
-  const applyFilterPreset = (presetId: string) => {
+  const enableFilterPreset = (presetId: string) => {
     const preset = filterPresets.find((item) => item.id === presetId);
     if (!preset) return;
-    setFilters(preset.modules);
-    setActiveFilterPresetId(preset.id);
+    setFilterPresets((prev) =>
+      prev.map((item) => (item.id === presetId ? { ...item, enabled: true } : item)),
+    );
     void applyPresetRecipientsToSms(preset);
   };
 
   const deleteFilterPreset = (presetId: string) => {
     setFilterPresets((prev) => prev.filter((preset) => preset.id !== presetId));
-    setActiveFilterPresetId((prev) => (prev === presetId ? null : prev));
     toast({ title: 'Filter removed' });
   };
 
   const toggleFilterPreset = (presetId: string, enabled: boolean) => {
     if (enabled) {
-      applyFilterPreset(presetId);
+      enableFilterPreset(presetId);
       return;
     }
-    setFilters(allFiltersEnabled);
-    setActiveFilterPresetId(null);
+    setFilterPresets((prev) =>
+      prev.map((item) => (item.id === presetId ? { ...item, enabled: false } : item)),
+    );
   };
 
   const updateGooglePrefs = (updates: Partial<GoogleCalendarPrefs>) => {
@@ -856,7 +840,7 @@ export default function CalendarPlannerPage() {
                 </div>
               ))}
               {filterPresets.map((preset) => {
-                const isActive = activeFilterPresetId === preset.id;
+                const isActive = !!preset.enabled;
                 return (
                   <div key={preset.id} className="flex items-center justify-between">
                     <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
@@ -979,7 +963,7 @@ export default function CalendarPlannerPage() {
               </div>
             ))}
             {filterPresets.map((preset) => {
-              const isActive = activeFilterPresetId === preset.id;
+              const isActive = !!preset.enabled;
               return (
                 <div key={preset.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                   <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>

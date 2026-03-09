@@ -65,7 +65,6 @@ import {
   CalendarFilterPresetColor,
   createCalendarFilterPreset,
   DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
-  filtersEqual,
   loadStoredCalendarFilterPresets,
   loadStoredCalendarFilters,
   normalizeCalendarFilterName,
@@ -353,7 +352,6 @@ export default function CalendarPage() {
   const [filterPresets, setFilterPresets] = useState<CalendarFilterPreset[]>(() =>
     loadStoredCalendarFilterPresets(user?.id),
   );
-  const [activeFilterPresetId, setActiveFilterPresetId] = useState<string | null>(null);
   const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
   const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
   const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
@@ -395,14 +393,6 @@ export default function CalendarPage() {
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
 
-  const allFiltersEnabled = useMemo(() => {
-    const next = {} as Record<CalendarEventModule, boolean>;
-    (Object.keys(moduleMeta) as CalendarEventModule[]).forEach((module) => {
-      next[module] = true;
-    });
-    return next;
-  }, []);
-
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
   }, [user?.id]);
@@ -419,11 +409,6 @@ export default function CalendarPage() {
   useEffect(() => {
     saveStoredCalendarFilterPresets(filterPresets, user?.id);
   }, [filterPresets, user?.id]);
-
-  useEffect(() => {
-    const activeMatch = filterPresets.find((preset) => filtersEqual(preset.modules, filters));
-    setActiveFilterPresetId(activeMatch?.id || null);
-  }, [filterPresets, filters]);
 
   useEffect(() => {
     let mounted = true;
@@ -1057,16 +1042,14 @@ export default function CalendarPage() {
             : preset,
         ),
       );
-      if (activeFilterPresetId === editingFilterPresetId) {
-        const active = filterPresets.find((preset) => preset.id === editingFilterPresetId);
-        if (active) {
-          void applyPresetRecipientsToSms({
-            ...active,
-            name: normalizedName,
-            reminderRecipients: recipients,
-            color,
-          });
-        }
+      const editedPreset = filterPresets.find((preset) => preset.id === editingFilterPresetId);
+      if (editedPreset?.enabled) {
+        void applyPresetRecipientsToSms({
+          ...editedPreset,
+          name: normalizedName,
+          reminderRecipients: recipients,
+          color,
+        });
       }
       toast({ title: 'Filter updated' });
       setFilterPresetDialogOpen(false);
@@ -1080,34 +1063,35 @@ export default function CalendarPage() {
       recipients,
       color,
     );
+    nextPreset.enabled = true;
     setFilterPresets((prev) => [...prev, nextPreset]);
-    setActiveFilterPresetId(nextPreset.id);
     toast({ title: `Filter "${nextPreset.name}" saved` });
     setFilterPresetDialogOpen(false);
     void applyPresetRecipientsToSms(nextPreset);
   };
 
-  const applyFilterPreset = (presetId: string) => {
+  const enableFilterPreset = (presetId: string) => {
     const preset = filterPresets.find((item) => item.id === presetId);
     if (!preset) return;
-    setFilters(preset.modules);
-    setActiveFilterPresetId(preset.id);
+    setFilterPresets((prev) =>
+      prev.map((item) => (item.id === presetId ? { ...item, enabled: true } : item)),
+    );
     void applyPresetRecipientsToSms(preset);
   };
 
   const deleteFilterPreset = (presetId: string) => {
     setFilterPresets((prev) => prev.filter((preset) => preset.id !== presetId));
-    setActiveFilterPresetId((prev) => (prev === presetId ? null : prev));
     toast({ title: 'Filter removed' });
   };
 
   const toggleFilterPreset = (presetId: string, enabled: boolean) => {
     if (enabled) {
-      applyFilterPreset(presetId);
+      enableFilterPreset(presetId);
       return;
     }
-    setFilters(allFiltersEnabled);
-    setActiveFilterPresetId(null);
+    setFilterPresets((prev) =>
+      prev.map((item) => (item.id === presetId ? { ...item, enabled: false } : item)),
+    );
   };
 
   const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
@@ -1274,7 +1258,7 @@ export default function CalendarPage() {
               ))}
 
               {filterPresets.map((preset) => {
-                const isActive = activeFilterPresetId === preset.id;
+                const isActive = !!preset.enabled;
                 return (
                   <div key={preset.id} className="flex items-center justify-between">
                     <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>

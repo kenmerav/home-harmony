@@ -44,6 +44,7 @@ export interface CalendarFilterPreset {
   modules: CalendarModuleFilters;
   reminderRecipients: string[];
   color: CalendarFilterPresetColor;
+  enabled: boolean;
 }
 
 function canUseStorage(): boolean {
@@ -125,7 +126,8 @@ function normalizePreset(input: unknown, index: number): CalendarFilterPreset | 
         .filter((value) => value.length > 0)
     : [];
   const color = normalizePresetColor(row.color);
-  return { id, name, modules, reminderRecipients, color };
+  const enabled = !!(row as { enabled?: unknown }).enabled;
+  return { id, name, modules, reminderRecipients, color, enabled };
 }
 
 export function loadStoredCalendarFilterPresets(userId?: string | null): CalendarFilterPreset[] {
@@ -156,6 +158,7 @@ export function saveStoredCalendarFilterPresets(
       ? preset.reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0)
       : [],
     color: normalizePresetColor(preset.color),
+    enabled: !!preset.enabled,
   }));
   window.localStorage.setItem(scopedKey(CALENDAR_FILTER_PRESETS_KEY, userId), JSON.stringify(normalized));
 }
@@ -185,6 +188,7 @@ export function createCalendarFilterPreset(
     modules: normalizeModules(modules),
     reminderRecipients: reminderRecipients.map((value) => value.trim()).filter((value) => value.length > 0),
     color: normalizePresetColor(color),
+    enabled: false,
   };
 }
 
