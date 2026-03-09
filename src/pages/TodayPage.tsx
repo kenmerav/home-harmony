@@ -49,6 +49,7 @@ import { loadTasks } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
+import { getPlannedFoodEntries, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -65,6 +66,30 @@ interface ChildChoreSummary {
   completed: number;
   total: number;
 }
+
+type LogMealCategory = 'breakfast' | 'snacks' | 'lunch' | 'dinner' | 'drinks';
+
+interface LogMealCandidate {
+  id: string;
+  recipeId?: string;
+  label: string;
+  defaultServings: number;
+  macrosPerServing: {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g?: number;
+  };
+}
+
+const LOG_MEAL_CATEGORY_OPTIONS: Array<{ value: LogMealCategory; label: string }> = [
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'snacks', label: 'Snacks' },
+  { value: 'lunch', label: 'Lunch' },
+  { value: 'dinner', label: 'Dinner' },
+  { value: 'drinks', label: 'Drinks' },
+];
 
 function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
@@ -114,6 +139,8 @@ export default function TodayPage() {
     fat: '',
     person: 'all',
   });
+  const [logMealCategory, setLogMealCategory] = useState<LogMealCategory>('dinner');
+  const [selectedLogMealId, setSelectedLogMealId] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -238,11 +265,15 @@ export default function TodayPage() {
     );
   }, [todaysEvents]);
 
+  const plannedEntriesToday = useMemo(
+    () => getPlannedFoodEntries(user?.id).filter((entry) => entry.date === todayKey),
+    [refreshTick, todayKey, user?.id],
+  );
+
   const liveTodaysMeal = liveMeals.find((m) => m.day === currentDay && !m.is_skipped && !!m.recipes);
-  const todaysMeal = liveTodaysMeal
+  const fallbackDinner = liveTodaysMeal
     ? {
         recipeId: liveTodaysMeal.recipe_id,
-        isSkipped: false,
         recipe: {
           name: liveTodaysMeal.recipes?.name || 'Unknown meal',
           servings: liveTodaysMeal.recipes?.servings || 1,
@@ -255,7 +286,87 @@ export default function TodayPage() {
           },
         },
       }
-    : mockTodaysMeal;
+    : null;
+
+  const logMealCandidatesByCategory = useMemo<
+    Record<LogMealCategory, LogMealCandidate[]>
+  >(() => {
+    const next: Record<LogMealCategory, LogMealCandidate[]> = {
+      breakfast: [],
+      snacks: [],
+      lunch: [],
+      dinner: [],
+      drinks: [],
+    };
+
+    const addFromPlannedEntry = (entry: PlannedFoodEntry) => {
+      const servings = Math.max(0.1, entry.servings || 1);
+      const category: LogMealCategory =
+        entry.mealType === 'alcohol'
+          ? 'drinks'
+          : entry.mealType === 'snack'
+          ? 'snacks'
+          : entry.mealType === 'dessert'
+          ? 'snacks'
+          : (entry.mealType as LogMealCategory);
+      next[category].push({
+        id: `planned-${entry.id}`,
+        recipeId: entry.sourceRecipeId || undefined,
+        label: entry.name,
+        defaultServings: servings,
+        macrosPerServing: {
+          calories: Math.max(0, Math.round(entry.calories / servings)),
+          protein_g: Math.max(0, Math.round(entry.protein_g / servings)),
+          carbs_g: Math.max(0, Math.round(entry.carbs_g / servings)),
+          fat_g: Math.max(0, Math.round(entry.fat_g / servings)),
+        },
+      });
+    };
+
+    plannedEntriesToday.forEach(addFromPlannedEntry);
+
+    const hasMatchingDinner = fallbackDinner
+      ? next.dinner.some((entry) => entry.recipeId && entry.recipeId === fallbackDinner.recipeId)
+      : false;
+    if (fallbackDinner && !hasMatchingDinner) {
+      next.dinner.unshift({
+        id: `scheduled-${fallbackDinner.recipeId || fallbackDinner.recipe.name}`,
+        recipeId: fallbackDinner.recipeId,
+        label: fallbackDinner.recipe.name,
+        defaultServings: 1,
+        macrosPerServing: fallbackDinner.recipe.macrosPerServing,
+      });
+    } else if (!fallbackDinner && mockTodaysMeal?.recipe) {
+      next.dinner.unshift({
+        id: `mock-${mockTodaysMeal.recipeId}`,
+        recipeId: mockTodaysMeal.recipeId,
+        label: mockTodaysMeal.recipe.name,
+        defaultServings: 1,
+        macrosPerServing: mockTodaysMeal.recipe.macrosPerServing,
+      });
+    }
+
+    return next;
+  }, [fallbackDinner, mockTodaysMeal, plannedEntriesToday]);
+
+  const logMealCandidates = logMealCandidatesByCategory[logMealCategory] || [];
+  const selectedLogMeal = useMemo(
+    () => logMealCandidates.find((entry) => entry.id === selectedLogMealId) || logMealCandidates[0] || null,
+    [logMealCandidates, selectedLogMealId],
+  );
+
+  useEffect(() => {
+    if (logMealCandidates.length === 0) {
+      if (selectedLogMealId) setSelectedLogMealId('');
+      return;
+    }
+    const exists = logMealCandidates.some((entry) => entry.id === selectedLogMealId);
+    if (!exists) {
+      const first = logMealCandidates[0];
+      setSelectedLogMealId(first.id);
+      setMealServings(String(first.defaultServings || 1));
+    }
+  }, [logMealCandidates, selectedLogMealId]);
 
   const parseServings = (raw: string) => {
     const parsed = Number.parseFloat(raw);
@@ -264,22 +375,22 @@ export default function TodayPage() {
   };
 
   const logMeal = (person: string | 'all') => {
-    if (!todaysMeal) return;
+    if (!selectedLogMeal) return;
     const servings = parseServings(mealServings);
     const scaledMacros = {
-      calories: Math.round(todaysMeal.recipe.macrosPerServing.calories * servings),
-      protein_g: Math.round(todaysMeal.recipe.macrosPerServing.protein_g * servings),
-      carbs_g: Math.round(todaysMeal.recipe.macrosPerServing.carbs_g * servings),
-      fat_g: Math.round(todaysMeal.recipe.macrosPerServing.fat_g * servings),
-      fiber_g: todaysMeal.recipe.macrosPerServing.fiber_g
-        ? Math.round(todaysMeal.recipe.macrosPerServing.fiber_g * servings)
+      calories: Math.round(selectedLogMeal.macrosPerServing.calories * servings),
+      protein_g: Math.round(selectedLogMeal.macrosPerServing.protein_g * servings),
+      carbs_g: Math.round(selectedLogMeal.macrosPerServing.carbs_g * servings),
+      fat_g: Math.round(selectedLogMeal.macrosPerServing.fat_g * servings),
+      fiber_g: selectedLogMeal.macrosPerServing.fiber_g
+        ? Math.round(selectedLogMeal.macrosPerServing.fiber_g * servings)
         : undefined,
     };
 
     const createLog = (target: string): MealLog => ({
       id: `log-${Date.now()}-${target}`,
-      recipeId: todaysMeal.recipeId,
-      recipeName: todaysMeal.recipe.name,
+      recipeId: selectedLogMeal.recipeId,
+      recipeName: selectedLogMeal.label,
       date: todayKey,
       person: target,
       servings,
@@ -292,14 +403,14 @@ export default function TodayPage() {
       dashboards.forEach((dashboard) => addMealLog(createLog(dashboard.id)));
       toast({
         title: dashboards.length > 1 ? 'Logged for all dashboards' : 'Logged meal',
-        description: `${todaysMeal.recipe.name} • ${servings} servings`,
+        description: `${selectedLogMeal.label} • ${servings} servings`,
       });
     } else {
       addMealLog(createLog(person));
       const targetName = dashboards.find((dashboard) => dashboard.id === person)?.name || profiles[person]?.name || 'Dashboard';
       toast({
         title: `Logged for ${targetName}`,
-        description: `${todaysMeal.recipe.name} • ${servings} servings`,
+        description: `${selectedLogMeal.label} • ${servings} servings`,
       });
     }
     refresh();
@@ -563,8 +674,8 @@ export default function TodayPage() {
           </SectionCard>
 
           <SectionCard
-            title="Tonight's Dinner"
-            subtitle="Plan and log dinner from here"
+            title="Log Today's Meals"
+            subtitle="Choose a meal slot and log what was planned"
             action={
               <Link to="/meals">
                 <Button variant="ghost" size="sm">
@@ -573,18 +684,61 @@ export default function TodayPage() {
               </Link>
             }
           >
-            {todaysMeal && !todaysMeal.isSkipped ? (
+            <div className="grid gap-3 sm:grid-cols-2 mb-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Meal slot</label>
+                <select
+                  value={logMealCategory}
+                  onChange={(event) => setLogMealCategory(event.target.value as LogMealCategory)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {LOG_MEAL_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Planned item</label>
+                <select
+                  value={selectedLogMeal?.id || ''}
+                  onChange={(event) => {
+                    const nextId = event.target.value;
+                    setSelectedLogMealId(nextId);
+                    const nextCandidate = logMealCandidates.find((entry) => entry.id === nextId);
+                    if (nextCandidate) {
+                      setMealServings(String(nextCandidate.defaultServings || 1));
+                    }
+                  }}
+                  disabled={logMealCandidates.length === 0}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
+                >
+                  {logMealCandidates.length === 0 ? (
+                    <option value="">No planned items</option>
+                  ) : (
+                    logMealCandidates.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {selectedLogMeal ? (
               <div className="space-y-4">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                     <UtensilsCrossed className="w-6 h-6 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-lg font-semibold text-foreground">{todaysMeal.recipe.name}</h3>
+                    <h3 className="font-display text-lg font-semibold text-foreground">{selectedLogMeal.label}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {todaysMeal.recipe.servings} servings • {todaysMeal.recipe.macrosPerServing.calories} cal/serving
+                      {Math.round(selectedLogMeal.macrosPerServing.calories)} cal/serving
                     </p>
-                    <MacroBar current={todaysMeal.recipe.macrosPerServing} compact />
+                    <MacroBar current={selectedLogMeal.macrosPerServing} compact />
                   </div>
                 </div>
 
@@ -641,9 +795,9 @@ export default function TodayPage() {
             ) : (
               <div className="text-center py-6 text-muted-foreground">
                 <SkipForward className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>No dinner planned for tonight</p>
+                <p>No planned {logMealCategory === 'drinks' ? 'drinks' : logMealCategory} for today</p>
                 <Link to="/meals" className="inline-flex mt-3">
-                  <Button size="sm" variant="outline">Plan Dinner</Button>
+                  <Button size="sm" variant="outline">Add to Meal Plan</Button>
                 </Link>
               </div>
             )}
