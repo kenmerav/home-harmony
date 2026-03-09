@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format, startOfWeek } from 'date-fns';
+import { format, parseISO, startOfWeek, isSameDay } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -18,6 +18,11 @@ import {
   Wine,
   Trophy,
   Flame,
+  CalendarDays,
+  ClipboardList,
+  ListChecks,
+  Dumbbell,
+  ShoppingCart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -42,6 +47,8 @@ import {
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { loadTasks } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
+import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
+import { CalendarEvent } from '@/lib/calendarStore';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -97,6 +104,8 @@ export default function TodayPage() {
   const [prizeDialogOpen, setPrizeDialogOpen] = useState(false);
   const [leaderboardPrize, setLeaderboardPrize] = useState('');
   const [prizeInput, setPrizeInput] = useState('');
+  const [todaysEvents, setTodaysEvents] = useState<CalendarEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [quickAddData, setQuickAddData] = useState({
     name: '',
     calories: '',
@@ -146,6 +155,18 @@ export default function TodayPage() {
     return () => window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
   }, []);
 
+  useEffect(() => {
+    const triggerRefresh = () => setRefreshTick((prev) => prev + 1);
+    window.addEventListener('homehub:calendar-events-updated', triggerRefresh);
+    window.addEventListener('homehub:task-state-updated', triggerRefresh);
+    window.addEventListener('homehub:meals-updated', triggerRefresh);
+    return () => {
+      window.removeEventListener('homehub:calendar-events-updated', triggerRefresh);
+      window.removeEventListener('homehub:task-state-updated', triggerRefresh);
+      window.removeEventListener('homehub:meals-updated', triggerRefresh);
+    };
+  }, []);
+
   const refresh = () => setRefreshTick((prev) => prev + 1);
   const profiles = useMemo(() => getProfiles(), [refreshTick]);
   const dashboards = useMemo(() => listDashboardProfiles(), [refreshTick]);
@@ -162,9 +183,61 @@ export default function TodayPage() {
   const leaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
 
-  const todaysTasks = loadTasks(user?.id)
-    .filter((task) => task.frequency === 'once' || task.day === currentDay)
-    .slice(0, 4);
+  useEffect(() => {
+    let cancelled = false;
+    const loadTodayEvents = async () => {
+      setEventsLoading(true);
+      try {
+        const events = await fetchCalendarEventsForMonth(new Date(), user?.id);
+        if (cancelled) return;
+        const todayEvents = events.filter((event) => {
+          try {
+            return isSameDay(parseISO(event.startsAt), new Date());
+          } catch {
+            return false;
+          }
+        });
+        setTodaysEvents(todayEvents);
+      } catch (error) {
+        console.error('Failed to load today calendar events:', error);
+        if (!cancelled) setTodaysEvents([]);
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
+    };
+    void loadTodayEvents();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick, user?.id]);
+
+  const todaysTasks = useMemo(
+    () =>
+      loadTasks(user?.id)
+        .filter((task) => task.frequency === 'once' || task.day === currentDay)
+        .slice(0, 6),
+    [currentDay, refreshTick, user?.id],
+  );
+
+  const pendingTaskCount = todaysTasks.filter((task) => task.status !== 'done').length;
+  const pendingChoreCount = childChores.reduce((sum, child) => sum + Math.max(child.total - child.completed, 0), 0);
+  const completedChoresCount = childChores.reduce((sum, child) => sum + child.completed, 0);
+  const workoutCountToday = todaysEvents.filter((event) => event.module === 'workouts').length;
+  const groceryActionCount = todaysEvents.filter(
+    (event) => event.module === 'meals' || event.title.toLowerCase().includes('grocery'),
+  ).length;
+
+  const nextEvent = useMemo(() => {
+    const now = Date.now();
+    return (
+      todaysEvents.find((event) => {
+        if (event.allDay) return true;
+        const end = event.endsAt ? parseISO(event.endsAt) : parseISO(event.startsAt);
+        return end.getTime() >= now;
+      }) || null
+    );
+  }, [todaysEvents]);
+
   const liveTodaysMeal = liveMeals.find((m) => m.day === currentDay && !m.is_skipped && !!m.recipes);
   const todaysMeal = liveTodaysMeal
     ? {
@@ -305,131 +378,277 @@ export default function TodayPage() {
 
       <div className="space-y-6 stagger-children">
         <SectionCard
-          title="Tonight's Dinner"
+          title="Daily Command Center"
+          subtitle="Everything important for today, in one place"
           action={
-            <Link to="/meals">
-              <Button variant="ghost" size="sm">View Week</Button>
+            <Link to="/calendar">
+              <Button variant="ghost" size="sm">
+                Open Planner
+              </Button>
             </Link>
           }
         >
-          {todaysMeal && !todaysMeal.isSkipped ? (
-            <div className="space-y-4">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <UtensilsCrossed className="w-6 h-6 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-display text-lg font-semibold text-foreground">{todaysMeal.recipe.name}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {todaysMeal.recipe.servings} servings • {todaysMeal.recipe.macrosPerServing.calories} cal/serving
-                  </p>
-                  <MacroBar current={todaysMeal.recipe.macrosPerServing} compact />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Next up</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {nextEvent ? nextEvent.title : 'No upcoming event'}
+              </p>
+              {nextEvent && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatEventTime(nextEvent)}
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Today schedule</p>
+              <p className="mt-1 text-2xl font-display font-semibold">{todaysEvents.length}</p>
+              <p className="text-xs text-muted-foreground">events</p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Open tasks</p>
+              <p className="mt-1 text-2xl font-display font-semibold">{pendingTaskCount}</p>
+              <p className="text-xs text-muted-foreground">to complete today</p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Chores pending</p>
+              <p className="mt-1 text-2xl font-display font-semibold">{pendingChoreCount}</p>
+              <p className="text-xs text-muted-foreground">{completedChoresCount} done</p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Workouts + meal actions</p>
+              <p className="mt-1 text-2xl font-display font-semibold">{workoutCountToday + groceryActionCount}</p>
+              <p className="text-xs text-muted-foreground">planned actions</p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to="/calendar">
+              <Button size="sm" variant="outline">
+                <CalendarDays className="w-4 h-4 mr-1" />
+                Add event
+              </Button>
+            </Link>
+            <Link to="/meals">
+              <Button size="sm" variant="outline">
+                <UtensilsCrossed className="w-4 h-4 mr-1" />
+                Plan meals
+              </Button>
+            </Link>
+            <Link to="/grocery">
+              <Button size="sm" variant="outline">
+                <ShoppingCart className="w-4 h-4 mr-1" />
+                Open grocery
+              </Button>
+            </Link>
+            <Link to="/tasks">
+              <Button size="sm" variant="outline">
+                <ClipboardList className="w-4 h-4 mr-1" />
+                Manage tasks
+              </Button>
+            </Link>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Today's Schedule"
+          subtitle="Meals, chores, tasks, workouts, and reminders in one timeline"
+          action={
+            <Link to="/calendar">
+              <Button variant="ghost" size="sm">
+                Full Calendar
+              </Button>
+            </Link>
+          }
+        >
+          {eventsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading today&apos;s timeline...</p>
+          ) : todaysEvents.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              Nothing scheduled for today yet.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {todaysEvents.map((event) => {
+                const meta = CALENDAR_MODULE_META[event.module] || CALENDAR_MODULE_META.manual;
+                const Icon = moduleIconForEvent(event.module);
+                return (
+                  <div
+                    key={event.id}
+                    className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2"
+                  >
+                    <div className="flex min-w-0 gap-3">
+                      <div className="mt-0.5 rounded-full bg-muted/50 p-1.5">
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{event.title}</p>
+                        {event.description && (
+                          <p className="truncate text-xs text-muted-foreground">{event.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">{formatEventTime(event)}</p>
+                      </div>
+                    </div>
+                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', meta.badgeClass)}>
+                      {meta.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <SectionCard
+            title="Tasks and Chores"
+            subtitle="What needs attention today"
+            action={
+              <div className="flex items-center gap-2">
+                <Link to="/tasks">
+                  <Button variant="ghost" size="sm">
+                    Tasks
+                  </Button>
+                </Link>
+                <Link to="/chores">
+                  <Button variant="ghost" size="sm">
+                    Chores
+                  </Button>
+                </Link>
+              </div>
+            }
+          >
+            <div className="space-y-5">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Today&apos;s Tasks</p>
+                <div className="space-y-2">
+                  {todaysTasks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No tasks scheduled today.</p>
+                  ) : (
+                    todaysTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{task.title}</p>
+                          {task.notes && <p className="truncate text-xs text-muted-foreground">{task.notes}</p>}
+                        </div>
+                        <StatusBadge status={task.status} />
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
-                <div className="w-full space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">Serving size to log</p>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.25"
-                      min="0.25"
-                      max="4"
-                      value={mealServings}
-                      onChange={(e) => setMealServings(e.target.value)}
-                      className="h-8 w-20 text-center"
-                    />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Kids Chore Progress</p>
+                {childChores.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No kids added yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {childChores.map((child) => (
+                      <div key={child.id} className="rounded-md border border-border px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">{child.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {child.completed}/{child.total}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Tonight's Dinner"
+            subtitle="Plan and log dinner from here"
+            action={
+              <Link to="/meals">
+                <Button variant="ghost" size="sm">
+                  View Week
+                </Button>
+              </Link>
+            }
+          >
+            {todaysMeal && !todaysMeal.isSkipped ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <UtensilsCrossed className="w-6 h-6 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display text-lg font-semibold text-foreground">{todaysMeal.recipe.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {todaysMeal.recipe.servings} servings • {todaysMeal.recipe.macrosPerServing.calories} cal/serving
+                    </p>
+                    <MacroBar current={todaysMeal.recipe.macrosPerServing} compact />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <div className="w-full space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">Serving size to log</p>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.25"
+                        min="0.25"
+                        max="4"
+                        value={mealServings}
+                        onChange={(e) => setMealServings(e.target.value)}
+                        className="h-8 w-20 text-center"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {['0.5', '0.75', '1', '1.25', '1.5', '2'].map((value) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          size="sm"
+                          variant={mealServings === value ? 'default' : 'outline'}
+                          onClick={() => setMealServings(value)}
+                        >
+                          {value}x
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <Button size="sm" className="w-full" onClick={() => logMeal('all')}>
+                    <Check className="w-4 h-4 mr-2" />
+                    {dashboards.length > 1 ? 'Log for all dashboards (+points)' : 'Log meal (+points)'}
+                  </Button>
                   <div className="flex flex-wrap gap-2">
-                    {['0.5', '0.75', '1', '1.25', '1.5', '2'].map((value) => (
+                    {dashboards.map((dashboard) => (
                       <Button
-                        key={value}
-                        type="button"
+                        key={dashboard.id}
                         size="sm"
-                        variant={mealServings === value ? 'default' : 'outline'}
-                        onClick={() => setMealServings(value)}
+                        variant="outline"
+                        onClick={() => logMeal(dashboard.id)}
                       >
-                        {value}x
+                        {dashboard.name}
                       </Button>
                     ))}
                   </div>
                 </div>
               </div>
-
-              <div className="space-y-2 pt-1">
-                <Button size="sm" className="w-full" onClick={() => logMeal('all')}>
-                  <Check className="w-4 h-4 mr-2" />
-                  {dashboards.length > 1 ? 'Log for all dashboards (+points)' : 'Log meal (+points)'}
-                </Button>
-                <div className="flex flex-wrap gap-2">
-                  {dashboards.map((dashboard) => (
-                    <Button
-                      key={dashboard.id}
-                      size="sm"
-                      variant="outline"
-                      onClick={() => logMeal(dashboard.id)}
-                    >
-                      {dashboard.name}
-                    </Button>
-                  ))}
-                </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <SkipForward className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No dinner planned for tonight</p>
+                <Link to="/meals" className="inline-flex mt-3">
+                  <Button size="sm" variant="outline">Plan Dinner</Button>
+                </Link>
               </div>
-            </div>
-          ) : (
-            <div className="text-center py-6 text-muted-foreground">
-              <SkipForward className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>No dinner planned for tonight</p>
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard title="Macro Game">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {todaysScores.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">{entry.label}</p>
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1">
-                      <Flame className="w-3.5 h-3.5 text-orange-500" />
-                      {entry.streak} day streak
-                    </span>
-                    <span className="font-semibold text-foreground">{entry.score.points} pts</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <BadgeLine label="Protein" hit={entry.score.proteinHit} />
-                  <BadgeLine label="Calories" hit={entry.score.calorieHit} />
-                  <BadgeLine label="Water" hit={entry.score.waterHit} />
-                  <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
-                    <Droplets className="w-4 h-4 mr-1" />
-                    +16oz
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
-                    <Droplets className="w-4 h-4 mr-1" />
-                    -16oz
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
-                    <Wine className="w-4 h-4 mr-1" />
-                    +1 drink
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
-                    <Wine className="w-4 h-4 mr-1" />
-                    -1 drink
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
-                </p>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
+            )}
+          </SectionCard>
+        </div>
 
         <SectionCard
           title="Family Leaderboard"
@@ -467,89 +686,88 @@ export default function TodayPage() {
           </div>
         </SectionCard>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {todaysScores.map((entry) => {
-            const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
-            return (
-              <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
-                <SectionCard className="card-hover">
-                  <div className="text-center mb-3">
-                    <p className="text-sm text-muted-foreground">{entry.label}</p>
-                    <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
-                    <p className="text-xs text-muted-foreground">calories today</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Protein</span>
-                      <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
-                    </div>
-                    <div className="h-1 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full"
-                        style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </SectionCard>
-              </Link>
-            );
-          })}
-        </div>
-
-        <SectionCard
-          title="Kids Chores"
-          action={
-            <Link to="/chores">
-              <Button variant="ghost" size="sm">View All</Button>
-            </Link>
-          }
-        >
-          {childChores.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No kids added yet. Add a child in Chores to get started.</p>
-          ) : (
+        <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
+          <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {childChores.map((child) => (
-                <div key={child.id}>
+              {todaysScores.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{child.name}</span>
-                    <span className="text-sm text-muted-foreground">{child.completed}/{child.total}</span>
+                    <p className="font-medium">{entry.label}</p>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5 text-orange-500" />
+                        {entry.streak} day streak
+                      </span>
+                      <span className="font-semibold text-foreground">{entry.score.points} pts</span>
+                    </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <BadgeLine label="Protein" hit={entry.score.proteinHit} />
+                    <BadgeLine label="Calories" hit={entry.score.calorieHit} />
+                    <BadgeLine label="Water" hit={entry.score.waterHit} />
+                    <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
+                      <Droplets className="w-4 h-4 mr-1" />
+                      +16oz
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
+                      <Droplets className="w-4 h-4 mr-1" />
+                      -16oz
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
+                      <Wine className="w-4 h-4 mr-1" />
+                      +1 drink
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
+                      <Wine className="w-4 h-4 mr-1" />
+                      -1 drink
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
+                  </p>
                 </div>
               ))}
             </div>
-          )}
-        </SectionCard>
 
-        <SectionCard
-          title="House Manager"
-          action={
-            <Link to="/tasks">
-              <Button variant="ghost" size="sm">View All</Button>
-            </Link>
-          }
-        >
-          <div className="space-y-3">
-            {todaysTasks.map((task) => (
-              <div key={task.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                <div className="flex items-center gap-3">
-                  <StatusBadge type={task.type} />
-                  <div>
-                    <p className="font-medium text-sm">{task.title}</p>
-                    {task.notes && <p className="text-xs text-muted-foreground">{task.notes}</p>}
-                  </div>
-                </div>
-                <StatusBadge status={task.status} />
-              </div>
-            ))}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {todaysScores.map((entry) => {
+                const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
+                return (
+                  <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
+                    <SectionCard className="card-hover">
+                      <div className="text-center mb-3">
+                        <p className="text-sm text-muted-foreground">{entry.label}</p>
+                        <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
+                        <p className="text-xs text-muted-foreground">calories today</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Protein</span>
+                          <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
+                        </div>
+                        <div className="h-1 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary rounded-full"
+                            style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    </SectionCard>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Quick Add Meal
+            </Button>
           </div>
         </SectionCard>
-
-        <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Quick Add Meal
-        </Button>
       </div>
-
       <Dialog open={quickAddOpen} onOpenChange={setQuickAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -655,6 +873,34 @@ export default function TodayPage() {
       </Dialog>
     </AppLayout>
   );
+}
+
+function formatEventTime(event: CalendarEvent): string {
+  if (event.allDay) return 'All day';
+  const start = parseISO(event.startsAt);
+  if (event.endsAt) {
+    const end = parseISO(event.endsAt);
+    return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
+  }
+  return format(start, 'h:mm a');
+}
+
+function moduleIconForEvent(module: CalendarEvent['module']) {
+  switch (module) {
+    case 'meals':
+      return UtensilsCrossed;
+    case 'tasks':
+      return ListChecks;
+    case 'chores':
+      return ClipboardList;
+    case 'workouts':
+      return Dumbbell;
+    case 'reminders':
+      return CalendarDays;
+    case 'manual':
+    default:
+      return CalendarDays;
+  }
 }
 
 function BadgeLine({ label, hit }: { label: string; hit: boolean }) {
