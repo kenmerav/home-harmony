@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { fetchGoogleDriveTrafficEstimate } from "../_shared/traffic.ts";
 import { sendTwilioSms } from "../_shared/twilio.ts";
 
 type CalendarEvent = {
@@ -286,43 +285,18 @@ async function fetchDailyEvents(
 
 async function resolveTrafficMinutesForEvent(
   event: CalendarEvent,
-  fallbackOrigin: string | null,
 ): Promise<{
   trafficMinutes: number | null;
   baseMinutes: number | null;
 }> {
-  const origin = event.travelFromAddress || fallbackOrigin;
-  if (!event.locationText || !origin) {
-    return {
-      trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
-        ? Number(event.trafficDurationMinutes)
-        : Number.isFinite(Number(event.travelDurationMinutes))
-        ? Number(event.travelDurationMinutes)
-        : null,
-      baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
-    };
-  }
-
-  try {
-    const estimate = await fetchGoogleDriveTrafficEstimate({
-      origin,
-      destination: event.locationText,
-      departureEpochSeconds: Math.floor(Date.now() / 1000),
-    });
-    return {
-      trafficMinutes: estimate.trafficDurationMinutes,
-      baseMinutes: estimate.durationMinutes,
-    };
-  } catch {
-    return {
-      trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
-        ? Number(event.trafficDurationMinutes)
-        : Number.isFinite(Number(event.travelDurationMinutes))
-        ? Number(event.travelDurationMinutes)
-        : null,
-      baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
-    };
-  }
+  return {
+    trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
+      ? Number(event.trafficDurationMinutes)
+      : Number.isFinite(Number(event.travelDurationMinutes))
+      ? Number(event.travelDurationMinutes)
+      : null,
+    baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
+  };
 }
 
 serve(async (req) => {
@@ -608,7 +582,7 @@ serve(async (req) => {
             if (event.module === "manual" && event.leaveReminderEnabled) {
               if (event.startsAtLocal <= localNow) continue;
               const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
-              const travel = await resolveTrafficMinutesForEvent(event, row.home_address || null);
+              const travel = await resolveTrafficMinutesForEvent(event);
               if (!travel.trafficMinutes || travel.trafficMinutes < 1) continue;
 
               const leaveAt = event.startsAtLocal.minus({ minutes: travel.trafficMinutes });

@@ -1866,9 +1866,9 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium">Home address (for travel time)</label>
+                <label className="text-sm font-medium">Leaving from</label>
                 <Input
-                  placeholder="Set your home address"
+                  placeholder="Home, work, school, or another starting point"
                   value={draftHomeAddress}
                   onChange={(e) => {
                     setDraftHomeAddress(e.target.value);
@@ -1889,7 +1889,7 @@ export default function CalendarPage() {
                   onClick={() => void estimateTravelForDraft()}
                   disabled={draftTravelLoading || draftAllDay}
                 >
-                  {draftTravelLoading ? 'Estimating...' : 'Estimate travel (live traffic)'}
+                  {draftTravelLoading ? 'Estimating...' : 'Estimate route time'}
                 </Button>
               </div>
               {draftAllDay && <p className="text-xs text-muted-foreground">Set a start time to estimate commute.</p>}
