@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { DayOfWeek } from '@/types';
-import { Plus, RotateCcw, CheckCircle2, X, PiggyBank, Wallet, Clock3 } from 'lucide-react';
+import { Plus, RotateCcw, CheckCircle2, X, PiggyBank, Wallet, Clock3, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -52,7 +52,8 @@ interface RewardChore {
 }
 
 interface RewardWeeklyChore extends RewardChore {
-  day: DayOfWeek;
+  day?: DayOfWeek;
+  days?: DayOfWeek[];
 }
 
 interface ClaimedExtraChore {
@@ -95,6 +96,15 @@ interface ChoresState {
 
 const money = (amount: number) => `$${amount.toFixed(2)}`;
 
+function normalizeWeeklyDays(chore: RewardWeeklyChore): DayOfWeek[] {
+  const fromDays = Array.isArray(chore.days)
+    ? chore.days.filter((day): day is DayOfWeek => allDays.includes(day))
+    : [];
+  if (fromDays.length > 0) return [...new Set(fromDays)];
+  if (chore.day && allDays.includes(chore.day)) return [chore.day];
+  return ['monday'];
+}
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
@@ -119,8 +129,26 @@ function loadState(userId?: string | null): ChoresState {
       return { children: parsed, availableExtraChores: [] };
     }
 
+    const children = Array.isArray(parsed.children) ? parsed.children : [];
+    const normalizedChildren = children.map((child) => {
+      const item = child as ChildEconomy;
+      return {
+        ...item,
+        weeklyChores: Array.isArray(item.weeklyChores)
+          ? item.weeklyChores.map((chore) => {
+              const weeklyDays = normalizeWeeklyDays(chore as RewardWeeklyChore);
+              return {
+                ...chore,
+                day: weeklyDays[0],
+                days: weeklyDays,
+              };
+            })
+          : [],
+      };
+    });
+
     return {
-      children: Array.isArray(parsed.children) ? parsed.children : [],
+      children: normalizedChildren,
       availableExtraChores: Array.isArray(parsed.availableExtraChores)
         ? parsed.availableExtraChores
         : [],
@@ -177,7 +205,18 @@ export default function ChoresPage() {
   const [newChoreName, setNewChoreName] = useState('');
   const [newChoreType, setNewChoreType] = useState<'daily' | 'weekly'>('daily');
   const [newChoreDay, setNewChoreDay] = useState<DayOfWeek>('monday');
+  const [newChoreDays, setNewChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [newChoreReward, setNewChoreReward] = useState('1');
+  const [editChoreOpen, setEditChoreOpen] = useState(false);
+  const [editingChoreTarget, setEditingChoreTarget] = useState<{
+    childId: string;
+    choreId: string;
+    type: 'daily' | 'weekly';
+  } | null>(null);
+  const [editChoreName, setEditChoreName] = useState('');
+  const [editChoreReward, setEditChoreReward] = useState('1');
+  const [editChoreDay, setEditChoreDay] = useState<DayOfWeek>('monday');
+  const [editChoreDays, setEditChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [addExtraOpen, setAddExtraOpen] = useState(false);
   const [extraName, setExtraName] = useState('');
   const [extraReward, setExtraReward] = useState('3');
@@ -303,8 +342,29 @@ export default function ChoresPage() {
     setNewChoreName('');
     setNewChoreType('daily');
     setNewChoreDay('monday');
+    setNewChoreDays(['monday']);
     setNewChoreReward('1');
     setAddChoreOpen(true);
+  };
+
+  const toggleNewChoreDay = (day: DayOfWeek) => {
+    setNewChoreDays((prev) => {
+      const set = new Set(prev);
+      if (set.has(day)) set.delete(day);
+      else set.add(day);
+      if (set.size === 0) set.add(day);
+      return allDays.filter((item) => set.has(item));
+    });
+  };
+
+  const toggleEditChoreDay = (day: DayOfWeek) => {
+    setEditChoreDays((prev) => {
+      const set = new Set(prev);
+      if (set.has(day)) set.delete(day);
+      else set.add(day);
+      if (set.size === 0) set.add(day);
+      return allDays.filter((item) => set.has(item));
+    });
   };
 
   const addChore = () => {
@@ -324,7 +384,8 @@ export default function ChoresPage() {
       const newChore: RewardWeeklyChore = {
         id: `weekly-${Date.now()}`,
         name: newChoreName.trim(),
-        day: newChoreDay,
+        day: newChoreDays[0] || newChoreDay,
+        days: [...newChoreDays],
         isCompleted: false,
         reward,
       };
@@ -336,6 +397,87 @@ export default function ChoresPage() {
       title: 'Chore added',
       description: `"${newChoreName}" added with ${money(reward)} reward.`,
     });
+  };
+
+  const openEditChore = (childId: string, type: 'daily' | 'weekly', choreId: string) => {
+    const child = children.find((item) => item.id === childId);
+    if (!child) return;
+    if (type === 'daily') {
+      const chore = child.dailyChores.find((item) => item.id === choreId);
+      if (!chore) return;
+      setEditChoreName(chore.name);
+      setEditChoreReward(String(chore.reward));
+      setEditChoreDay('monday');
+      setEditChoreDays(['monday']);
+    } else {
+      const chore = child.weeklyChores.find((item) => item.id === choreId);
+      if (!chore) return;
+      const weeklyDays = normalizeWeeklyDays(chore);
+      setEditChoreName(chore.name);
+      setEditChoreReward(String(chore.reward));
+      setEditChoreDay(weeklyDays[0] || 'monday');
+      setEditChoreDays(weeklyDays);
+    }
+    setEditingChoreTarget({ childId, choreId, type });
+    setEditChoreOpen(true);
+  };
+
+  const saveEditedChore = () => {
+    if (!editingChoreTarget || !editChoreName.trim()) return;
+    const reward = Math.max(0, Number.parseFloat(editChoreReward) || 0);
+    const { childId, choreId, type } = editingChoreTarget;
+
+    updateChild(childId, (child) => {
+      if (type === 'daily') {
+        return {
+          ...child,
+          dailyChores: child.dailyChores.map((chore) =>
+            chore.id === choreId
+              ? { ...chore, name: editChoreName.trim(), reward }
+              : chore,
+          ),
+        };
+      }
+
+      return {
+        ...child,
+        weeklyChores: child.weeklyChores.map((chore) =>
+          chore.id === choreId
+            ? {
+                ...chore,
+                name: editChoreName.trim(),
+                reward,
+                day: editChoreDays[0] || editChoreDay,
+                days: [...editChoreDays],
+              }
+            : chore,
+        ),
+      };
+    });
+
+    setEditChoreOpen(false);
+    setEditingChoreTarget(null);
+    toast({ title: 'Chore updated' });
+  };
+
+  const deleteChore = () => {
+    if (!editingChoreTarget) return;
+    const { childId, choreId, type } = editingChoreTarget;
+    updateChild(childId, (child) => {
+      if (type === 'daily') {
+        return {
+          ...child,
+          dailyChores: child.dailyChores.filter((chore) => chore.id !== choreId),
+        };
+      }
+      return {
+        ...child,
+        weeklyChores: child.weeklyChores.filter((chore) => chore.id !== choreId),
+      };
+    });
+    setEditChoreOpen(false);
+    setEditingChoreTarget(null);
+    toast({ title: 'Chore removed' });
   };
 
   const removeChild = (childId: string) => {
@@ -545,7 +687,9 @@ export default function ChoresPage() {
         {children.map((child) => {
           const dailyCompleted = child.dailyChores.filter((chore) => chore.isCompleted).length;
           const dailyTotal = child.dailyChores.length;
-          const todaysWeekly = child.weeklyChores.filter((chore) => chore.day === currentDay);
+          const todaysWeekly = child.weeklyChores.filter((chore) =>
+            normalizeWeeklyDays(chore).includes(currentDay),
+          );
 
           return (
             <SectionCard
@@ -611,6 +755,19 @@ export default function ChoresPage() {
                           </span>
                           <span className="text-xs text-primary font-medium">{money(chore.reward)}</span>
                           {chore.isCompleted && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openEditChore(child.id, 'daily', chore.id);
+                            }}
+                            title="Edit chore"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
                         </label>
                       ))}
                     </div>
@@ -643,6 +800,19 @@ export default function ChoresPage() {
                             {chore.name}
                           </span>
                           <span className="text-xs text-primary font-medium">{money(chore.reward)}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openEditChore(child.id, 'weekly', chore.id);
+                            }}
+                            title="Edit chore"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
                         </label>
                       ))}
                     </div>
@@ -654,17 +824,19 @@ export default function ChoresPage() {
                     <h4 className="text-sm font-medium text-muted-foreground mb-2">Weekly Schedule</h4>
                     <div className="flex flex-wrap gap-2">
                       {child.weeklyChores.map((chore) => (
-                        <div
+                        <button
                           key={chore.id}
+                          type="button"
+                          onClick={() => openEditChore(child.id, 'weekly', chore.id)}
                           className={cn(
-                            'px-3 py-1.5 rounded-full text-xs',
-                            chore.day === currentDay
+                            'px-3 py-1.5 rounded-full text-xs transition-colors',
+                            normalizeWeeklyDays(chore).includes(currentDay)
                               ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground',
+                              : 'bg-muted text-muted-foreground hover:bg-muted/80',
                           )}
                         >
-                          {dayLabels[chore.day].slice(0, 3)}: {chore.name} ({money(chore.reward)})
-                        </div>
+                          {normalizeWeeklyDays(chore).map((day) => dayLabels[day].slice(0, 3)).join(', ')}: {chore.name} ({money(chore.reward)})
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -790,24 +962,28 @@ export default function ChoresPage() {
 
             {newChoreType === 'weekly' && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Day of week</label>
-                <Select value={newChoreDay} onValueChange={(value) => setNewChoreDay(value as DayOfWeek)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allDays.map((day) => (
-                      <SelectItem key={day} value={day}>
-                        {dayLabels[day]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label className="text-sm font-medium">Days of week</label>
+                <div className="flex flex-wrap gap-2">
+                  {allDays.map((day) => {
+                    const active = newChoreDays.includes(day);
+                    return (
+                      <Button
+                        key={day}
+                        type="button"
+                        size="sm"
+                        variant={active ? 'default' : 'outline'}
+                        onClick={() => toggleNewChoreDay(day)}
+                      >
+                        {dayLabels[day].slice(0, 3)}
+                      </Button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Reward amount ($)</label>
+              <label className="text-sm font-medium">Reward amount ($ or points)</label>
               <Input
                 type="number"
                 min={0}
@@ -824,6 +1000,66 @@ export default function ChoresPage() {
               <Button onClick={addChore} disabled={!newChoreName.trim()}>
                 Add Chore
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editChoreOpen} onOpenChange={setEditChoreOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Chore</DialogTitle>
+            <DialogDescription>Update the chore details, reward, and schedule.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Chore name"
+              value={editChoreName}
+              onChange={(event) => setEditChoreName(event.target.value)}
+            />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reward amount ($ or points)</label>
+              <Input
+                type="number"
+                min={0}
+                step="0.25"
+                value={editChoreReward}
+                onChange={(event) => setEditChoreReward(event.target.value)}
+              />
+            </div>
+            {editingChoreTarget?.type === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Days of week</label>
+                <div className="flex flex-wrap gap-2">
+                  {allDays.map((day) => {
+                    const active = editChoreDays.includes(day);
+                    return (
+                      <Button
+                        key={`edit-chore-day-${day}`}
+                        type="button"
+                        size="sm"
+                        variant={active ? 'default' : 'outline'}
+                        onClick={() => toggleEditChoreDay(day)}
+                      >
+                        {dayLabels[day].slice(0, 3)}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button variant="destructive" onClick={deleteChore}>
+                Delete Chore
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setEditChoreOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveEditedChore} disabled={!editChoreName.trim()}>
+                  Save Chore
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

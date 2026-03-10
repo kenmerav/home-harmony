@@ -9,6 +9,8 @@ export interface SmsPreferences {
   enabled: boolean;
   phone_e164: string;
   home_address: string;
+  work_address: string;
+  default_departure_source: 'home' | 'work' | 'custom';
   timezone: string;
   morning_digest_enabled: boolean;
   morning_digest_time: string;
@@ -32,6 +34,8 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   enabled: false,
   phone_e164: '',
   home_address: '',
+  work_address: '',
+  default_departure_source: 'home',
   timezone: 'America/New_York',
   morning_digest_enabled: true,
   morning_digest_time: '07:00',
@@ -99,6 +103,11 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
     enabled: !!raw.enabled,
     phone_e164: raw.phone_e164 || '',
     home_address: raw.home_address || '',
+    work_address: raw.work_address || '',
+    default_departure_source:
+      raw.default_departure_source === 'work' || raw.default_departure_source === 'custom'
+        ? raw.default_departure_source
+        : 'home',
     timezone: raw.timezone || DEFAULT_SMS_PREFERENCES.timezone,
     morning_digest_enabled: raw.morning_digest_enabled ?? DEFAULT_SMS_PREFERENCES.morning_digest_enabled,
     morning_digest_time: raw.morning_digest_time || DEFAULT_SMS_PREFERENCES.morning_digest_time,

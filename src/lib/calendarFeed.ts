@@ -19,7 +19,7 @@ import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
-import { loadTasks } from '@/lib/taskStore';
+import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
 import { getManualCalendarEvents, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -30,7 +30,8 @@ const DERIVED_SYNC_SOURCES = ['task', 'chore', 'workout'] as const;
 
 type WeekdayChore = {
   name: string;
-  day: DayOfWeek;
+  day?: DayOfWeek;
+  days?: DayOfWeek[];
   isCompleted?: boolean;
 };
 
@@ -284,6 +285,17 @@ function weeklyDatesInRange(rangeStart: Date, rangeEnd: Date, day: DayOfWeek): D
   return dates;
 }
 
+function normalizeChoreDays(chore: WeekdayChore): DayOfWeek[] {
+  const list = Array.isArray(chore.days)
+    ? chore.days
+        .map((day) => normalizeDay(day))
+        .filter((day): day is DayOfWeek => !!day)
+    : [];
+  if (list.length > 0) return [...new Set(list)];
+  if (chore.day) return [chore.day];
+  return [];
+}
+
 function loadChoreState(userId?: string | null): ChildChoreState[] {
   if (!canUseStorage()) return [];
 
@@ -296,14 +308,19 @@ function loadChoreState(userId?: string | null): ChildChoreState[] {
       .map((entry) => {
         const row = (entry || {}) as {
           name?: string;
-          weeklyChores?: { name?: string; day?: string; isCompleted?: boolean }[];
+          weeklyChores?: { name?: string; day?: string; days?: string[]; isCompleted?: boolean }[];
           extraChores?: { name?: string; dueAt?: string; isCompleted?: boolean; isFailed?: boolean }[];
         };
         const weekly = Array.isArray(row.weeklyChores)
           ? row.weeklyChores
               .map((chore) => ({
                 name: String(chore?.name || 'Weekly chore'),
-                day: normalizeDay(chore?.day) || 'monday',
+                day: normalizeDay(chore?.day) || undefined,
+                days: Array.isArray(chore?.days)
+                  ? chore.days
+                      .map((day) => normalizeDay(day))
+                      .filter((day): day is DayOfWeek => !!day)
+                  : undefined,
                 isCompleted: !!chore?.isCompleted,
               }))
               .filter((chore) => !!chore.name)
@@ -425,60 +442,26 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
   const taskRows = loadTasks(userId);
   taskRows.forEach((task) => {
     if (task.status === 'done') return;
-    if (task.frequency === 'once') {
-      if (!task.dueDate) return;
-      const due = parseISO(`${task.dueDate}T09:00:00`);
-      if (!inRange(due, rangeStart, rangeEnd)) return;
+    const occurrences = listTaskDatesInRange(task, rangeStart, rangeEnd);
+    if (occurrences.length === 0) return;
+    const reminderTime = task.reminderTime || '09:00';
+
+    occurrences.forEach((date) => {
+      const start = withTime(date, reminderTime);
+      const eventId = task.frequency === 'once' ? `task-${task.id}` : `task-${task.id}-${format(date, 'yyyy-MM-dd')}`;
       nextEvents.push({
-        id: `task-${task.id}`,
+        id: eventId,
         title: task.title,
         description: task.notes,
-        startsAt: due.toISOString(),
-        allDay: true,
+        startsAt: start.toISOString(),
+        endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
+        allDay: task.frequency === 'once',
         source: 'task',
         module: 'tasks',
         relatedId: task.id,
         readonly: true,
       });
-      return;
-    }
-
-    if (task.frequency === 'daily') {
-      let dayCursor = new Date(rangeStart);
-      while (!isAfter(dayCursor, rangeEnd)) {
-        nextEvents.push({
-          id: `task-${task.id}-${format(dayCursor, 'yyyy-MM-dd')}`,
-          title: task.title,
-          description: task.notes,
-          startsAt: withTime(dayCursor, '09:00').toISOString(),
-          endsAt: withTime(dayCursor, '09:30').toISOString(),
-          allDay: false,
-          source: 'task',
-          module: 'tasks',
-          relatedId: task.id,
-          readonly: true,
-        });
-        dayCursor = addDays(dayCursor, 1);
-      }
-      return;
-    }
-
-    if (task.day) {
-      weeklyDatesInRange(rangeStart, rangeEnd, task.day).forEach((date) => {
-        nextEvents.push({
-          id: `task-${task.id}-${format(date, 'yyyy-MM-dd')}`,
-          title: task.title,
-          description: task.notes,
-          startsAt: withTime(date, '09:00').toISOString(),
-          endsAt: withTime(date, '09:30').toISOString(),
-          allDay: false,
-          source: 'task',
-          module: 'tasks',
-          relatedId: task.id,
-          readonly: true,
-        });
-      });
-    }
+    });
   });
 
   const choreState = loadChoreState(userId);
@@ -486,16 +469,18 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     child.weeklyChores
       .filter((chore) => !chore.isCompleted)
       .forEach((chore) => {
-        weeklyDatesInRange(rangeStart, rangeEnd, chore.day).forEach((date) => {
-          nextEvents.push({
-            id: `chore-${child.name}-${chore.name}-${format(date, 'yyyy-MM-dd')}`,
-            title: `${child.name}: ${chore.name}`,
-            startsAt: withTime(date, '16:30').toISOString(),
-            endsAt: withTime(date, '17:00').toISOString(),
-            allDay: false,
-            source: 'chore',
-            module: 'chores',
-            readonly: true,
+        normalizeChoreDays(chore).forEach((day) => {
+          weeklyDatesInRange(rangeStart, rangeEnd, day).forEach((date) => {
+            nextEvents.push({
+              id: `chore-${child.name}-${chore.name}-${day}-${format(date, 'yyyy-MM-dd')}`,
+              title: `${child.name}: ${chore.name}`,
+              startsAt: withTime(date, '16:30').toISOString(),
+              endsAt: withTime(date, '17:00').toISOString(),
+              allDay: false,
+              source: 'chore',
+              module: 'chores',
+              readonly: true,
+            });
           });
         });
       });

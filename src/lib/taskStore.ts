@@ -1,7 +1,17 @@
 import { mockHouseTasks } from '@/data/mockData';
-import { HouseTask } from '@/types';
+import { HouseTask, TaskFrequency, DayOfWeek } from '@/types';
 
 const TASKS_STORAGE_KEY_PREFIX = 'homehub.tasks.v1';
+const VALID_FREQUENCIES: TaskFrequency[] = [
+  'daily',
+  'weekly',
+  'monthly',
+  'every_3_months',
+  'every_6_months',
+  'yearly',
+  'once',
+];
+const DAY_NAMES: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -11,8 +21,65 @@ function keyForUser(userId?: string | null): string {
   return `${TASKS_STORAGE_KEY_PREFIX}:${userId || 'anon'}`;
 }
 
+function parseIsoDateOnly(value?: string): Date | null {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function dateOnly(value: Date): Date {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+export function normalizeTaskFrequency(value: unknown): TaskFrequency {
+  const incoming = String(value || '').trim().toLowerCase();
+  if (VALID_FREQUENCIES.includes(incoming as TaskFrequency)) {
+    return incoming as TaskFrequency;
+  }
+  if (incoming === 'quarterly') return 'every_3_months';
+  if (incoming === 'biannual' || incoming === 'semiannual') return 'every_6_months';
+  return 'once';
+}
+
+function normalizeTaskDay(value: unknown): DayOfWeek | undefined {
+  const incoming = String(value || '').trim().toLowerCase();
+  return DAY_NAMES.includes(incoming as DayOfWeek) ? (incoming as DayOfWeek) : undefined;
+}
+
+function normalizeReminderTime(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function monthDiff(from: Date, to: Date): number {
+  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+}
+
+function matchDayOfMonth(anchor: Date, target: Date): boolean {
+  const anchorDay = anchor.getDate();
+  const lastDayThisMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return target.getDate() === Math.min(anchorDay, lastDayThisMonth);
+}
+
+function formatDateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function getAnchorDate(task: HouseTask): Date {
+  const due = parseIsoDateOnly(task.dueDate);
+  if (due) return due;
+  return dateOnly(task.createdAt);
+}
+
 function normalizeTask(raw: unknown, index: number): HouseTask {
   const input = (raw || {}) as Partial<HouseTask> & { createdAt?: string | Date };
+  const frequency = normalizeTaskFrequency(input.frequency);
+  const reminderLead = Number.parseInt(String(input.reminderLeadMinutes ?? ''), 10);
   return {
     id: input.id || `task-${index}`,
     title: input.title || 'Untitled task',
@@ -22,9 +89,12 @@ function normalizeTask(raw: unknown, index: number): HouseTask {
       input.status === 'in_progress' || input.status === 'done'
         ? input.status
         : 'not_started',
-    frequency: input.frequency === 'daily' || input.frequency === 'weekly' ? input.frequency : 'once',
+    frequency,
     dueDate: typeof input.dueDate === 'string' ? input.dueDate : undefined,
-    day: input.day,
+    day: normalizeTaskDay(input.day),
+    reminderEnabled: input.reminderEnabled === true,
+    reminderTime: normalizeReminderTime(input.reminderTime),
+    reminderLeadMinutes: Number.isFinite(reminderLead) ? Math.max(5, Math.min(240, reminderLead)) : undefined,
     createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
   };
 }
@@ -45,4 +115,78 @@ export function loadTasks(userId?: string | null): HouseTask[] {
 export function saveTasks(tasks: HouseTask[], userId?: string | null) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(keyForUser(userId), JSON.stringify(tasks));
+}
+
+export function taskOccursOnDate(task: HouseTask, targetDate: Date): boolean {
+  const target = dateOnly(targetDate);
+  const anchor = getAnchorDate(task);
+  if (target < anchor) return false;
+
+  if (task.frequency === 'once') {
+    const due = parseIsoDateOnly(task.dueDate);
+    return !!due && formatDateOnly(due) === formatDateOnly(target);
+  }
+
+  if (task.frequency === 'daily') return true;
+
+  if (task.frequency === 'weekly') {
+    const targetDay = DAY_NAMES[target.getDay()];
+    const weeklyDay = task.day || DAY_NAMES[anchor.getDay()];
+    return weeklyDay === targetDay;
+  }
+
+  if (task.frequency === 'monthly') {
+    return matchDayOfMonth(anchor, target);
+  }
+
+  if (task.frequency === 'every_3_months' || task.frequency === 'every_6_months') {
+    const interval = task.frequency === 'every_3_months' ? 3 : 6;
+    const diff = monthDiff(anchor, target);
+    if (diff < 0 || diff % interval !== 0) return false;
+    return matchDayOfMonth(anchor, target);
+  }
+
+  if (task.frequency === 'yearly') {
+    return (
+      target.getMonth() === anchor.getMonth() &&
+      matchDayOfMonth(anchor, target)
+    );
+  }
+
+  return false;
+}
+
+export function listTaskDatesInRange(task: HouseTask, rangeStart: Date, rangeEnd: Date): Date[] {
+  const start = dateOnly(rangeStart);
+  const end = dateOnly(rangeEnd);
+  const dates: Date[] = [];
+  let cursor = new Date(start);
+  while (cursor <= end) {
+    if (taskOccursOnDate(task, cursor)) {
+      dates.push(new Date(cursor));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+export function taskFrequencyLabel(task: HouseTask): string {
+  switch (task.frequency) {
+    case 'once':
+      return task.dueDate ? `One-time (${task.dueDate})` : 'One-time';
+    case 'daily':
+      return 'Daily';
+    case 'weekly':
+      return task.day ? `Weekly (${task.day})` : 'Weekly';
+    case 'monthly':
+      return 'Monthly';
+    case 'every_3_months':
+      return 'Every 3 months';
+    case 'every_6_months':
+      return 'Every 6 months';
+    case 'yearly':
+      return 'Yearly';
+    default:
+      return 'Recurring';
+  }
 }

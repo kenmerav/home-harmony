@@ -539,14 +539,34 @@ function getKidEntries(userId?: string | null): LeaderboardEntry[] {
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children.map((child) => {
       const completedDaily = (child.dailyChores || []).filter((chore) => !!chore.isCompleted).length;
+      const totalDaily = (child.dailyChores || []).length;
+      const completedWeekly = (child.weeklyChores || []).filter((chore) => !!chore.isCompleted).length;
+      const totalWeekly = (child.weeklyChores || []).length;
       const completedExtras = (child.extraChores || []).filter((chore) => !!chore.isCompleted).length;
-      const lifetimeEarned = child.lifetimeEarned || 0;
-      const lifetimePenalties = child.lifetimePenalties || 0;
-      const bank = child.piggyBank || 0;
-      const todayPoints = completedDaily * 6 + completedExtras * 12;
+      const failedExtras = (child.extraChores || []).filter((chore) => !!chore.isFailed).length;
+
+      const dailyRatio = totalDaily > 0 ? completedDaily / totalDaily : 0;
+      const weeklyRatio = totalWeekly > 0 ? completedWeekly / totalWeekly : 0;
+
+      // Keep kid scoring anchored to current completion quality so it stays fair
+      // versus adult daily/weekly goal scores.
+      const todayPoints = Math.max(
+        0,
+        Math.round(
+          dailyRatio * 50 +
+            weeklyRatio * 25 +
+            Math.min(25, completedExtras * 10) -
+            failedExtras * 10,
+        ),
+      );
       const weekPoints = Math.max(
         0,
-        Math.round(todayPoints * 3 + lifetimeEarned * 2 - lifetimePenalties + bank * 5),
+        Math.round(
+          dailyRatio * 280 +
+            weeklyRatio * 140 +
+            Math.min(90, completedExtras * 30) -
+            failedExtras * 20,
+        ),
       );
       return {
         id: child.id,
@@ -554,8 +574,8 @@ function getKidEntries(userId?: string | null): LeaderboardEntry[] {
         type: 'kid' as const,
         todayPoints,
         weekPoints,
-        streak: completedDaily > 0 ? 1 : 0,
-        headline: `${completedDaily} daily chores done today`,
+        streak: dailyRatio >= 1 && totalDaily > 0 ? 1 : 0,
+        headline: `${completedDaily}/${totalDaily || 0} daily • ${completedWeekly}/${totalWeekly || 0} weekly chores`,
       };
     });
   } catch {

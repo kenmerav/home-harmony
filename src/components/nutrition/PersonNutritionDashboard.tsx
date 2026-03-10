@@ -21,6 +21,16 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const todayKey = format(new Date(), 'yyyy-MM-dd');
 
   const profile = getProfiles()[personId];
+  if (!profile) {
+    return (
+      <AppLayout>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <h1 className="font-display text-2xl">Dashboard not found</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Pick another dashboard from the sidebar.</p>
+        </div>
+      </AppLayout>
+    );
+  }
   const allLogs = getMealLogs();
   const todaysLogs = allLogs.filter((log) => log.date === todayKey && log.person === personId);
   const todayScore = getDailyScore(personId, todayKey);

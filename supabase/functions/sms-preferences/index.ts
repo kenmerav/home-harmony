@@ -11,6 +11,8 @@ const DEFAULT_PREFS = {
   enabled: false,
   phone_e164: "",
   home_address: "",
+  work_address: "",
+  default_departure_source: "home",
   timezone: "America/New_York",
   morning_digest_enabled: true,
   morning_digest_time: "07:00",
@@ -125,6 +127,13 @@ function normalizeAddressInput(input: unknown): string {
   return input.trim().slice(0, 240);
 }
 
+function normalizeDepartureSource(input: unknown): "home" | "work" | "custom" {
+  if (typeof input !== "string") return "home";
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "work" || normalized === "custom") return normalized;
+  return "home";
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -164,6 +173,8 @@ serve(async (req) => {
           enabled: !!data.enabled,
           phone_e164: data.phone_e164 || "",
           home_address: typeof data.home_address === "string" ? data.home_address : "",
+          work_address: typeof data.work_address === "string" ? data.work_address : "",
+          default_departure_source: normalizeDepartureSource(data.default_departure_source),
           timezone: data.timezone || DEFAULT_PREFS.timezone,
           morning_digest_enabled: !!data.morning_digest_enabled,
           morning_digest_time: String(data.morning_digest_time || DEFAULT_PREFS.morning_digest_time).slice(0, 5),
@@ -198,6 +209,8 @@ serve(async (req) => {
         enabled: !!payload?.enabled,
         phone_e164: normalizedPhone,
         home_address: normalizeAddressInput(payload?.home_address),
+        work_address: normalizeAddressInput(payload?.work_address),
+        default_departure_source: normalizeDepartureSource(payload?.default_departure_source),
         timezone: validTz(payload?.timezone, DEFAULT_PREFS.timezone),
         morning_digest_enabled: !!payload?.morning_digest_enabled,
         morning_digest_time: validTime(payload?.morning_digest_time, DEFAULT_PREFS.morning_digest_time),

@@ -43,7 +43,7 @@ function weightedPick<T extends { id: string }>(
   const weighted = available.map((r) => ({
     recipe: r,
     weight:
-      (preferFavorites && favoriteIds.has(r.id) ? 3 : 1) *
+      (preferFavorites && favoriteIds.has(r.id) ? 5 : 1) *
       (preferKidFriendly && kidFriendlyIds.has(r.id) ? 2 : 1),
   }));
   const total = weighted.reduce((sum, item) => sum + item.weight, 0);

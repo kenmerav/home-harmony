@@ -518,6 +518,105 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
   };
 }
 
+export function updateManualCalendarEvent(
+  eventId: string,
+  input: ManualCalendarEventInput,
+  userId?: string | null,
+): CalendarEvent | null {
+  const key = scopedKey(MANUAL_EVENTS_KEY, userId);
+  const current = readJson<unknown[]>(key, [])
+    .map((item) => normalizeManualEvent(item))
+    .filter((item): item is StoredManualEvent => Boolean(item));
+  const index = current.findIndex((item) => item.id === eventId);
+  if (index < 0) return null;
+
+  const existing = current[index];
+  const updated: StoredManualEvent = {
+    ...existing,
+    title: input.title.trim(),
+    description: input.description?.trim() || undefined,
+    calendarLayer: input.calendarLayer?.trim() || 'family',
+    location: input.location?.trim() || undefined,
+    travelFromAddress: input.travelFromAddress?.trim() || undefined,
+    travelMode: input.travelMode || 'driving',
+    travelDurationMinutes:
+      typeof input.travelDurationMinutes === 'number' && Number.isFinite(input.travelDurationMinutes)
+        ? Math.max(1, Math.round(input.travelDurationMinutes))
+        : null,
+    trafficDurationMinutes:
+      typeof input.trafficDurationMinutes === 'number' && Number.isFinite(input.trafficDurationMinutes)
+        ? Math.max(1, Math.round(input.trafficDurationMinutes))
+        : null,
+    recommendedLeaveAt: input.recommendedLeaveAt || null,
+    leaveReminderEnabled: !!input.leaveReminderEnabled,
+    leaveReminderLeadMinutes:
+      typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
+        ? Math.max(5, Math.min(120, Math.round(input.leaveReminderLeadMinutes)))
+        : 10,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    allDay: input.allDay,
+    updatedAt: new Date().toISOString(),
+  };
+
+  current[index] = updated;
+  writeJson(key, current);
+
+  const remoteId = remoteIdFromLocalId(eventId);
+  if (userId && remoteId) {
+    const timezoneName = guessUserTimeZone();
+    void supabaseCalendarSync
+      .from('calendar_events')
+      .update({
+        title: updated.title,
+        description: updated.description || null,
+        location_text: updated.location || null,
+        travel_from_address: updated.travelFromAddress || null,
+        travel_mode: updated.travelMode || 'driving',
+        travel_duration_minutes: updated.travelDurationMinutes,
+        traffic_duration_minutes: updated.trafficDurationMinutes,
+        leave_by: updated.recommendedLeaveAt || null,
+        leave_reminder_enabled: !!updated.leaveReminderEnabled,
+        leave_reminder_lead_minutes: updated.leaveReminderLeadMinutes || 10,
+        starts_at: updated.startsAt,
+        ends_at: updated.endsAt || null,
+        all_day: updated.allDay,
+        module: 'manual',
+        source: 'manual',
+        calendar_layer: updated.calendarLayer || 'family',
+        timezone_name: timezoneName,
+      })
+      .eq('id', remoteId)
+      .then(({ error }: { error?: { message?: string } | null }) => {
+        if (error) console.error('Failed to update manual event in Supabase:', error.message || error);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to update manual event in Supabase:', error);
+      });
+  }
+
+  return {
+    id: updated.id,
+    title: updated.title,
+    description: updated.description,
+    calendarLayer: updated.calendarLayer || 'family',
+    location: updated.location,
+    travelFromAddress: updated.travelFromAddress,
+    travelMode: updated.travelMode,
+    travelDurationMinutes: updated.travelDurationMinutes,
+    trafficDurationMinutes: updated.trafficDurationMinutes,
+    recommendedLeaveAt: updated.recommendedLeaveAt,
+    leaveReminderEnabled: updated.leaveReminderEnabled,
+    leaveReminderLeadMinutes: updated.leaveReminderLeadMinutes,
+    startsAt: updated.startsAt,
+    endsAt: updated.endsAt,
+    allDay: updated.allDay,
+    source: 'manual',
+    module: 'manual',
+    readonly: false,
+  };
+}
+
 export function deleteManualCalendarEvent(eventId: string, userId?: string | null) {
   const key = scopedKey(MANUAL_EVENTS_KEY, userId);
   const current = readJson<unknown[]>(key, [])

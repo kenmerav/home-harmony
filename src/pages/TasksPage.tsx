@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { HouseTask, TaskStatus, TaskType, TaskFrequency, DayOfWeek } from '@/types';
-import { Plus, Circle, Clock, CheckCircle2, AlertCircle, Info, Trash2 } from 'lucide-react';
+import { Plus, Circle, Clock, CheckCircle2, AlertCircle, Info, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -25,13 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { loadTasks, saveTasks } from '@/lib/taskStore';
+import { loadTasks, saveTasks, taskOccursOnDate, taskFrequencyLabel } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
-
-const getCurrentDay = (): DayOfWeek => {
-  const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  return days[new Date().getDay()] as DayOfWeek;
-};
 
 const statusOrder: TaskStatus[] = ['in_progress', 'not_started', 'done'];
 
@@ -53,20 +48,42 @@ const typeIcons = {
   notice: Info,
 };
 
+type TaskDraft = {
+  title: string;
+  notes: string;
+  type: TaskType;
+  frequency: TaskFrequency;
+  day: DayOfWeek;
+  dueDate: string;
+  reminderEnabled: boolean;
+  reminderTime: string;
+  reminderLeadMinutes: string;
+};
+
+const DEFAULT_TASK_DRAFT: TaskDraft = {
+  title: '',
+  notes: '',
+  type: 'do',
+  frequency: 'once',
+  day: 'monday',
+  dueDate: '',
+  reminderEnabled: false,
+  reminderTime: '09:00',
+  reminderLeadMinutes: '30',
+};
+
 export default function TasksPage() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<HouseTask[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [view, setView] = useState<'manager' | 'owner'>('manager');
   const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [newTask, setNewTask] = useState({
-    title: '',
-    notes: '',
-    type: 'do' as TaskType,
-    frequency: 'once' as TaskFrequency,
-    day: 'monday' as DayOfWeek,
-  });
-  const currentDay = getCurrentDay();
+  const [editTaskOpen, setEditTaskOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [newTask, setNewTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
+  const [editTask, setEditTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -93,38 +110,83 @@ export default function TasksPage() {
     toast({ title: "Task deleted" });
   };
 
-  const addTask = () => {
-    if (!newTask.title.trim()) return;
-    
-    const task: HouseTask = {
-      id: `task-${Date.now()}`,
-      title: newTask.title.trim(),
-      notes: newTask.notes.trim() || undefined,
-      type: newTask.type,
+  const draftFromTask = (task: HouseTask): TaskDraft => ({
+    title: task.title,
+    notes: task.notes || '',
+    type: task.type,
+    frequency: task.frequency,
+    day: task.day || 'monday',
+    dueDate: task.dueDate || '',
+    reminderEnabled: !!task.reminderEnabled,
+    reminderTime: task.reminderTime || '09:00',
+    reminderLeadMinutes: String(task.reminderLeadMinutes || 30),
+  });
+
+  const taskFromDraft = (draft: TaskDraft, taskId?: string): HouseTask => {
+    const reminderLeadMinutes = Math.max(5, Math.min(240, Number.parseInt(draft.reminderLeadMinutes || '30', 10) || 30));
+    const dueDate = draft.dueDate.trim();
+    return {
+      id: taskId || `task-${Date.now()}`,
+      title: draft.title.trim(),
+      notes: draft.notes.trim() || undefined,
+      type: draft.type,
       status: 'not_started',
-      frequency: newTask.frequency,
-      day: newTask.frequency !== 'once' ? newTask.day : undefined,
+      frequency: draft.frequency,
+      day: draft.frequency === 'weekly' ? draft.day : undefined,
+      dueDate: dueDate || undefined,
+      reminderEnabled: draft.reminderEnabled,
+      reminderTime: draft.reminderEnabled ? draft.reminderTime : undefined,
+      reminderLeadMinutes: draft.reminderEnabled ? reminderLeadMinutes : undefined,
       createdAt: new Date(),
     };
-    
+  };
+
+  const addTask = () => {
+    if (!newTask.title.trim()) return;
+    if (newTask.frequency === 'once' && !newTask.dueDate) {
+      toast({ title: 'Pick a due date', variant: 'destructive' });
+      return;
+    }
+    const task = taskFromDraft(newTask);
     setTasks(prev => [...prev, task]);
     setAddTaskOpen(false);
-    setNewTask({
-      title: '',
-      notes: '',
-      type: 'do',
-      frequency: 'once',
-      day: 'monday',
-    });
+    setNewTask(DEFAULT_TASK_DRAFT);
     toast({
       title: "Task added",
       description: `"${task.title}" has been added`,
     });
   };
 
-  const todaysTasks = tasks.filter(task => 
-    task.frequency === 'once' || task.day === currentDay
-  );
+  const openEditTask = (task: HouseTask) => {
+    setEditingTaskId(task.id);
+    setEditTask(draftFromTask(task));
+    setEditTaskOpen(true);
+  };
+
+  const saveEditedTask = () => {
+    if (!editingTaskId || !editTask.title.trim()) return;
+    if (editTask.frequency === 'once' && !editTask.dueDate) {
+      toast({ title: 'Pick a due date', variant: 'destructive' });
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== editingTaskId) return task;
+        const next = taskFromDraft(editTask, task.id);
+        return {
+          ...task,
+          ...next,
+          status: task.status,
+          createdAt: task.createdAt,
+        };
+      }),
+    );
+    setEditTaskOpen(false);
+    setEditingTaskId(null);
+    toast({ title: 'Task updated' });
+  };
+
+  const todaysTasks = tasks.filter((task) => taskOccursOnDate(task, today));
 
   const thisWeeksTasks = tasks.filter(task => task.frequency !== 'once');
   const oneTimeTasks = tasks.filter(task => task.frequency === 'once');
@@ -166,7 +228,13 @@ export default function TasksPage() {
             {sortedTodaysTasks.length > 0 ? (
               <div className="space-y-2">
                 {sortedTodaysTasks.map(task => (
-                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} onDelete={deleteTask} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    onStatusChange={cycleStatus}
+                    onDelete={deleteTask}
+                    onEdit={openEditTask}
+                  />
                 ))}
               </div>
             ) : (
@@ -179,7 +247,13 @@ export default function TasksPage() {
             {oneTimeTasks.length > 0 ? (
               <div className="space-y-2">
                 {oneTimeTasks.map(task => (
-                  <TaskRow key={task.id} task={task} onStatusChange={cycleStatus} onDelete={deleteTask} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    onStatusChange={cycleStatus}
+                    onDelete={deleteTask}
+                    onEdit={openEditTask}
+                  />
                 ))}
               </div>
             ) : (
@@ -202,8 +276,17 @@ export default function TasksPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground capitalize">
-                        {task.day || task.frequency}
+                        {taskFrequencyLabel(task)}
                       </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => openEditTask(task)}
+                        title="Edit task"
+                      >
+                        <Pencil className="w-3 h-3 text-muted-foreground" />
+                      </Button>
                       <Button 
                         variant="ghost" 
                         size="icon" 
@@ -316,6 +399,10 @@ export default function TasksPage() {
                     <SelectItem value="once">One-time</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="every_3_months">Every 3 months</SelectItem>
+                    <SelectItem value="every_6_months">Every 6 months</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -342,12 +429,220 @@ export default function TasksPage() {
               </div>
             )}
 
+            {newTask.frequency === 'once' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Due date</label>
+                <Input
+                  type="date"
+                  value={newTask.dueDate}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, dueDate: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {newTask.frequency !== 'once' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Start date (optional)</label>
+                <Input
+                  type="date"
+                  value={newTask.dueDate}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, dueDate: e.target.value }))}
+                />
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
+              <Checkbox
+                checked={newTask.reminderEnabled}
+                onCheckedChange={(checked) =>
+                  setNewTask((prev) => ({ ...prev, reminderEnabled: checked === true }))
+                }
+              />
+              Enable reminder
+            </label>
+
+            {newTask.reminderEnabled && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Reminder time</label>
+                  <Input
+                    type="time"
+                    value={newTask.reminderTime}
+                    onChange={(e) => setNewTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Lead (minutes)</label>
+                  <Select
+                    value={newTask.reminderLeadMinutes}
+                    onValueChange={(value) => setNewTask((prev) => ({ ...prev, reminderLeadMinutes: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">15</SelectItem>
+                      <SelectItem value="30">30</SelectItem>
+                      <SelectItem value="60">60</SelectItem>
+                      <SelectItem value="120">120</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddTaskOpen(false)}>
                 Cancel
               </Button>
               <Button onClick={addTask} disabled={!newTask.title.trim()}>
                 Add Task
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editTaskOpen} onOpenChange={setEditTaskOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Task</DialogTitle>
+            <DialogDescription>Update title, schedule, and reminders.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Task title"
+              value={editTask.title}
+              onChange={(e) => setEditTask((prev) => ({ ...prev, title: e.target.value }))}
+            />
+            <Textarea
+              placeholder="Notes (optional)"
+              value={editTask.notes}
+              onChange={(e) => setEditTask((prev) => ({ ...prev, notes: e.target.value }))}
+              rows={2}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Type</label>
+                <Select
+                  value={editTask.type}
+                  onValueChange={(v) => setEditTask((prev) => ({ ...prev, type: v as TaskType }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="do">Do (action required)</SelectItem>
+                    <SelectItem value="maintain">Maintain (recurring)</SelectItem>
+                    <SelectItem value="notice">Notice (info only)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Frequency</label>
+                <Select
+                  value={editTask.frequency}
+                  onValueChange={(v) => setEditTask((prev) => ({ ...prev, frequency: v as TaskFrequency }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="once">One-time</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="every_3_months">Every 3 months</SelectItem>
+                    <SelectItem value="every_6_months">Every 6 months</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {editTask.frequency === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Day of week</label>
+                <Select
+                  value={editTask.day}
+                  onValueChange={(v) => setEditTask((prev) => ({ ...prev, day: v as DayOfWeek }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allDays.map((day) => (
+                      <SelectItem key={day} value={day}>
+                        {dayLabels[day]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {editTask.frequency === 'once' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Due date</label>
+                <Input
+                  type="date"
+                  value={editTask.dueDate}
+                  onChange={(e) => setEditTask((prev) => ({ ...prev, dueDate: e.target.value }))}
+                />
+              </div>
+            )}
+            {editTask.frequency !== 'once' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Start date (optional)</label>
+                <Input
+                  type="date"
+                  value={editTask.dueDate}
+                  onChange={(e) => setEditTask((prev) => ({ ...prev, dueDate: e.target.value }))}
+                />
+              </div>
+            )}
+            <label className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
+              <Checkbox
+                checked={editTask.reminderEnabled}
+                onCheckedChange={(checked) =>
+                  setEditTask((prev) => ({ ...prev, reminderEnabled: checked === true }))
+                }
+              />
+              Enable reminder
+            </label>
+            {editTask.reminderEnabled && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Reminder time</label>
+                  <Input
+                    type="time"
+                    value={editTask.reminderTime}
+                    onChange={(e) => setEditTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Lead (minutes)</label>
+                  <Select
+                    value={editTask.reminderLeadMinutes}
+                    onValueChange={(value) => setEditTask((prev) => ({ ...prev, reminderLeadMinutes: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">15</SelectItem>
+                      <SelectItem value="30">30</SelectItem>
+                      <SelectItem value="60">60</SelectItem>
+                      <SelectItem value="120">120</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setEditTaskOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveEditedTask} disabled={!editTask.title.trim()}>
+                Save
               </Button>
             </div>
           </div>
@@ -360,14 +655,14 @@ export default function TasksPage() {
 function TaskRow({ 
   task, 
   onStatusChange, 
-  onDelete 
+  onDelete,
+  onEdit,
 }: { 
   task: HouseTask; 
   onStatusChange: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit: (task: HouseTask) => void;
 }) {
-  const TypeIcon = typeIcons[task.type];
-  
   return (
     <div 
       className={cn(
@@ -401,10 +696,24 @@ function TaskRow({
         {task.notes && (
           <p className="text-xs text-muted-foreground truncate">{task.notes}</p>
         )}
+        <p className="text-[11px] text-muted-foreground">
+          {taskFrequencyLabel(task)}
+          {task.reminderEnabled && task.reminderTime ? ` • Remind at ${task.reminderTime}` : ''}
+        </p>
       </div>
 
       {/* Type badge */}
       <StatusBadge type={task.type} />
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 flex-shrink-0"
+        onClick={() => onEdit(task)}
+        title="Edit task"
+      >
+        <Pencil className="w-3 h-3 text-muted-foreground" />
+      </Button>
       
       {/* Delete button */}
       <Button 

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, RefreshCw } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -12,19 +11,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { loadOnboardingResult, saveOnboardingResult, type StoredOnboardingResult } from '@/lib/onboardingStore';
 import { BodyUnitSystem, getProfiles, updateMacroPlan } from '@/lib/macroGame';
-import {
-  DEFAULT_LIFECYCLE_SETTINGS,
-  type LifecycleFlowSettings,
-  loadLifecycleFlowSettings,
-  saveLifecycleFlowSettings,
-  trackGrowthEventSafe,
-} from '@/lib/api/growthAnalytics';
-import {
-  getOrCreateReferralCode,
-  getReferralStats,
-  listRecentReferrals,
-  type ReferralStats,
-} from '@/lib/api/referrals';
 import {
   defaultSmsPreferences,
   loadSmsPreferences,
@@ -245,15 +231,6 @@ export default function SettingsPage() {
     wife: 'imperial',
   });
   const [loading, setLoading] = useState(true);
-  const [growthLoading, setGrowthLoading] = useState(false);
-  const [referralCode, setReferralCode] = useState<string | null>(null);
-  const [referralStats, setReferralStats] = useState<ReferralStats>({
-    clicked: 0,
-    signedUp: 0,
-    subscribed: 0,
-  });
-  const [recentReferrals, setRecentReferrals] = useState<Array<{ id: string; status: string; created_at: string; referred_email: string | null }>>([]);
-  const [lifecycleSettings, setLifecycleSettings] = useState<LifecycleFlowSettings>(DEFAULT_LIFECYCLE_SETTINGS);
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
       typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York',
@@ -307,42 +284,6 @@ export default function SettingsPage() {
     };
   }, [canUseRemoteSms, toast, user?.id]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const loadGrowthData = async () => {
-      if (!user?.id || isDemoUser) return;
-      setGrowthLoading(true);
-      try {
-        const [code, stats, recent, lifecycle] = await Promise.all([
-          getOrCreateReferralCode(),
-          getReferralStats(),
-          listRecentReferrals(8),
-          loadLifecycleFlowSettings(),
-        ]);
-        if (!mounted) return;
-        setReferralCode(code);
-        setReferralStats(stats);
-        setRecentReferrals(recent);
-        setLifecycleSettings(lifecycle);
-      } catch (error) {
-        if (!mounted) return;
-        toast({
-          title: 'Could not load growth settings',
-          description: error instanceof Error ? error.message : 'Please try again.',
-          variant: 'destructive',
-        });
-      } finally {
-        if (mounted) setGrowthLoading(false);
-      }
-    };
-
-    void loadGrowthData();
-    return () => {
-      mounted = false;
-    };
-  }, [user?.id, isDemoUser, toast]);
-
   const limitReached = !answers.primaryGoals.includes('All of the above')
     && answers.primaryGoals.filter((item) => item !== 'All of the above').length >= 3;
 
@@ -371,48 +312,6 @@ export default function SettingsPage() {
         [key]: !prev.reminderToggles[key],
       },
     }));
-  };
-
-  const refreshGrowth = async () => {
-    if (!user?.id || isDemoUser) return;
-    setGrowthLoading(true);
-    try {
-      const [code, stats, recent, lifecycle] = await Promise.all([
-        getOrCreateReferralCode(),
-        getReferralStats(),
-        listRecentReferrals(8),
-        loadLifecycleFlowSettings(),
-      ]);
-      setReferralCode(code);
-      setReferralStats(stats);
-      setRecentReferrals(recent);
-      setLifecycleSettings(lifecycle);
-      toast({ title: 'Growth data refreshed' });
-    } catch (error) {
-      toast({
-        title: 'Could not refresh growth data',
-        description: error instanceof Error ? error.message : 'Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setGrowthLoading(false);
-    }
-  };
-
-  const copyReferralLink = async () => {
-    if (!referralCode) {
-      toast({ title: 'No referral code yet', variant: 'destructive' });
-      return;
-    }
-    const base = typeof window !== 'undefined' ? window.location.origin : 'https://homeharmony.app';
-    const link = `${base}/signin?onboarding=1&ref=${encodeURIComponent(referralCode)}`;
-    try {
-      await navigator.clipboard.writeText(link);
-      toast({ title: 'Referral link copied' });
-      await trackGrowthEventSafe('referral_link_copied', {}, `referral_link_copied:${new Date().toISOString().slice(0, 10)}`);
-    } catch {
-      toast({ title: 'Could not copy link', variant: 'destructive' });
-    }
   };
 
   const updateSmsPref = <K extends keyof SmsPreferences>(key: K, value: SmsPreferences[K]) => {
@@ -500,9 +399,6 @@ export default function SettingsPage() {
     };
     try {
       await saveOnboardingResult(user?.id, payload);
-      if (user?.id && !isDemoUser) {
-        await saveLifecycleFlowSettings(lifecycleSettings);
-      }
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences(smsPrefs);
         setSmsPrefs(savedSms);
@@ -638,6 +534,194 @@ export default function SettingsPage() {
               {accountSaving ? 'Saving account...' : 'Save account details'}
             </Button>
           </div>
+        </SectionCard>
+
+        <SectionCard title="SMS schedule texts" subtitle="Daily schedule texts, night-before preview, and event reminders">
+          {canUseRemoteSms ? (
+            <div className="space-y-4">
+              <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                <span className="text-sm">Enable SMS updates</span>
+                <Switch
+                  checked={smsPrefs.enabled}
+                  onCheckedChange={(checked) => updateSmsPref('enabled', Boolean(checked))}
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Phone (E.164)</p>
+                  <Input
+                    placeholder="+15551234567"
+                    value={smsPrefs.phone_e164}
+                    onChange={(e) => updateSmsPref('phone_e164', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Timezone</p>
+                  <Input
+                    placeholder="America/New_York"
+                    value={smsPrefs.timezone}
+                    onChange={(e) => updateSmsPref('timezone', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Home address</p>
+                  <Input
+                    placeholder="123 Main St, Phoenix, AZ"
+                    value={smsPrefs.home_address}
+                    onChange={(e) => updateSmsPref('home_address', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Work address</p>
+                  <Input
+                    placeholder="Office address (optional)"
+                    value={smsPrefs.work_address}
+                    onChange={(e) => updateSmsPref('work_address', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Default leaving from</p>
+                <OptionList
+                  options={['Home', 'Work', 'Ask each event']}
+                  selected={[
+                    smsPrefs.default_departure_source === 'work'
+                      ? 'Work'
+                      : smsPrefs.default_departure_source === 'custom'
+                      ? 'Ask each event'
+                      : 'Home',
+                  ]}
+                  onToggle={(value) =>
+                    updateSmsPref(
+                      'default_departure_source',
+                      value === 'Work' ? 'work' : value === 'Ask each event' ? 'custom' : 'home',
+                    )
+                  }
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm">Morning text</span>
+                  <Switch
+                    checked={smsPrefs.morning_digest_enabled}
+                    onCheckedChange={(checked) => updateSmsPref('morning_digest_enabled', Boolean(checked))}
+                  />
+                </label>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Morning time</p>
+                  <Input
+                    type="time"
+                    value={smsPrefs.morning_digest_time}
+                    onChange={(e) => updateSmsPref('morning_digest_time', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm">Night-before text</span>
+                  <Switch
+                    checked={smsPrefs.night_before_enabled}
+                    onCheckedChange={(checked) => updateSmsPref('night_before_enabled', Boolean(checked))}
+                  />
+                </label>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Night-before time</p>
+                  <Input
+                    type="time"
+                    value={smsPrefs.night_before_time}
+                    onChange={(e) => updateSmsPref('night_before_time', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
+                <span className="text-sm">Event reminder texts</span>
+                <Switch
+                  checked={smsPrefs.event_reminders_enabled}
+                  onCheckedChange={(checked) => updateSmsPref('event_reminders_enabled', Boolean(checked))}
+                />
+              </label>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Reminder offsets</p>
+                <div className="flex flex-wrap gap-2">
+                  {[60, 30].map((offset) => {
+                    const active = smsPrefs.reminder_offsets_minutes.includes(offset);
+                    return (
+                      <Button
+                        key={offset}
+                        type="button"
+                        variant={active ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => toggleSmsOffset(offset)}
+                      >
+                        {offset} min before
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Event sources</p>
+                <div className="flex flex-wrap gap-2">
+                  {(['meals', 'manual'] as const).map((moduleName) => {
+                    const active = smsPrefs.include_modules.includes(moduleName);
+                    return (
+                      <Button
+                        key={moduleName}
+                        type="button"
+                        variant={active ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => toggleSmsModule(moduleName)}
+                      >
+                        {moduleName === 'meals' ? 'Meal schedule' : 'Manual calendar events'}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Quiet hours start</p>
+                  <Input
+                    type="time"
+                    value={smsPrefs.quiet_hours_start || ''}
+                    onChange={(e) => updateSmsPref('quiet_hours_start', e.target.value || null)}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Quiet hours end</p>
+                  <Input
+                    type="time"
+                    value={smsPrefs.quiet_hours_end || ''}
+                    onChange={(e) => updateSmsPref('quiet_hours_end', e.target.value || null)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => void saveSmsSettings()} disabled={smsSaving}>
+                  {smsSaving ? 'Saving SMS...' : 'Save SMS settings'}
+                </Button>
+                <Button variant="outline" onClick={() => void sendSmsTest()} disabled={smsTesting}>
+                  {smsTesting ? 'Sending test...' : 'Send test SMS'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              SMS needs a connected auth session. Refresh and sign in again, then this section will activate.
+            </p>
+          )}
         </SectionCard>
 
         <SectionCard title="Primary goals" subtitle="Pick up to 3 focus areas">
@@ -779,240 +863,10 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="SMS schedule texts" subtitle="Send morning plan, night-before preview, and event reminders">
-          {canUseRemoteSms ? (
-            <div className="space-y-4">
-              <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
-                <span className="text-sm">Enable SMS updates</span>
-                <Switch
-                  checked={smsPrefs.enabled}
-                  onCheckedChange={(checked) => updateSmsPref('enabled', Boolean(checked))}
-                />
-              </label>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Phone (E.164)</p>
-                  <Input
-                    placeholder="+15551234567"
-                    value={smsPrefs.phone_e164}
-                    onChange={(e) => updateSmsPref('phone_e164', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Timezone</p>
-                  <Input
-                    placeholder="America/New_York"
-                    value={smsPrefs.timezone}
-                    onChange={(e) => updateSmsPref('timezone', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm">Morning text</span>
-                  <Switch
-                    checked={smsPrefs.morning_digest_enabled}
-                    onCheckedChange={(checked) => updateSmsPref('morning_digest_enabled', Boolean(checked))}
-                  />
-                </label>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Morning time</p>
-                  <Input
-                    type="time"
-                    value={smsPrefs.morning_digest_time}
-                    onChange={(e) => updateSmsPref('morning_digest_time', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm">Night-before text</span>
-                  <Switch
-                    checked={smsPrefs.night_before_enabled}
-                    onCheckedChange={(checked) => updateSmsPref('night_before_enabled', Boolean(checked))}
-                  />
-                </label>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Night-before time</p>
-                  <Input
-                    type="time"
-                    value={smsPrefs.night_before_time}
-                    onChange={(e) => updateSmsPref('night_before_time', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
-                <span className="text-sm">Event reminder texts</span>
-                <Switch
-                  checked={smsPrefs.event_reminders_enabled}
-                  onCheckedChange={(checked) => updateSmsPref('event_reminders_enabled', Boolean(checked))}
-                />
-              </label>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Reminder offsets</p>
-                <div className="flex flex-wrap gap-2">
-                  {[60, 30].map((offset) => {
-                    const active = smsPrefs.reminder_offsets_minutes.includes(offset);
-                    return (
-                      <Button
-                        key={offset}
-                        type="button"
-                        variant={active ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => toggleSmsOffset(offset)}
-                      >
-                        {offset} min before
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Event sources</p>
-                <div className="flex flex-wrap gap-2">
-                  {(['meals', 'manual'] as const).map((moduleName) => {
-                    const active = smsPrefs.include_modules.includes(moduleName);
-                    return (
-                      <Button
-                        key={moduleName}
-                        type="button"
-                        variant={active ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => toggleSmsModule(moduleName)}
-                      >
-                        {moduleName === 'meals' ? 'Meal schedule' : 'Manual calendar events'}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Quiet hours start</p>
-                  <Input
-                    type="time"
-                    value={smsPrefs.quiet_hours_start || ''}
-                    onChange={(e) => updateSmsPref('quiet_hours_start', e.target.value || null)}
-                  />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Quiet hours end</p>
-                  <Input
-                    type="time"
-                    value={smsPrefs.quiet_hours_end || ''}
-                    onChange={(e) => updateSmsPref('quiet_hours_end', e.target.value || null)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => void saveSmsSettings()} disabled={smsSaving}>
-                  {smsSaving ? 'Saving SMS...' : 'Save SMS settings'}
-                </Button>
-                <Button variant="outline" onClick={() => void sendSmsTest()} disabled={smsTesting}>
-                  {smsTesting ? 'Sending test...' : 'Send test SMS'}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              SMS needs a connected auth session. Refresh and start demo again, then this section will activate.
-            </p>
-          )}
-        </SectionCard>
-
-        <SectionCard title="Referral program" subtitle="Share your referral link and monitor signups">
-          {isDemoUser ? (
-            <p className="text-sm text-muted-foreground">
-              Referral tracking is disabled in demo mode. Sign in with your account to manage referrals.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-medium">
-                  Code: {referralCode || 'Loading...'}
-                </div>
-                <Button variant="outline" onClick={() => void copyReferralLink()} disabled={!referralCode}>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copy Link
-                </Button>
-                <Button variant="outline" onClick={() => void refreshGrowth()} disabled={growthLoading}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {growthLoading ? 'Refreshing...' : 'Refresh'}
-                </Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Clicks</p>
-                  <p className="mt-1 text-2xl font-semibold">{referralStats.clicked}</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Signed up</p>
-                  <p className="mt-1 text-2xl font-semibold">{referralStats.signedUp}</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Subscribed</p>
-                  <p className="mt-1 text-2xl font-semibold">{referralStats.subscribed}</p>
-                </div>
-              </div>
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Recent referrals</p>
-                {recentReferrals.length ? (
-                  <div className="mt-2 space-y-2">
-                    {recentReferrals.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between text-sm">
-                        <span>{entry.referred_email || 'Unknown email'}</span>
-                        <span className="text-muted-foreground">
-                          {entry.status} • {new Date(entry.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-muted-foreground">No referrals yet.</p>
-                )}
-              </div>
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard title="Lifecycle follow-up automation" subtitle="Enable the post-signup cadence">
-          {isDemoUser ? (
-            <p className="text-sm text-muted-foreground">
-              Lifecycle settings sync to your Supabase account and are unavailable in demo mode.
-            </p>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {([
-                ['day0Enabled', 'Day 0 follow-up'],
-                ['day2Enabled', 'Day 2 follow-up'],
-                ['day5Enabled', 'Day 5 follow-up'],
-                ['day10Enabled', 'Day 10 follow-up'],
-                ['emailEnabled', 'Email channel'],
-                ['smsEnabled', 'SMS channel'],
-              ] as const).map(([key, label]) => (
-                <label key={key} className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm">{label}</span>
-                  <Switch
-                    checked={lifecycleSettings[key]}
-                    onCheckedChange={(value) =>
-                      setLifecycleSettings((prev) => ({
-                        ...prev,
-                        [key]: Boolean(value),
-                      }))
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          )}
+        <SectionCard title="Referral program" subtitle="Beta">
+          <p className="text-sm text-muted-foreground">
+            Referral program is in beta and not launched yet. We will enable this section when the public launch is ready.
+          </p>
         </SectionCard>
 
         <div className="flex flex-wrap gap-3">
