@@ -23,6 +23,7 @@ import {
   parseRecipesFromJson,
   parseRecipesFromImage,
   parseRecipesFromUrl,
+  generateRecipeFromPrompt,
   extractPinterestBoardLinks,
   extractRecipePageLinks,
   fetchCookbookImportJobs,
@@ -239,6 +240,7 @@ function dbRecipeToDisplayRecipe(
       fat_g: dbRecipe.fat_g,
     },
     mealType: dbRecipe.meal_type as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    isMealPrep: !!dbRecipe.is_meal_prep,
     isAnchored: dbRecipe.is_anchored,
     defaultDay: dbRecipe.default_day as DayOfWeek | undefined,
     createdAt: new Date(dbRecipe.created_at),
@@ -279,6 +281,8 @@ export default function RecipesPage() {
   const [manualRecipeForm, setManualRecipeForm] = useState({
     name: '',
     servings: '4',
+    mealType: 'dinner' as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    isMealPrep: false,
     ingredients: '',
     instructions: '',
     calories: '',
@@ -292,7 +296,10 @@ export default function RecipesPage() {
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [kidFriendlyOverrides, setKidFriendlyOverrides] = useState<Record<string, boolean>>({});
-  const [isCleaningRecipes, setIsCleaningRecipes] = useState(false);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiServings, setAiServings] = useState('4');
+  const [isGeneratingAiRecipe, setIsGeneratingAiRecipe] = useState(false);
   const [importJobs, setImportJobs] = useState<CookbookImportJob[]>([]);
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
@@ -370,7 +377,14 @@ export default function RecipesPage() {
           title: 'Recipe import complete',
           description: `${job.recipes_saved} recipe${job.recipes_saved === 1 ? '' : 's'} added from ${job.file_name}.`,
         });
-        void loadRecipes();
+        void (async () => {
+          try {
+            await cleanUpRecipeLibrary();
+          } catch (cleanupError) {
+            console.error('Post-import cleanup failed:', cleanupError);
+          }
+          await loadRecipes();
+        })();
       } else if (job.status === 'failed') {
         toast({
           title: 'Recipe import failed',
@@ -411,27 +425,6 @@ export default function RecipesPage() {
   const toggleKidFriendly = (recipe: Recipe) => {
     setKidFriendly(recipe.id, !recipe.isKidFriendly);
     refreshRecipeTags();
-  };
-
-  const runRecipeCleanup = async () => {
-    try {
-      setIsCleaningRecipes(true);
-      const result = await cleanUpRecipeLibrary();
-      await loadRecipes();
-      toast({
-        title: 'Recipe cleanup complete',
-        description: `Checked ${result.scanned} recipe${result.scanned === 1 ? '' : 's'}, updated ${result.updated}.`,
-      });
-    } catch (error) {
-      console.error('Failed to clean recipe library:', error);
-      toast({
-        title: 'Cleanup failed',
-        description: error instanceof Error ? error.message : 'Could not clean your recipes.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsCleaningRecipes(false);
-    }
   };
 
   const cancelImport = async (job: CookbookImportJob) => {
@@ -1106,11 +1099,9 @@ export default function RecipesPage() {
 
     try {
       const savedRecipes = await saveRecipes(selectedExtracted);
-      const displayRecipes = savedRecipes.map((recipe) =>
-        dbRecipeToDisplayRecipe(recipe, favoriteIds, kidFriendlyOverrides),
-      );
-      
-      setRecipes(prev => [...displayRecipes, ...prev]);
+      setProcessingStatus('Cleaning ingredient formatting...');
+      await cleanUpRecipeLibrary();
+      await loadRecipes();
       setUploadModalOpen(false);
       setUploadStep('upload');
       setExtractedRecipes([]);
@@ -1131,6 +1122,49 @@ export default function RecipesPage() {
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
+    }
+  };
+
+  const generateAiRecipe = async () => {
+    const prompt = aiPrompt.trim();
+    if (!prompt) {
+      toast({ title: 'Add a recipe prompt', variant: 'destructive' });
+      return;
+    }
+
+    const servings = Number.parseInt(aiServings, 10);
+    setIsGeneratingAiRecipe(true);
+    try {
+      const result = await generateRecipeFromPrompt(prompt, Number.isFinite(servings) ? servings : undefined);
+      if (!result.success || !result.recipe) {
+        toast({
+          title: 'Could not generate recipe',
+          description: result.error || 'Please try a more specific prompt.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setExtractedRecipes([result.recipe]);
+      setSelectedRecipes(new Set([0]));
+      setUploadStep('review');
+      setUploadModalOpen(true);
+      setAiDialogOpen(false);
+      setAiPrompt('');
+      setAiServings('4');
+      toast({
+        title: 'AI recipe ready',
+        description: 'Review and import it to your library.',
+      });
+    } catch (error) {
+      console.error('AI recipe generation failed:', error);
+      toast({
+        title: 'AI generation failed',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingAiRecipe(false);
     }
   };
 
@@ -1163,6 +1197,8 @@ export default function RecipesPage() {
     const manualRecipe: ExtractedRecipe = {
       name,
       servings: Number.isFinite(servings) && servings > 0 ? servings : 4,
+      mealType: manualRecipeForm.mealType,
+      isMealPrep: manualRecipeForm.isMealPrep,
       ingredients: ingredientsList,
       ingredientsRaw: ingredientsList.join('\n'),
       instructions,
@@ -1206,6 +1242,8 @@ export default function RecipesPage() {
     setManualRecipeForm({
       name: '',
       servings: '4',
+      mealType: 'dinner',
+      isMealPrep: false,
       ingredients: '',
       instructions: '',
       calories: '',
@@ -1226,13 +1264,9 @@ export default function RecipesPage() {
         subtitle={`${recipes.length} recipes in your library`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => void runRecipeCleanup()}
-              disabled={isCleaningRecipes}
-            >
+            <Button variant="outline" onClick={() => setAiDialogOpen(true)}>
               <WandSparkles className="w-4 h-4 mr-2" />
-              {isCleaningRecipes ? 'Cleaning...' : 'Clean Up Recipes'}
+              AI Recipe
             </Button>
             <Button onClick={() => setUploadModalOpen(true)}>
               <Upload className="w-4 h-4 mr-2" />
@@ -1384,6 +1418,43 @@ export default function RecipesPage() {
         </div>
       )}
 
+      <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Generate AI Recipe</DialogTitle>
+            <DialogDescription>
+              Describe the meal you want or what ingredients you have. We will draft a recipe you can review and import.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              rows={5}
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              placeholder="Example: I need an easy high-protein potato side dish that goes with steak and takes under 30 minutes."
+            />
+            <div className="w-40 space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Target servings</p>
+              <Input
+                type="number"
+                min="1"
+                max="12"
+                value={aiServings}
+                onChange={(event) => setAiServings(event.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAiDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void generateAiRecipe()} disabled={isGeneratingAiRecipe || !aiPrompt.trim()}>
+                {isGeneratingAiRecipe ? 'Generating...' : 'Generate Recipe'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Upload PDF Modal */}
       <Dialog open={uploadModalOpen} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1446,6 +1517,33 @@ export default function RecipesPage() {
                       placeholder="Calories per serving"
                       disabled={isProcessing}
                     />
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={manualRecipeForm.mealType}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({
+                          ...prev,
+                          mealType: event.target.value as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+                        }))
+                      }
+                      disabled={isProcessing}
+                    >
+                      <option value="breakfast">Breakfast</option>
+                      <option value="lunch">Lunch</option>
+                      <option value="dinner">Dinner</option>
+                      <option value="snack">Snack</option>
+                    </select>
+                    <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={manualRecipeForm.isMealPrep}
+                        onCheckedChange={(checked) =>
+                          setManualRecipeForm((prev) => ({ ...prev, isMealPrep: Boolean(checked) }))
+                        }
+                      />
+                      Meal prep recipe
+                    </label>
                   </div>
                   <div className="grid gap-2 md:grid-cols-3">
                     <Input
@@ -1991,6 +2089,13 @@ function RecipeCard({
             <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">
               Default: {dayLabels[recipe.defaultDay]}
+            </span>
+          </div>
+        )}
+        {recipe.isMealPrep && (
+          <div className="mt-2">
+            <span className="inline-flex rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+              Meal prep
             </span>
           </div>
         )}

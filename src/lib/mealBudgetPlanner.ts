@@ -122,6 +122,18 @@ export function deletePlannedFoodEntry(entryId: string, userId?: string | null) 
   writeEntries(entries.filter((entry) => entry.id !== entryId), userId);
 }
 
+export function deletePlannedFoodEntriesByDateAndMealType(
+  date: string,
+  mealType: PlannedMealType,
+  userId?: string | null,
+): number {
+  const entries = readEntries(userId);
+  const next = entries.filter((entry) => !(entry.date === date && entry.mealType === mealType));
+  if (next.length === entries.length) return 0;
+  writeEntries(sortEntries(next), userId);
+  return entries.length - next.length;
+}
+
 export function updatePlannedFoodEntry(
   entryId: string,
   updates: Partial<Omit<PlannedFoodEntry, 'id' | 'createdAt'>>,

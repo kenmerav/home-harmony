@@ -7,6 +7,7 @@ export interface Recipe {
   imageUrl?: string;
   isFavorite?: boolean;
   isKidFriendly?: boolean;
+  isMealPrep?: boolean;
   ingredients: string[];
   ingredientsRaw: string;
   instructions: string;
@@ -43,7 +44,7 @@ export interface MealLog {
   recipeId?: string;
   recipeName: string;
   date: string; // ISO date string
-  person: 'me' | 'wife';
+  person: string;
   servings: number;
   macros: Macros; // Snapshot at time of logging
   isQuickAdd: boolean;
@@ -64,7 +65,7 @@ export interface GroceryItem {
 
 // Profile Types
 export interface Profile {
-  id: 'me' | 'wife';
+  id: string;
   name: string;
   defaultServings: number;
   dailyTargets?: Macros;
@@ -87,14 +88,22 @@ export interface Chore {
 export interface WeeklyChore {
   id: string;
   name: string;
-  day: DayOfWeek;
+  day?: DayOfWeek;
+  days?: DayOfWeek[];
   isCompleted: boolean;
 }
 
 // House Manager Types
 export type TaskType = 'do' | 'maintain' | 'notice';
 export type TaskStatus = 'not_started' | 'in_progress' | 'done';
-export type TaskFrequency = 'daily' | 'weekly' | 'once';
+export type TaskFrequency =
+  | 'daily'
+  | 'weekly'
+  | 'monthly'
+  | 'every_3_months'
+  | 'every_6_months'
+  | 'yearly'
+  | 'once';
 
 export interface HouseTask {
   id: string;
@@ -105,5 +114,8 @@ export interface HouseTask {
   frequency: TaskFrequency;
   dueDate?: string;
   day?: DayOfWeek;
+  reminderEnabled?: boolean;
+  reminderTime?: string;
+  reminderLeadMinutes?: number;
   createdAt: Date;
 }

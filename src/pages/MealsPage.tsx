@@ -58,6 +58,7 @@ import { getProfiles, listDashboardProfiles } from '@/lib/macroGame';
 import {
   addPlannedFoodEntry,
   deletePlannedFoodEntry,
+  deletePlannedFoodEntriesByDateAndMealType,
   getPlannedFoodEntries,
   listCommonPlannedFoods,
   type PlannedFoodEntry,
@@ -134,7 +135,7 @@ interface PantryMatch {
 }
 
 type PlannerViewMode = 'weekly-breakfasts' | 'weekly-dinners' | 'weekly-lunches' | 'daily-all' | 'weekly-meal-grid';
-type TopMealsViewMode = 'list' | 'weekly-meal-grid';
+type TopMealsViewMode = 'dinner-list' | 'breakfast-list' | 'lunch-list' | 'weekly-meal-grid';
 
 type MealGridRowKey = 'breakfast' | 'snack-1' | 'lunch' | 'snack-2' | 'dinner';
 
@@ -204,7 +205,7 @@ export default function MealsPage() {
   const [pantryInput, setPantryInput] = useState('');
   const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
   const [plannerEntries, setPlannerEntries] = useState<PlannedFoodEntry[]>([]);
-  const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('list');
+  const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('dinner-list');
   const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
@@ -884,6 +885,91 @@ export default function MealsPage() {
     }
   };
 
+  const pickSuggestedRecipeForMealType = (
+    candidates: DbRecipe[],
+    usedRecipeIds: Set<string>,
+  ): DbRecipe | null => {
+    if (candidates.length === 0) return null;
+    const available = candidates.filter((recipe) => !usedRecipeIds.has(recipe.id));
+    const pool = available.length > 0 ? available : candidates;
+    const weightedPool = pool.flatMap((recipe) =>
+      favoriteIds.has(recipe.id) ? [recipe, recipe, recipe] : [recipe],
+    );
+    return weightedPool[Math.floor(Math.random() * weightedPool.length)] || null;
+  };
+
+  const regeneratePlannerGridRow = async (row: MealGridRow) => {
+    if (row.mealType === 'dinner') {
+      await handleRegenerate();
+      return;
+    }
+
+    const recipes = await ensureRecipesLoaded();
+    const mealType = row.mealType;
+    const isSnackFirstSlot = row.key === 'snack-1';
+    const isSnackSecondSlot = row.key === 'snack-2';
+
+    const candidatePool = recipes.filter((recipe) => {
+      if (mealType === 'breakfast') return recipe.meal_type === 'breakfast' || recipe.meal_type === 'snack';
+      if (mealType === 'lunch') return recipe.meal_type === 'lunch' || recipe.meal_type === 'dinner';
+      if (mealType === 'snack') return recipe.meal_type === 'snack' || recipe.meal_type === 'breakfast';
+      return recipe.meal_type === mealType;
+    });
+
+    if (candidatePool.length === 0) {
+      toast({
+        title: `No ${plannedMealTypeLabel[mealType].toLowerCase()} recipes found`,
+        description: `Import recipes tagged for ${plannedMealTypeLabel[mealType].toLowerCase()} first.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const usedRecipeIds = new Set<string>();
+    let updatedCount = 0;
+
+    for (const rowDate of weekDateRows) {
+      const entriesForDate = (entriesByDate[rowDate.date] || []).filter((entry) => entry.mealType === mealType);
+      if (isSnackFirstSlot) {
+        if (entriesForDate[0]) {
+          deletePlannedFoodEntry(entriesForDate[0].id, user?.id);
+        }
+      } else if (isSnackSecondSlot) {
+        if (entriesForDate[1]) {
+          deletePlannedFoodEntry(entriesForDate[1].id, user?.id);
+        }
+      } else {
+        deletePlannedFoodEntriesByDateAndMealType(rowDate.date, mealType, user?.id);
+      }
+
+      const pickedRecipe = pickSuggestedRecipeForMealType(candidatePool, usedRecipeIds);
+      if (!pickedRecipe) continue;
+      usedRecipeIds.add(pickedRecipe.id);
+
+      addPlannedFoodEntry(
+        {
+          date: rowDate.date,
+          mealType,
+          name: pickedRecipe.name,
+          servings: 1,
+          calories: Math.max(0, Math.round(pickedRecipe.calories || 0)),
+          protein_g: Math.max(0, Math.round(pickedRecipe.protein_g || 0)),
+          carbs_g: Math.max(0, Math.round(pickedRecipe.carbs_g || 0)),
+          fat_g: Math.max(0, Math.round(pickedRecipe.fat_g || 0)),
+          sourceRecipeId: pickedRecipe.id,
+        },
+        user?.id,
+      );
+      updatedCount += 1;
+    }
+
+    refreshPlannerEntries();
+    toast({
+      title: `${row.label} regenerated`,
+      description: `Updated ${updatedCount} day${updatedCount === 1 ? '' : 's'} for this week.`,
+    });
+  };
+
   const plannerRows =
     plannerViewMode === 'daily-all'
       ? weekDateRows.filter((row) => row.date === plannerDay)
@@ -941,18 +1027,32 @@ export default function MealsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          variant={topMealsViewMode === 'breakfast-list' ? 'default' : 'outline'}
+          onClick={() => setTopMealsViewMode('breakfast-list')}
+        >
+          Breakfast list
+        </Button>
+        <Button
+          size="sm"
+          variant={topMealsViewMode === 'lunch-list' ? 'default' : 'outline'}
+          onClick={() => setTopMealsViewMode('lunch-list')}
+        >
+          Lunch list
+        </Button>
+        <Button
+          size="sm"
+          variant={topMealsViewMode === 'dinner-list' ? 'default' : 'outline'}
+          onClick={() => setTopMealsViewMode('dinner-list')}
+        >
+          Dinner list
+        </Button>
+        <Button
+          size="sm"
           variant={topMealsViewMode === 'weekly-meal-grid' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('weekly-meal-grid')}
           className="hidden md:inline-flex"
         >
           Weekly meal grid
-        </Button>
-        <Button
-          size="sm"
-          variant={topMealsViewMode === 'list' ? 'default' : 'outline'}
-          onClick={() => setTopMealsViewMode('list')}
-        >
-          Dinner list
         </Button>
       </div>
 
@@ -981,7 +1081,7 @@ export default function MealsPage() {
                 size="sm"
                 variant="outline"
                 className="mt-3"
-                onClick={() => setTopMealsViewMode('list')}
+                onClick={() => setTopMealsViewMode('dinner-list')}
               >
                 Switch to dinner list
               </Button>
@@ -1004,8 +1104,20 @@ export default function MealsPage() {
                 ))}
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`top-grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3 text-sm font-medium text-foreground">
-                      {gridRow.label}
+                    <div className="border-b border-r border-border bg-muted/10 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => void regeneratePlannerGridRow(gridRow)}
+                          disabled={regenerating || recipesLoading}
+                        >
+                          <RefreshCw className="mr-1 h-3 w-3" />
+                          Regenerate
+                        </Button>
+                      </div>
                     </div>
                     {weekDateRows.map((row) => {
                       const dayMeal = getMealForDay(row.day);
@@ -1099,7 +1211,7 @@ export default function MealsPage() {
               </div>
             </div>
             </>
-          ) : (
+          ) : topMealsViewMode === 'dinner-list' ? (
             <div className="space-y-3 stagger-children">
               {days.map((day, index) => {
                 const meal = getMealForDay(day);
@@ -1111,20 +1223,20 @@ export default function MealsPage() {
                   <div
                     key={day}
                     className={cn(
-                      "bg-card rounded-xl border border-border p-4 transition-gentle",
-                      isToday && "ring-2 ring-primary/20 border-primary/30",
-                      meal?.is_skipped && "opacity-60"
+                      'bg-card rounded-xl border border-border p-4 transition-gentle',
+                      isToday && 'ring-2 ring-primary/20 border-primary/30',
+                      meal?.is_skipped && 'opacity-60',
                     )}
                   >
                     <div
-                      className={cn("flex items-start gap-4", meal?.recipes && !meal?.is_skipped && "cursor-pointer")}
+                      className={cn('flex items-start gap-4', meal?.recipes && !meal?.is_skipped && 'cursor-pointer')}
                       onClick={() => {
                         if (meal?.recipes && !meal.is_skipped) setSelectedMeal(meal);
                       }}
                     >
-                      <div className={cn("w-12 text-center flex-shrink-0", isToday && "text-primary")}>
+                      <div className={cn('w-12 text-center flex-shrink-0', isToday && 'text-primary')}>
                         <p className="text-xs font-medium uppercase text-muted-foreground">{dayLabels[day]}</p>
-                        <p className={cn("text-2xl font-display font-semibold", isToday ? "text-primary" : "text-foreground")}>
+                        <p className={cn('text-2xl font-display font-semibold', isToday ? 'text-primary' : 'text-foreground')}>
                           {date}
                         </p>
                       </div>
@@ -1221,7 +1333,7 @@ export default function MealsPage() {
                               handleToggleSkip(meal);
                             }}
                           >
-                            <SkipForward className={cn("w-4 h-4", meal.is_skipped ? "text-destructive" : "text-muted-foreground")} />
+                            <SkipForward className={cn('w-4 h-4', meal.is_skipped ? 'text-destructive' : 'text-muted-foreground')} />
                           </Button>
                         </div>
                       ) : (
@@ -1240,6 +1352,78 @@ export default function MealsPage() {
                           </Button>
                         </div>
                       )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-3 stagger-children">
+              {weekDateRows.map((row) => {
+                const mealType: PlannedMealType = topMealsViewMode === 'breakfast-list' ? 'breakfast' : 'lunch';
+                const label = mealType === 'breakfast' ? 'Breakfast' : 'Lunch';
+                const entries = (entriesByDate[row.date] || []).filter((entry) => entry.mealType === mealType);
+                const date = format(new Date(`${row.date}T00:00:00`), 'd');
+                const isToday = row.date === format(new Date(), 'yyyy-MM-dd');
+
+                return (
+                  <div
+                    key={`top-list-${mealType}-${row.date}`}
+                    className={cn(
+                      'bg-card rounded-xl border border-border p-4 transition-gentle',
+                      isToday && 'ring-2 ring-primary/20 border-primary/30',
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className={cn('w-12 text-center flex-shrink-0', isToday && 'text-primary')}>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">{dayLabels[row.day]}</p>
+                        <p className={cn('text-2xl font-display font-semibold', isToday ? 'text-primary' : 'text-foreground')}>
+                          {date}
+                        </p>
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-2">
+                        {entries.length > 0 ? (
+                          entries.map((entry) => (
+                            <div key={entry.id} className="rounded-md border border-border px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {label}: {entry.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => {
+                                    deletePlannedFoodEntry(entry.id, user?.id);
+                                    refreshPlannerEntries();
+                                  }}
+                                  title="Remove planned item"
+                                >
+                                  <Trash2 className="w-4 h-4 text-muted-foreground" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No {label.toLowerCase()} planned yet.</p>
+                        )}
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => openGridQuickAdd(row.date, mealType)}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add {label}
+                      </Button>
                     </div>
                   </div>
                 );
@@ -1307,28 +1491,28 @@ export default function MealsPage() {
             variant={plannerViewMode === 'daily-all' ? 'default' : 'outline'}
             onClick={() => setPlannerViewMode('daily-all')}
           >
-            Daily - all meals
+            Daily - All Meals
           </Button>
           <Button
             size="sm"
             variant={plannerViewMode === 'weekly-breakfasts' ? 'default' : 'outline'}
             onClick={() => setPlannerViewMode('weekly-breakfasts')}
           >
-            Weekly - breakfasts
-          </Button>
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'weekly-dinners' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('weekly-dinners')}
-          >
-            Weekly - dinners
+            Weekly - Breakfasts
           </Button>
           <Button
             size="sm"
             variant={plannerViewMode === 'weekly-lunches' ? 'default' : 'outline'}
             onClick={() => setPlannerViewMode('weekly-lunches')}
           >
-            Weekly - lunches
+            Weekly - Lunches
+          </Button>
+          <Button
+            size="sm"
+            variant={plannerViewMode === 'weekly-dinners' ? 'default' : 'outline'}
+            onClick={() => setPlannerViewMode('weekly-dinners')}
+          >
+            Weekly - Dinners
           </Button>
           <Button
             size="sm"
@@ -1336,7 +1520,7 @@ export default function MealsPage() {
             onClick={() => setPlannerViewMode('weekly-meal-grid')}
             className="hidden md:inline-flex"
           >
-            Weekly - meal grid
+            Weekly - Meal Grid
           </Button>
           {plannerViewMode === 'daily-all' && (
             <Input
@@ -1610,8 +1794,20 @@ export default function MealsPage() {
 
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3 text-sm font-medium text-foreground">
-                      {gridRow.label}
+                    <div className="border-b border-r border-border bg-muted/10 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => void regeneratePlannerGridRow(gridRow)}
+                          disabled={regenerating || recipesLoading}
+                        >
+                          <RefreshCw className="mr-1 h-3 w-3" />
+                          Regenerate
+                        </Button>
+                      </div>
                     </div>
                     {weekDateRows.map((row) => {
                       const entries = entriesByDate[row.date] || [];
@@ -1683,10 +1879,10 @@ export default function MealsPage() {
             const filteredEntries =
               plannerViewMode === 'weekly-breakfasts'
                 ? allEntries.filter((entry) => entry.mealType === 'breakfast')
-                : plannerViewMode === 'weekly-dinners'
-                ? allEntries.filter((entry) => entry.mealType === 'dinner')
                 : plannerViewMode === 'weekly-lunches'
                 ? allEntries.filter((entry) => entry.mealType === 'lunch')
+                : plannerViewMode === 'weekly-dinners'
+                ? allEntries.filter((entry) => entry.mealType === 'dinner')
                 : allEntries;
 
             const dinnerBase = dinnerBaseByDate.get(row.date);

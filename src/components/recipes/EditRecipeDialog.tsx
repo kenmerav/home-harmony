@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { updateRecipe, deleteRecipe, DbRecipe } from '@/lib/api/recipes';
 import { Trash2 } from 'lucide-react';
@@ -37,6 +38,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
   const [fat, setFat] = useState(0);
   const [ingredientsText, setIngredientsText] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [isMealPrep, setIsMealPrep] = useState(false);
 
   useEffect(() => {
     if (recipe) {
@@ -49,6 +51,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
       setFat(recipe.macrosPerServing.fat_g);
       setIngredientsText(normalizeRecipeIngredients(recipe.ingredients).join('\n'));
       setInstructions(recipe.instructions || '');
+      setIsMealPrep(!!recipe.isMealPrep);
     }
   }, [recipe]);
 
@@ -66,6 +69,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
         protein_g: protein,
         carbs_g: carbs,
         fat_g: fat,
+        is_meal_prep: isMealPrep,
         ingredients,
         ingredients_raw: ingredientsText,
         instructions: instructions || null,
@@ -126,6 +130,14 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
               </Select>
             </div>
           </div>
+
+          <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+            <Checkbox
+              checked={isMealPrep}
+              onCheckedChange={(checked) => setIsMealPrep(Boolean(checked))}
+            />
+            <span className="text-sm">Meal prep recipe (can be excluded from grocery list once prepped)</span>
+          </label>
 
           <div>
             <Label className="text-xs text-muted-foreground uppercase tracking-wide">Macros per Serving</Label>

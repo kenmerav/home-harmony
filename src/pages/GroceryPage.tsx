@@ -61,6 +61,20 @@ interface ParsedIngredient {
   unit: string | null;
 }
 
+const EXCLUDE_PREPPED_MEAL_PREP_KEY = 'homehub.grocery.exclude-prepped-meal-prep.v1';
+
+function loadExcludePreppedMealPrepPreference(): boolean {
+  if (typeof window === 'undefined') return true;
+  const raw = window.localStorage.getItem(EXCLUDE_PREPPED_MEAL_PREP_KEY);
+  if (raw === 'false') return false;
+  return true;
+}
+
+function saveExcludePreppedMealPrepPreference(value: boolean) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(EXCLUDE_PREPPED_MEAL_PREP_KEY, String(value));
+}
+
 function splitCompositeIngredients(raw: string): string[] {
   let text = String(raw || '').replace(/\s+/g, ' ').trim();
   if (!text) return [];
@@ -297,13 +311,19 @@ function formatQuantity(qtyByUnit: Map<string, number>, countNoQty: number): str
   return parts.join(' + ') || '1x';
 }
 
-function buildGroceryList(meals: DbPlannedMeal[], multipliers: Record<string, number>): GroceryItem[] {
+function buildGroceryList(
+  meals: DbPlannedMeal[],
+  multipliers: Record<string, number>,
+  options?: { excludeMealPrep?: boolean },
+): GroceryItem[] {
   const itemMap = new Map<string, GroceryItem & { qtyByUnit: Map<string, number>; countNoQty: number }>();
+  const excludeMealPrep = options?.excludeMealPrep ?? true;
   
   for (const meal of meals) {
     if (meal.is_skipped) continue;
     const recipe = meal.recipes;
     if (!recipe?.ingredients) continue;
+    if (excludeMealPrep && recipe.is_meal_prep) continue;
     const mealMultiplier = multipliers[meal.id] === 2 ? 2 : 1;
     
     for (const ingredient of recipe.ingredients as string[]) {
@@ -366,6 +386,7 @@ export default function GroceryPage() {
   const [weeklyAdStoreIds, setWeeklyAdStoreIdsState] = useState<string[]>([]);
   const [nextWeekStatus, setNextWeekStatus] = useState<WeeklyPlanningStatus | null>(null);
   const [updatingNextWeekStatus, setUpdatingNextWeekStatus] = useState(false);
+  const [excludePreppedMealPrep, setExcludePreppedMealPrep] = useState<boolean>(true);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -375,7 +396,9 @@ export default function GroceryPage() {
     setLastOrderCompletedAt(getLastOrderCompletedAt());
     setWeeklyAdZipState(getWeeklyAdZip());
     setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
-    loadGroceryList();
+    const excludeMealPrep = loadExcludePreppedMealPrepPreference();
+    setExcludePreppedMealPrep(excludeMealPrep);
+    void loadGroceryList(excludeMealPrep);
     void loadNextWeekStatus();
   }, []);
 
@@ -386,17 +409,22 @@ export default function GroceryPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const loadGroceryList = async () => {
+  const loadGroceryList = async (excludeMealPrep = excludePreppedMealPrep) => {
     try {
       setLoading(true);
       const meals = await fetchMealsForWeek(0);
-      setItems(buildGroceryList(meals, getMealMultipliers()));
+      setItems(buildGroceryList(meals, getMealMultipliers(), { excludeMealPrep }));
     } catch (err) {
       console.error('Failed to load grocery list:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    saveExcludePreppedMealPrepPreference(excludePreppedMealPrep);
+    void loadGroceryList(excludePreppedMealPrep);
+  }, [excludePreppedMealPrep]);
 
   const loadNextWeekStatus = async () => {
     try {
@@ -542,6 +570,12 @@ export default function GroceryPage() {
               style={{ width: `${(checkedCount / totalCount) * 100}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {excludePreppedMealPrep && (
+        <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          Meal prep recipes marked as already prepped are excluded from this grocery rollup.
         </div>
       )}
 
@@ -789,6 +823,14 @@ export default function GroceryPage() {
                 }
               />
               <span className="text-sm">Enable weekly grocery order reminder</span>
+            </label>
+
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={excludePreppedMealPrep}
+                onCheckedChange={(checked) => setExcludePreppedMealPrep(Boolean(checked))}
+              />
+              <span className="text-sm">Exclude meal-prep recipes already prepped</span>
             </label>
 
             {orderReminder.enabled && (

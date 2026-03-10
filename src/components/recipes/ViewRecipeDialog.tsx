@@ -53,6 +53,7 @@ export function ViewRecipeDialog({ recipe, open, onOpenChange, onEdit }: ViewRec
               </Badge>
             )}
             <Badge variant="outline">{recipe.mealType}</Badge>
+            {recipe.isMealPrep && <Badge variant="outline">meal prep</Badge>}
             {recipe.defaultDay && (
               <Badge variant="outline" className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />

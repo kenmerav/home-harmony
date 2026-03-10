@@ -447,6 +447,7 @@ export type Database = {
           ingredients_raw: string | null
           instructions: string | null
           is_anchored: boolean
+          is_meal_prep: boolean
           meal_type: string
           name: string
           owner_id: string | null
@@ -466,6 +467,7 @@ export type Database = {
           ingredients_raw?: string | null
           instructions?: string | null
           is_anchored?: boolean
+          is_meal_prep?: boolean
           meal_type?: string
           name: string
           owner_id?: string | null
@@ -485,6 +487,7 @@ export type Database = {
           ingredients_raw?: string | null
           instructions?: string | null
           is_anchored?: boolean
+          is_meal_prep?: boolean
           meal_type?: string
           name?: string
           owner_id?: string | null

@@ -12,6 +12,8 @@ import {
 export interface ExtractedRecipe {
   name: string;
   servings: number;
+  mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  isMealPrep?: boolean;
   macrosPerServing: {
     calories: number;
     protein_g: number;
@@ -28,6 +30,12 @@ interface ParseCookbookResponse {
   success: boolean;
   error?: string;
   recipes?: ExtractedRecipe[];
+}
+
+interface GenerateRecipeResponse {
+  success: boolean;
+  error?: string;
+  recipe?: ExtractedRecipe;
 }
 
 interface ParsePdfOptions {
@@ -357,6 +365,44 @@ export async function parseRecipesFromUrl(url: string): Promise<ParseCookbookRes
     return data as ParseCookbookResponse;
   } catch (error) {
     console.error('Error parsing recipe URL:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    };
+  }
+}
+
+export async function generateRecipeFromPrompt(
+  prompt: string,
+  servings?: number,
+): Promise<{ success: boolean; error?: string; recipe?: ExtractedRecipe }> {
+  try {
+    const trimmed = prompt.trim();
+    if (!trimmed) return { success: false, error: 'Prompt is required.' };
+
+    const { data, error } = await supabase.functions.invoke('generate-recipe', {
+      body: {
+        prompt: trimmed,
+        servings: Number.isFinite(servings || NaN) ? servings : undefined,
+      },
+    });
+
+    if (error) {
+      console.error('Edge function error (generate-recipe):', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to generate recipe',
+      };
+    }
+
+    const response = data as GenerateRecipeResponse;
+    return {
+      success: !!response.success,
+      error: response.error,
+      recipe: response.recipe,
+    };
+  } catch (error) {
+    console.error('Error generating recipe from prompt:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -703,6 +749,7 @@ export interface DbRecipe {
   fiber_g: number | null;
   meal_type: string;
   is_anchored: boolean;
+  is_meal_prep: boolean;
   default_day: string | null;
   created_at: string;
   updated_at: string;
@@ -789,6 +836,73 @@ function buildCleanRecipePayload(recipe: {
   };
 }
 
+const BREAKFAST_KEYWORDS = [
+  'breakfast',
+  'omelet',
+  'oat',
+  'pancake',
+  'waffle',
+  'burrito',
+  'muffin',
+  'egg',
+  'granola',
+  'toast',
+  'parfait',
+  'overnight',
+];
+const LUNCH_KEYWORDS = ['lunch', 'sandwich', 'wrap', 'salad', 'soup', 'bowl'];
+const SNACK_KEYWORDS = [
+  'snack',
+  'protein bite',
+  'energy bite',
+  'trail mix',
+  'smoothie',
+  'dip',
+  'bar',
+  'dessert',
+];
+
+const MEAL_PREP_KEYWORDS = [
+  'meal prep',
+  'make ahead',
+  'freezer',
+  'freeze',
+  'batch cook',
+  'prep containers',
+  'portion into',
+  'store leftovers',
+];
+
+function inferMealTypeForRecipe(recipe: {
+  name?: string;
+  ingredients?: string[];
+  instructions?: string | null;
+  mealType?: string;
+}): 'breakfast' | 'lunch' | 'dinner' | 'snack' {
+  const explicit = String(recipe.mealType || '').trim().toLowerCase();
+  if (explicit === 'breakfast' || explicit === 'lunch' || explicit === 'dinner' || explicit === 'snack') {
+    return explicit;
+  }
+
+  const haystack = `${recipe.name || ''} ${(recipe.ingredients || []).join(' ')} ${recipe.instructions || ''}`.toLowerCase();
+  const hasAny = (keywords: string[]) => keywords.some((keyword) => haystack.includes(keyword));
+  if (hasAny(SNACK_KEYWORDS)) return 'snack';
+  if (hasAny(BREAKFAST_KEYWORDS)) return 'breakfast';
+  if (hasAny(LUNCH_KEYWORDS)) return 'lunch';
+  return 'dinner';
+}
+
+function inferMealPrepForRecipe(recipe: {
+  name?: string;
+  ingredients?: string[];
+  instructions?: string | null;
+  isMealPrep?: boolean;
+}): boolean {
+  if (typeof recipe.isMealPrep === 'boolean') return recipe.isMealPrep;
+  const haystack = `${recipe.name || ''} ${(recipe.ingredients || []).join(' ')} ${recipe.instructions || ''}`.toLowerCase();
+  return MEAL_PREP_KEYWORDS.some((keyword) => haystack.includes(keyword));
+}
+
 export async function fetchRecipes(): Promise<DbRecipe[]> {
   if (isDemoModeEnabled()) {
     return [...getDemoRecipes()]
@@ -847,6 +961,21 @@ export async function parseRecipesFromJson(file: File): Promise<{ success: boole
       return {
       name: String(recipe.name || recipe.title || 'Untitled Recipe'),
       servings: toNumber(recipe.servings ?? recipe.serving_size, 4),
+      mealType: (() => {
+        const value = String(
+          recipe.mealType ??
+            recipe.meal_type ??
+            recipe.meal ??
+            '',
+        )
+          .trim()
+          .toLowerCase();
+        if (value === 'breakfast' || value === 'lunch' || value === 'dinner' || value === 'snack') {
+          return value;
+        }
+        return undefined;
+      })(),
+      isMealPrep: Boolean(recipe.isMealPrep ?? recipe.is_meal_prep),
       macrosPerServing: {
         calories: toNumber(macros.calories ?? recipe.calories ?? nutrition.calories, 0),
         protein_g: toNumber(macros.protein_g ?? recipe.protein_g ?? nutrition.protein_g ?? nutrition.protein, 0),
@@ -885,7 +1014,18 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
       });
       return {
         ...cleaned,
-        meal_type: 'dinner',
+        meal_type: inferMealTypeForRecipe({
+          name: cleaned.name,
+          ingredients: cleaned.ingredients,
+          instructions: cleaned.instructions,
+          mealType: r.mealType,
+        }),
+        is_meal_prep: inferMealPrepForRecipe({
+          name: cleaned.name,
+          ingredients: cleaned.ingredients,
+          instructions: cleaned.instructions,
+          isMealPrep: r.isMealPrep,
+        }),
         is_anchored: false,
       };
     });
@@ -905,6 +1045,7 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
       fat_g: row.fat_g,
       fiber_g: row.fiber_g,
       meal_type: row.meal_type,
+      is_meal_prep: row.is_meal_prep,
       is_anchored: row.is_anchored,
       default_day: null,
       created_at: now,
@@ -933,7 +1074,18 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
     return {
       owner_id: ownerId,
       ...cleaned,
-      meal_type: 'dinner',
+      meal_type: inferMealTypeForRecipe({
+        name: cleaned.name,
+        ingredients: cleaned.ingredients,
+        instructions: cleaned.instructions,
+        mealType: r.mealType,
+      }),
+      is_meal_prep: inferMealPrepForRecipe({
+        name: cleaned.name,
+        ingredients: cleaned.ingredients,
+        instructions: cleaned.instructions,
+        isMealPrep: r.isMealPrep,
+      }),
       is_anchored: false,
     };
   });
@@ -988,6 +1140,7 @@ export async function updateRecipe(id: string, updates: {
   carbs_g?: number;
   fat_g?: number;
   meal_type?: string;
+  is_meal_prep?: boolean;
   is_anchored?: boolean;
   default_day?: string | null;
 }): Promise<DbRecipe> {
