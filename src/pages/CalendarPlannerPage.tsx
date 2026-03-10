@@ -552,8 +552,8 @@ export default function CalendarPlannerPage() {
   );
 
   const monthGridDays = useMemo(() => {
-    const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 1 });
+    const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
+    const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
     const days: Date[] = [];
     let cursor = start;
     while (cursor <= end) {
@@ -564,7 +564,7 @@ export default function CalendarPlannerPage() {
   }, [currentMonth]);
 
   const twoWeekDays = useMemo(() => {
-    const start = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const start = startOfWeek(selectedDate, { weekStartsOn: 0 });
     return Array.from({ length: 14 }, (_, idx) => addDays(start, idx));
   }, [selectedDate]);
 
@@ -1149,7 +1149,7 @@ export default function CalendarPlannerPage() {
           </div>
 
           <div className="grid grid-cols-7 border-b border-border bg-muted/40 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <div key={day} className="border-r border-border/60 py-2 last:border-r-0">
                 {day}
               </div>

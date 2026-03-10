@@ -500,8 +500,8 @@ export async function syncDerivedCalendarSnapshot(
 }
 
 export async function fetchCalendarEventsForMonth(month: Date, userId?: string | null): Promise<CalendarEvent[]> {
-  const rangeStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
-  const rangeEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
+  const rangeStart = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
+  const rangeEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 0 });
   const nextEvents: CalendarEvent[] = [];
 
   const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });

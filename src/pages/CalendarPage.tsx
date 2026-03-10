@@ -510,8 +510,8 @@ export default function CalendarPage() {
   }, [setupModeFromQuery]);
 
   const refreshEvents = useCallback(async () => {
-    const rangeStart = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
-    const rangeEnd = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 1 });
+    const rangeStart = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
+    const rangeEnd = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
     setIsLoading(true);
     try {
       const nextEvents: CalendarEvent[] = [];
@@ -800,7 +800,7 @@ export default function CalendarPage() {
   );
 
   const selectedWeekDays = useMemo(() => {
-    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx));
   }, [selectedDate]);
 
@@ -1127,8 +1127,8 @@ export default function CalendarPage() {
   };
 
   const exportCurrentMonthIcs = () => {
-    const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 1 });
+    const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
+    const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
     const monthEvents = filteredEvents.filter((event) => {
       const date = parseISO(event.startsAt);
       return inRange(date, start, end);
