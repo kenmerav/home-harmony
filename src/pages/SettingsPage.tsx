@@ -23,6 +23,7 @@ import {
 import {
   loadCommonDepartureAddresses,
   loadDepartureAddressProfile,
+  normalizeAddressForCompare,
   saveCommonDepartureAddresses,
   saveDepartureAddressProfile,
 } from '@/lib/departureAddresses';
@@ -374,6 +375,47 @@ export default function SettingsPage() {
     });
   };
 
+  const normalizeAddressField = (value: string): string =>
+    value.trim().replace(/\s+/g, ' ');
+
+  const persistDepartureAddresses = (includeDraft = false) => {
+    const homeAddress = normalizeAddressField(smsPrefs.home_address);
+    const workAddress = normalizeAddressField(smsPrefs.work_address);
+    const homeKey = normalizeAddressForCompare(homeAddress);
+    const workKey = normalizeAddressForCompare(workAddress);
+
+    const candidates = [...commonDepartureAddresses];
+    if (includeDraft && commonDepartureDraft.trim()) {
+      candidates.push(commonDepartureDraft);
+    }
+
+    const nextCommon = candidates
+      .map((item) => normalizeAddressField(String(item || '')))
+      .filter((item) => {
+        const key = normalizeAddressForCompare(item);
+        if (!key) return false;
+        return key !== homeKey && key !== workKey;
+      });
+
+    const savedCommon = saveCommonDepartureAddresses(nextCommon, user?.id);
+    saveDepartureAddressProfile(
+      {
+        homeAddress,
+        workAddress,
+      },
+      user?.id,
+    );
+    setSmsPrefs((prev) => ({
+      ...prev,
+      home_address: homeAddress,
+      work_address: workAddress,
+    }));
+    setCommonDepartureAddresses(savedCommon);
+    if (includeDraft) setCommonDepartureDraft('');
+
+    return { homeAddress, workAddress, savedCommon };
+  };
+
   const saveSmsSettings = async () => {
     if (!canUseRemoteSms) {
       toast({
@@ -385,7 +427,12 @@ export default function SettingsPage() {
     }
     setSmsSaving(true);
     try {
-      const saved = await saveSmsPreferences(smsPrefs);
+      const { homeAddress, workAddress } = persistDepartureAddresses(true);
+      const saved = await saveSmsPreferences({
+        ...smsPrefs,
+        home_address: homeAddress,
+        work_address: workAddress,
+      });
       setSmsPrefs(saved);
       saveDepartureAddressProfile(
         {
@@ -438,13 +485,12 @@ export default function SettingsPage() {
     };
     try {
       await saveOnboardingResult(user?.id, payload);
-      const normalizedHome = smsPrefs.home_address.trim();
-      const normalizedWork = smsPrefs.work_address.trim();
+      const { homeAddress, workAddress } = persistDepartureAddresses(true);
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences({
           ...smsPrefs,
-          home_address: normalizedHome,
-          work_address: normalizedWork,
+          home_address: homeAddress,
+          work_address: workAddress,
         });
         setSmsPrefs(savedSms);
         saveDepartureAddressProfile(
@@ -454,17 +500,7 @@ export default function SettingsPage() {
           },
           user?.id,
         );
-      } else {
-        setSmsPrefs((prev) => ({ ...prev, home_address: normalizedHome, work_address: normalizedWork }));
-        saveDepartureAddressProfile(
-          {
-            homeAddress: normalizedHome,
-            workAddress: normalizedWork,
-          },
-          user?.id,
-        );
       }
-      setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
       updateMacroPlan('me', { bodyUnitSystem: bodyUnits.me });
       updateMacroPlan('wife', { bodyUnitSystem: bodyUnits.wife });
       toast({ title: 'Settings saved', description: 'Onboarding preferences were updated.' });
@@ -515,14 +551,13 @@ export default function SettingsPage() {
         full_name: fullName,
         household_name: householdName || null,
       });
-      const normalizedHome = smsPrefs.home_address.trim();
-      const normalizedWork = smsPrefs.work_address.trim();
+      const { homeAddress, workAddress } = persistDepartureAddresses(true);
 
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences({
           ...smsPrefs,
-          home_address: normalizedHome,
-          work_address: normalizedWork,
+          home_address: homeAddress,
+          work_address: workAddress,
         });
         setSmsPrefs(savedSms);
         saveDepartureAddressProfile(
@@ -532,17 +567,7 @@ export default function SettingsPage() {
           },
           user?.id,
         );
-      } else {
-        setSmsPrefs((prev) => ({ ...prev, home_address: normalizedHome, work_address: normalizedWork }));
-        saveDepartureAddressProfile(
-          {
-            homeAddress: normalizedHome,
-            workAddress: normalizedWork,
-          },
-          user?.id,
-        );
       }
-      setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
 
       if (nextEmail !== currentEmail) {
         await updateEmail(nextEmail);
@@ -565,11 +590,11 @@ export default function SettingsPage() {
   };
 
   const addCommonDepartureAddress = () => {
-    const next = commonDepartureDraft.trim().replace(/\s+/g, ' ');
+    const next = normalizeAddressField(commonDepartureDraft);
     if (!next) return;
-    const home = smsPrefs.home_address.trim().toLowerCase();
-    const work = smsPrefs.work_address.trim().toLowerCase();
-    const nextKey = next.toLowerCase();
+    const home = normalizeAddressForCompare(smsPrefs.home_address);
+    const work = normalizeAddressForCompare(smsPrefs.work_address);
+    const nextKey = normalizeAddressForCompare(next);
     if (nextKey === home || nextKey === work) {
       setCommonDepartureDraft('');
       return;
@@ -649,6 +674,11 @@ export default function SettingsPage() {
                 value={smsPrefs.home_address}
                 onChange={(e) => updateSmsPref('home_address', e.target.value)}
               />
+              {smsPrefs.home_address.trim() ? (
+                <p className="text-xs text-muted-foreground">Saved as Home: {smsPrefs.home_address.trim()}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No home address saved yet.</p>
+              )}
             </div>
             <div className="space-y-2">
               <p className="text-sm font-medium">Work address</p>
@@ -657,6 +687,11 @@ export default function SettingsPage() {
                 value={smsPrefs.work_address}
                 onChange={(e) => updateSmsPref('work_address', e.target.value)}
               />
+              {smsPrefs.work_address.trim() ? (
+                <p className="text-xs text-muted-foreground">Saved as Work: {smsPrefs.work_address.trim()}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No work address saved yet.</p>
+              )}
             </div>
             <div className="space-y-2 md:col-span-2">
               <p className="text-sm font-medium">Other common leaving-from addresses</p>

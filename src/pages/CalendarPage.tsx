@@ -72,7 +72,11 @@ import {
   saveStoredCalendarFilterPresets,
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
-import { loadCommonDepartureAddresses, loadDepartureAddressProfile } from '@/lib/departureAddresses';
+import {
+  loadCommonDepartureAddresses,
+  loadDepartureAddressProfile,
+  normalizeAddressForCompare,
+} from '@/lib/departureAddresses';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -187,7 +191,7 @@ function canUseStorage() {
 }
 
 function normalizeAddressKey(value?: string | null): string {
-  return (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return normalizeAddressForCompare(value);
 }
 
 function parsePhoneList(input: string): string[] {

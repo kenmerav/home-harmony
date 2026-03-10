@@ -63,7 +63,11 @@ import {
   saveStoredCalendarFilterPresets,
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
-import { loadCommonDepartureAddresses, loadDepartureAddressProfile } from '@/lib/departureAddresses';
+import {
+  loadCommonDepartureAddresses,
+  loadDepartureAddressProfile,
+  normalizeAddressForCompare,
+} from '@/lib/departureAddresses';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
@@ -177,7 +181,7 @@ function canUseStorage() {
 }
 
 function normalizeAddressKey(value?: string | null): string {
-  return (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return normalizeAddressForCompare(value);
 }
 
 function scopedModuleFilterSettingsKey(userId?: string | null): string {

@@ -18,12 +18,22 @@ function normalizeAddress(value: unknown): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
+export function normalizeAddressForCompare(value: unknown): string {
+  const normalized = normalizeAddress(value);
+  if (!normalized) return '';
+  return normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function dedupeAddresses(addresses: string[]): string[] {
   const byNormalized = new Map<string, string>();
   addresses.forEach((item) => {
     const normalized = normalizeAddress(item);
     if (!normalized) return;
-    const key = normalized.toLowerCase();
+    const key = normalizeAddressForCompare(normalized);
     if (!byNormalized.has(key)) byNormalized.set(key, normalized);
   });
   return Array.from(byNormalized.values());
