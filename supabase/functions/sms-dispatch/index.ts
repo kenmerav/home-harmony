@@ -18,8 +18,8 @@ type CalendarEvent = {
   startsAtLocal: DateTime;
 };
 
-type SmsReminderModule = "meals" | "manual";
-const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual"];
+type SmsReminderModule = "meals" | "manual" | "tasks" | "chores" | "workouts" | "reminders";
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
 
 type SmsPreferenceRow = {
   user_id: string;
@@ -165,6 +165,10 @@ function normalizeRecipientMap(input: unknown): Record<SmsReminderModule, string
   const map: Record<SmsReminderModule, string[]> = {
     meals: [],
     manual: [],
+    tasks: [],
+    chores: [],
+    workouts: [],
+    reminders: [],
   };
   if (!input || typeof input !== "object") return map;
   const raw = input as Record<string, unknown>;
@@ -388,24 +392,30 @@ async function fetchDailyEvents(
     }
   }
 
-  if (includeModules.includes("manual")) {
+  const calendarModules = includeModules.filter((moduleName) => moduleName !== "meals");
+  if (calendarModules.length > 0) {
     const dayStartUtc = localDate.startOf("day").toUTC().toISO();
     const dayEndUtc = localDate.plus({ days: 1 }).startOf("day").toUTC().toISO();
     const { data } = await supabase
       .from("calendar_events")
-      .select("id,title,starts_at,location_text,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
+      .select("id,title,module,starts_at,location_text,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
       .eq("owner_id", userId)
       .eq("is_deleted", false)
       .gte("starts_at", dayStartUtc)
-      .lt("starts_at", dayEndUtc);
+      .lt("starts_at", dayEndUtc)
+      .in("module", calendarModules);
 
     for (const row of data || []) {
       const startsAtUtc = DateTime.fromISO(String(row.starts_at), { zone: "utc" });
       if (!isUsableDateTime(startsAtUtc)) continue;
+      const moduleName = String(row.module || "manual").trim().toLowerCase();
+      const eventModule = SMS_REMINDER_MODULES.includes(moduleName as SmsReminderModule)
+        ? (moduleName as SmsReminderModule)
+        : "manual";
       events.push({
-        id: `manual-${row.id}`,
+        id: `${eventModule}-${row.id}`,
         title: String(row.title || "Event"),
-        module: "manual",
+        module: eventModule,
         locationText: typeof row.location_text === "string" ? row.location_text : null,
         travelFromAddress: typeof row.travel_from_address === "string" ? row.travel_from_address : null,
         travelDurationMinutes:

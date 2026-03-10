@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export const SMS_REMINDER_MODULES = ['meals', 'manual'] as const;
+export const SMS_REMINDER_MODULES = ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'] as const;
 export type SmsReminderModule = (typeof SMS_REMINDER_MODULES)[number];
 
 type ModuleRecipientsMap = Record<SmsReminderModule, string[]>;
@@ -28,6 +28,10 @@ export interface SmsPreferences {
 const emptyModuleRecipients = (): ModuleRecipientsMap => ({
   meals: [],
   manual: [],
+  tasks: [],
+  chores: [],
+  workouts: [],
+  reminders: [],
 });
 
 const DEFAULT_SMS_PREFERENCES: SmsPreferences = {

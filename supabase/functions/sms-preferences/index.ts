@@ -4,8 +4,8 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { isValidE164, normalizePhone, sendTwilioSms } from "../_shared/twilio.ts";
 
 type Action = "get" | "save" | "send_test";
-type SmsReminderModule = "meals" | "manual";
-const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual"];
+type SmsReminderModule = "meals" | "manual" | "tasks" | "chores" | "workouts" | "reminders";
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
 
 const DEFAULT_PREFS = {
   enabled: false,
@@ -25,6 +25,10 @@ const DEFAULT_PREFS = {
   module_recipients: {
     meals: [],
     manual: [],
+    tasks: [],
+    chores: [],
+    workouts: [],
+    reminders: [],
   } as Record<SmsReminderModule, string[]>,
   quiet_hours_start: null as string | null,
   quiet_hours_end: null as string | null,
@@ -74,6 +78,10 @@ function normalizeModuleRecipients(input: unknown): Record<SmsReminderModule, st
   const normalized: Record<SmsReminderModule, string[]> = {
     meals: [],
     manual: [],
+    tasks: [],
+    chores: [],
+    workouts: [],
+    reminders: [],
   };
   if (!input || typeof input !== "object") return normalized;
   const map = input as Record<string, unknown>;
@@ -94,10 +102,7 @@ function uniqueFallbackRecipients(
   fallbackPhone: string | null,
 ): Record<SmsReminderModule, string[]> {
   if (!fallbackPhone) return moduleRecipients;
-  const next: Record<SmsReminderModule, string[]> = {
-    meals: [...moduleRecipients.meals],
-    manual: [...moduleRecipients.manual],
-  };
+  const next = { ...moduleRecipients };
   for (const moduleName of SMS_REMINDER_MODULES) {
     if (next[moduleName].length === 0) next[moduleName] = [fallbackPhone];
   }
@@ -248,10 +253,7 @@ serve(async (req) => {
       if (error) return json({ error: error.message }, 500);
 
       const recipients = normalizeModuleRecipients(data?.module_recipients);
-      const to =
-        recipients.meals[0] ||
-        recipients.manual[0] ||
-        data?.phone_e164;
+      const to = SMS_REMINDER_MODULES.flatMap((moduleName) => recipients[moduleName] || [])[0] || data?.phone_e164;
       if (!to) return json({ error: "Save a phone number first." });
 
       const tz = data?.timezone || DEFAULT_PREFS.timezone;

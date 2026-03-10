@@ -176,6 +176,10 @@ function filterBadgeStyle(color: string): CSSProperties {
 const smsModuleLabel: Record<SmsReminderModule, string> = {
   meals: 'Meal schedule',
   manual: 'Manual calendar events',
+  tasks: 'Tasks',
+  chores: 'Chores',
+  workouts: 'Workouts',
+  reminders: 'Reminders',
 };
 
 function canUseStorage() {
@@ -1074,10 +1078,12 @@ export default function CalendarPage() {
   };
 
   const smsModulesForPreset = (preset: CalendarFilterPreset): SmsReminderModule[] => {
-    const modules: SmsReminderModule[] = [];
-    if (preset.modules.meals) modules.push('meals');
-    if (preset.modules.manual) modules.push('manual');
-    return modules;
+    return (Object.entries(preset.modules) as Array<[CalendarEventModule, boolean]>)
+      .filter(([, enabled]) => enabled)
+      .map(([moduleName]) => moduleName)
+      .filter((moduleName): moduleName is SmsReminderModule =>
+        SMS_REMINDER_MODULES.includes(moduleName as SmsReminderModule),
+      );
   };
 
   const applyPresetRecipientsToSms = async (preset: CalendarFilterPreset) => {
@@ -1087,19 +1093,22 @@ export default function CalendarPage() {
     if (smsModules.length === 0) {
       toast({
         title: 'No SMS-enabled modules in this filter',
-        description: 'Only Meals and Manual calendar events currently support reminder text routing.',
+        description: 'Enable at least one visible module in this filter to route reminder texts.',
       });
       return;
     }
 
+    const nextModuleRecipients = { ...smsPrefs.module_recipients };
+    SMS_REMINDER_MODULES.forEach((moduleName) => {
+      if (smsModules.includes(moduleName)) {
+        nextModuleRecipients[moduleName] = recipients;
+      }
+    });
+
     const nextPrefs: SmsPreferences = {
       ...smsPrefs,
       include_modules: [...new Set([...smsPrefs.include_modules, ...smsModules])],
-      module_recipients: {
-        ...smsPrefs.module_recipients,
-        meals: smsModules.includes('meals') ? recipients : smsPrefs.module_recipients.meals,
-        manual: smsModules.includes('manual') ? recipients : smsPrefs.module_recipients.manual,
-      },
+      module_recipients: nextModuleRecipients,
     };
     setSmsPrefs(nextPrefs);
 

@@ -16,7 +16,9 @@ import {
   loadSmsPreferences,
   saveSmsPreferences,
   sendSmsTestMessage,
+  SMS_REMINDER_MODULES,
   type SmsPreferences,
+  type SmsReminderModule,
 } from '@/lib/api/sms';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -50,6 +52,14 @@ const HYDRATION_OPTIONS = ['Daily water goal', 'Casual water tracking', 'Not now
 const STEP_GOAL_OPTIONS = ['5,000', '8,000', '10,000', '12,000+', 'No step goal'] as const;
 const SLEEP_GOAL_OPTIONS = ['7 hours', '8 hours', '9+ hours', 'No sleep target'] as const;
 const ALCOHOL_GOAL_OPTIONS = ['Not tracking', 'Limit to weekends', 'Limit drinks per week', 'Reduce as much as possible'] as const;
+const SMS_MODULE_LABELS: Record<SmsReminderModule, string> = {
+  meals: 'Meal schedule',
+  manual: 'Manual calendar events',
+  tasks: 'Tasks',
+  chores: 'Chores',
+  workouts: 'Workouts',
+  reminders: 'Reminders',
+};
 
 type PrimaryGoal = (typeof PRIMARY_GOAL_OPTIONS)[number];
 type HouseholdType = (typeof HOUSEHOLD_OPTIONS)[number];
@@ -330,7 +340,7 @@ export default function SettingsPage() {
     });
   };
 
-  const toggleSmsModule = (moduleName: string) => {
+  const toggleSmsModule = (moduleName: SmsReminderModule) => {
     setSmsPrefs((prev) => {
       const next = prev.include_modules.includes(moduleName)
         ? prev.include_modules.filter((name) => name !== moduleName)
@@ -672,7 +682,7 @@ export default function SettingsPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Event sources</p>
                 <div className="flex flex-wrap gap-2">
-                  {(['meals', 'manual'] as const).map((moduleName) => {
+                  {SMS_REMINDER_MODULES.map((moduleName) => {
                     const active = smsPrefs.include_modules.includes(moduleName);
                     return (
                       <Button
@@ -682,7 +692,7 @@ export default function SettingsPage() {
                         size="sm"
                         onClick={() => toggleSmsModule(moduleName)}
                       >
-                        {moduleName === 'meals' ? 'Meal schedule' : 'Manual calendar events'}
+                        {SMS_MODULE_LABELS[moduleName]}
                       </Button>
                     );
                   })}
