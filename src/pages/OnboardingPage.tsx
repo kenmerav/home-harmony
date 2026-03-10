@@ -145,6 +145,7 @@ const ALCOHOL_TARGET_OPTIONS = [
   'Max 3 drinks/week',
   'Max 1 drink/day',
 ] as const;
+const SLEEP_DURATION_OPTIONS = ['7 hours', '8 hours', '9 hours'] as const;
 
 const MORNING_TEXT_OPTIONS = [
   'Yes, send me a daily schedule text each morning',
@@ -184,6 +185,7 @@ type WellnessGoal = (typeof WELLNESS_GOAL_OPTIONS)[number];
 type WaterTarget = (typeof WATER_TARGET_OPTIONS)[number];
 type StepTarget = (typeof STEP_TARGET_OPTIONS)[number];
 type AlcoholTarget = (typeof ALCOHOL_TARGET_OPTIONS)[number];
+type SleepDurationTarget = (typeof SLEEP_DURATION_OPTIONS)[number];
 type MorningTextChoice = (typeof MORNING_TEXT_OPTIONS)[number];
 type AppointmentReminder = (typeof APPOINTMENT_REMINDER_OPTIONS)[number];
 type CalendarSystem = (typeof CALENDAR_SYSTEM_OPTIONS)[number];
@@ -258,6 +260,8 @@ interface OnboardingAnswers {
   waterTarget: WaterTarget | null;
   stepTarget: StepTarget | null;
   alcoholTarget: AlcoholTarget | null;
+  wakeUpTime: string;
+  sleepDurationTarget: SleepDurationTarget | null;
   morningTextChoice: MorningTextChoice | null;
   phoneNumber: string;
   appointmentReminder: AppointmentReminder | null;
@@ -310,6 +314,8 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   waterTarget: null,
   stepTarget: null,
   alcoholTarget: null,
+  wakeUpTime: '',
+  sleepDurationTarget: null,
   morningTextChoice: null,
   phoneNumber: '',
   appointmentReminder: null,
@@ -554,6 +560,8 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     `Chore friction: ${answers.chorePain || 'not provided'}.`,
     `Health tracking: ${answers.healthTrackingFocus.join(', ') || 'none selected'}.`,
     answers.wellnessGoals.length > 0 ? `Wellness goals: ${answers.wellnessGoals.join(', ')}.` : null,
+    answers.wakeUpTime ? `Wake-up time target: ${answers.wakeUpTime}.` : null,
+    answers.sleepDurationTarget ? `Sleep duration target: ${answers.sleepDurationTarget}.` : null,
     answers.morningTextChoice ? `Morning schedule text: ${answers.morningTextChoice}.` : null,
     answers.appointmentReminder ? `Appointment reminder timing: ${answers.appointmentReminder}.` : null,
     answers.calendarSystem ? `Calendar system: ${answers.calendarSystem}.` : null,
@@ -598,7 +606,6 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
     case 'aha':
     case 'avoidFoods':
     case 'recipesToImplement':
-    case 'goalTracking':
     case 'mirror':
     case 'experience':
     case 'paywallPrep':
@@ -635,6 +642,11 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
       return answers.chorePain !== null;
     case 'healthTracking':
       return answers.healthTrackingFocus.length > 0;
+    case 'goalTracking':
+      if (answers.wellnessGoals.includes('Improve sleep consistency')) {
+        return Boolean(answers.wakeUpTime && answers.sleepDurationTarget);
+      }
+      return true;
     case 'scheduleText':
       if (answers.morningTextChoice === null) return false;
       if (answers.morningTextChoice === 'Yes, send me a daily schedule text each morning') {
@@ -1089,6 +1101,8 @@ export default function OnboardingPage() {
           importedLinkRecipeCount,
           failedLinkImports,
           pdfImportQueued,
+          wakeUpTime: resolvedAnswers.wakeUpTime || null,
+          sleepDurationTarget: resolvedAnswers.sleepDurationTarget || null,
           morningText:
             resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
           calendarSystem: resolvedAnswers.calendarSystem,
@@ -1716,10 +1730,36 @@ export default function OnboardingPage() {
                 />
               </div>
             </div>
+            {answers.wellnessGoals.includes('Improve sleep consistency') && (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <p className="text-sm font-medium mb-2">Target wake-up time</p>
+                  <Input
+                    type="time"
+                    value={answers.wakeUpTime}
+                    onChange={(event) => setSingle('wakeUpTime', event.target.value)}
+                  />
+                </div>
+                <div>
+                  <p className="text-sm font-medium mb-2">Sleep duration target</p>
+                  <OptionList
+                    options={SLEEP_DURATION_OPTIONS}
+                    selected={singleSelection(answers.sleepDurationTarget)}
+                    onToggle={(value) => setSingle('sleepDurationTarget', value)}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </QuestionScreen>
       );
-      footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('goalTracking', answers, account)}
+        />
+      );
       break;
 
     case 'scheduleText':

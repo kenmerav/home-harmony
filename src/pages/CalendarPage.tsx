@@ -39,7 +39,7 @@ import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { estimateCookMinutes } from '@/lib/recipeTime';
-import { loadTasks } from '@/lib/taskStore';
+import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
 import { estimateCommuteEta } from '@/lib/api/commute';
 import {
   defaultSmsPreferences,
@@ -59,6 +59,7 @@ import {
   getManualCalendarEvents,
   GoogleCalendarPrefs,
   setGoogleCalendarPrefs,
+  updateManualCalendarEvent,
 } from '@/lib/calendarStore';
 import { syncDerivedCalendarEvents } from '@/lib/calendarFeed';
 import {
@@ -74,7 +75,7 @@ import {
 } from '@/lib/calendarFilters';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
-import { CalendarDays, ExternalLink, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarDays, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
 
@@ -84,10 +85,12 @@ const CARDIO_KEY = 'liftlog_cardio_sessions';
 
 type CalendarViewMode = 'month' | 'week';
 type CalendarSetupMode = 'google' | 'apple';
+type DepartureSource = 'home' | 'work' | 'custom';
 
 type WeekdayChore = {
   name: string;
-  day: DayOfWeek;
+  day?: DayOfWeek;
+  days?: DayOfWeek[];
   isCompleted?: boolean;
 };
 
@@ -261,14 +264,19 @@ function loadChoreState(userId?: string | null): ChildChoreState[] {
       .map((entry) => {
         const row = (entry || {}) as {
           name?: string;
-          weeklyChores?: { name?: string; day?: string; isCompleted?: boolean }[];
+          weeklyChores?: { name?: string; day?: string; days?: string[]; isCompleted?: boolean }[];
           extraChores?: { name?: string; dueAt?: string; isCompleted?: boolean; isFailed?: boolean }[];
         };
         const weekly = Array.isArray(row.weeklyChores)
           ? row.weeklyChores
               .map((chore) => ({
                 name: String(chore?.name || 'Weekly chore'),
-                day: normalizeDay(chore?.day) || 'monday',
+                day: normalizeDay(chore?.day) || undefined,
+                days: Array.isArray(chore?.days)
+                  ? chore.days
+                      .map((day) => normalizeDay(day))
+                      .filter((day): day is DayOfWeek => !!day)
+                  : undefined,
                 isCompleted: !!chore?.isCompleted,
               }))
               .filter((chore) => !!chore.name)
@@ -328,6 +336,17 @@ function weeklyDatesInRange(rangeStart: Date, rangeEnd: Date, day: DayOfWeek): D
   return dates;
 }
 
+function normalizeChoreDays(chore: WeekdayChore): DayOfWeek[] {
+  const list = Array.isArray(chore.days)
+    ? chore.days
+        .map((day) => normalizeDay(day))
+        .filter((day): day is DayOfWeek => !!day)
+    : [];
+  if (list.length > 0) return [...new Set(list)];
+  if (chore.day) return [chore.day];
+  return [];
+}
+
 function eventTimeLabel(event: CalendarEvent): string {
   const start = parseISO(event.startsAt);
   if (event.allDay) return 'All day';
@@ -384,14 +403,17 @@ export default function CalendarPage() {
   const [calendarSetupOpen, setCalendarSetupOpen] = useState(Boolean(setupModeFromQuery));
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftLocation, setDraftLocation] = useState('');
+  const [draftDepartureSource, setDraftDepartureSource] = useState<DepartureSource>('home');
   const [draftHomeAddress, setDraftHomeAddress] = useState('');
   const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
+  const [draftLeaveReminderLeadMinutes, setDraftLeaveReminderLeadMinutes] = useState('10');
   const [draftTravelLoading, setDraftTravelLoading] = useState(false);
   const [draftTravelError, setDraftTravelError] = useState<string | null>(null);
   const [draftDate, setDraftDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -531,60 +553,26 @@ export default function CalendarPage() {
       const taskRows = loadTasks(user?.id);
       taskRows.forEach((task) => {
         if (task.status === 'done') return;
-        if (task.frequency === 'once') {
-          if (!task.dueDate) return;
-          const due = parseISO(`${task.dueDate}T09:00:00`);
-          if (!inRange(due, rangeStart, rangeEnd)) return;
+        const occurrences = listTaskDatesInRange(task, rangeStart, rangeEnd);
+        if (occurrences.length === 0) return;
+        const reminderTime = task.reminderTime || '09:00';
+
+        occurrences.forEach((date) => {
+          const start = withTime(date, reminderTime);
+          const eventId = task.frequency === 'once' ? `task-${task.id}` : `task-${task.id}-${format(date, 'yyyy-MM-dd')}`;
           nextEvents.push({
-            id: `task-${task.id}`,
+            id: eventId,
             title: task.title,
             description: task.notes,
-            startsAt: due.toISOString(),
-            allDay: true,
+            startsAt: start.toISOString(),
+            endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
+            allDay: task.frequency === 'once',
             source: 'task',
             module: 'tasks',
             relatedId: task.id,
             readonly: true,
           });
-          return;
-        }
-
-        if (task.frequency === 'daily') {
-          let dayCursor = new Date(rangeStart);
-          while (!isAfter(dayCursor, rangeEnd)) {
-            nextEvents.push({
-              id: `task-${task.id}-${format(dayCursor, 'yyyy-MM-dd')}`,
-              title: task.title,
-              description: task.notes,
-              startsAt: withTime(dayCursor, '09:00').toISOString(),
-              endsAt: withTime(dayCursor, '09:30').toISOString(),
-              allDay: false,
-              source: 'task',
-              module: 'tasks',
-              relatedId: task.id,
-              readonly: true,
-            });
-            dayCursor = addDays(dayCursor, 1);
-          }
-          return;
-        }
-
-        if (task.day) {
-          weeklyDatesInRange(rangeStart, rangeEnd, task.day).forEach((date) => {
-            nextEvents.push({
-              id: `task-${task.id}-${format(date, 'yyyy-MM-dd')}`,
-              title: task.title,
-              description: task.notes,
-              startsAt: withTime(date, '09:00').toISOString(),
-              endsAt: withTime(date, '09:30').toISOString(),
-              allDay: false,
-              source: 'task',
-              module: 'tasks',
-              relatedId: task.id,
-              readonly: true,
-            });
-          });
-        }
+        });
       });
 
       const choreState = loadChoreState(user?.id);
@@ -592,16 +580,18 @@ export default function CalendarPage() {
         child.weeklyChores
           .filter((chore) => !chore.isCompleted)
           .forEach((chore) => {
-            weeklyDatesInRange(rangeStart, rangeEnd, chore.day).forEach((date) => {
-              nextEvents.push({
-                id: `chore-${child.name}-${chore.name}-${format(date, 'yyyy-MM-dd')}`,
-                title: `${child.name}: ${chore.name}`,
-                startsAt: withTime(date, '16:30').toISOString(),
-                endsAt: withTime(date, '17:00').toISOString(),
-                allDay: false,
-                source: 'chore',
-                module: 'chores',
-                readonly: true,
+            normalizeChoreDays(chore).forEach((day) => {
+              weeklyDatesInRange(rangeStart, rangeEnd, day).forEach((date) => {
+                nextEvents.push({
+                  id: `chore-${child.name}-${chore.name}-${day}-${format(date, 'yyyy-MM-dd')}`,
+                  title: `${child.name}: ${chore.name}`,
+                  startsAt: withTime(date, '16:30').toISOString(),
+                  endsAt: withTime(date, '17:00').toISOString(),
+                  allDay: false,
+                  source: 'chore',
+                  module: 'chores',
+                  readonly: true,
+                });
               });
             });
           });
@@ -799,7 +789,36 @@ export default function CalendarPage() {
 
   const eventDates = useMemo(() => filteredEvents.map((event) => parseISO(event.startsAt)), [filteredEvents]);
 
+  const resetDraftTravelEstimate = useCallback(() => {
+    setDraftTravelMinutes(null);
+    setDraftTrafficMinutes(null);
+    setDraftLeaveByIso(null);
+    setDraftTravelError(null);
+  }, []);
+
+  const addressForSource = useCallback(
+    (source: DepartureSource): string => {
+      if (source === 'work') return (smsPrefs.work_address || '').trim();
+      if (source === 'home') return (smsPrefs.home_address || '').trim();
+      return '';
+    },
+    [smsPrefs.home_address, smsPrefs.work_address],
+  );
+
+  const applyDepartureSource = useCallback(
+    (source: DepartureSource, preserveCustom = true) => {
+      setDraftDepartureSource(source);
+      setDraftHomeAddress((prev) => {
+        if (source === 'custom') return preserveCustom ? prev : '';
+        return addressForSource(source);
+      });
+      resetDraftTravelEstimate();
+    },
+    [addressForSource, resetDraftTravelEstimate],
+  );
+
   const openAddDialog = () => {
+    setEditingEventId(null);
     setDraftDate(format(selectedDate, 'yyyy-MM-dd'));
     setDraftTime('18:00');
     setDraftEndTime('');
@@ -812,11 +831,43 @@ export default function CalendarPage() {
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
-    setDraftHomeAddress((smsPrefs.home_address || '').trim());
-    setDraftTravelMinutes(null);
-    setDraftTrafficMinutes(null);
-    setDraftLeaveByIso(null);
+    applyDepartureSource(smsPrefs.default_departure_source || 'home', false);
+    setDraftHomeAddress(addressForSource(smsPrefs.default_departure_source || 'home'));
     setDraftLeaveReminderEnabled(false);
+    setDraftLeaveReminderLeadMinutes('10');
+    setAddDialogOpen(true);
+  };
+
+  const openEditDialog = (event: CalendarEvent) => {
+    if (event.module !== 'manual') return;
+    setEditingEventId(event.id);
+    const start = parseISO(event.startsAt);
+    const end = event.endsAt ? parseISO(event.endsAt) : null;
+    setDraftTitle(event.title);
+    setDraftDescription(event.description || '');
+    setDraftLocation(event.location || '');
+    setDraftDate(format(start, 'yyyy-MM-dd'));
+    setDraftAllDay(!!event.allDay);
+    setDraftTime(event.allDay ? '18:00' : format(start, 'HH:mm'));
+    setDraftEndTime(event.allDay || !end ? '' : format(end, 'HH:mm'));
+    setDraftCalendarLayer(normalizeCalendarLayerName(event.calendarLayer || 'family'));
+
+    const homeAddress = (smsPrefs.home_address || '').trim();
+    const workAddress = (smsPrefs.work_address || '').trim();
+    const currentFrom = (event.travelFromAddress || '').trim();
+    const source: DepartureSource =
+      currentFrom && homeAddress && currentFrom === homeAddress
+        ? 'home'
+        : currentFrom && workAddress && currentFrom === workAddress
+        ? 'work'
+        : 'custom';
+    setDraftDepartureSource(source);
+    setDraftHomeAddress(currentFrom || addressForSource(source));
+    setDraftTravelMinutes(event.travelDurationMinutes ?? null);
+    setDraftTrafficMinutes(event.trafficDurationMinutes ?? null);
+    setDraftLeaveByIso(event.recommendedLeaveAt || null);
+    setDraftLeaveReminderEnabled(!!event.leaveReminderEnabled);
+    setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
     setAddDialogOpen(true);
   };
@@ -831,10 +882,10 @@ export default function CalendarPage() {
       setDraftTravelError('Travel estimate is available for timed events only.');
       return;
     }
-    const origin = draftHomeAddress.trim() || smsPrefs.home_address.trim();
+    const origin = draftHomeAddress.trim() || addressForSource(draftDepartureSource);
     const destination = draftLocation.trim();
     if (!origin || !destination) {
-      setDraftTravelError('Add both home address and event location to estimate travel time.');
+      setDraftTravelError('Add both leaving-from address and event location to estimate travel time.');
       return;
     }
 
@@ -862,26 +913,38 @@ export default function CalendarPage() {
     }
   };
 
-  const saveHomeAddressFromDraft = async () => {
+  const saveAddressFromDraft = async (target: 'home' | 'work') => {
     const nextAddress = draftHomeAddress.trim();
     if (!nextAddress) {
-      toast({ title: 'Enter your home address first', variant: 'destructive' });
+      toast({
+        title: `Enter your ${target === 'home' ? 'home' : 'work'} address first`,
+        variant: 'destructive',
+      });
       return;
     }
     if (!canUseRemoteSms) {
-      setSmsPrefs((prev) => ({ ...prev, home_address: nextAddress }));
-      toast({ title: 'Home address saved for this session' });
+      setSmsPrefs((prev) => ({
+        ...prev,
+        home_address: target === 'home' ? nextAddress : prev.home_address,
+        work_address: target === 'work' ? nextAddress : prev.work_address,
+      }));
+      toast({ title: `${target === 'home' ? 'Home' : 'Work'} address saved for this session` });
       return;
     }
     setSmsSaving(true);
     try {
-      const saved = await saveSmsPreferences({ ...smsPrefs, home_address: nextAddress });
+      const saved = await saveSmsPreferences({
+        ...smsPrefs,
+        home_address: target === 'home' ? nextAddress : smsPrefs.home_address,
+        work_address: target === 'work' ? nextAddress : smsPrefs.work_address,
+      });
       setSmsPrefs(saved);
-      setDraftHomeAddress(saved.home_address || nextAddress);
-      toast({ title: 'Home address saved' });
+      const nextDraft = target === 'home' ? saved.home_address : saved.work_address;
+      setDraftHomeAddress(nextDraft || nextAddress);
+      toast({ title: `${target === 'home' ? 'Home' : 'Work'} address saved` });
     } catch (error) {
       toast({
-        title: 'Could not save home address',
+        title: `Could not save ${target === 'home' ? 'home' : 'work'} address`,
         description: error instanceof Error ? error.message : 'Please try again.',
         variant: 'destructive',
       });
@@ -915,27 +978,37 @@ export default function CalendarPage() {
       return;
     }
 
-    addManualCalendarEvent(
-      {
-        title: draftTitle,
-        description: draftDescription,
-        calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
-        location: draftLocation.trim() || undefined,
-        travelFromAddress: (draftHomeAddress.trim() || smsPrefs.home_address.trim()) || undefined,
-        travelMode: 'driving',
-        travelDurationMinutes: draftTravelMinutes,
-        trafficDurationMinutes: draftTrafficMinutes,
-        recommendedLeaveAt: draftLeaveByIso,
-        leaveReminderEnabled: draftLeaveReminderEnabled,
-        leaveReminderLeadMinutes: 10,
-        startsAt,
-        endsAt,
-        allDay: draftAllDay,
-      },
-      user?.id,
-    );
+    const payload = {
+      title: draftTitle,
+      description: draftDescription,
+      calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
+      location: draftLocation.trim() || undefined,
+      travelFromAddress: (draftHomeAddress.trim() || addressForSource(draftDepartureSource)) || undefined,
+      travelMode: 'driving' as const,
+      travelDurationMinutes: draftTravelMinutes,
+      trafficDurationMinutes: draftTrafficMinutes,
+      recommendedLeaveAt: draftLeaveByIso,
+      leaveReminderEnabled: draftLeaveReminderEnabled,
+      leaveReminderLeadMinutes: Math.max(
+        5,
+        Math.min(120, Number.parseInt(draftLeaveReminderLeadMinutes || '10', 10) || 10),
+      ),
+      startsAt,
+      endsAt,
+      allDay: draftAllDay,
+    };
+    if (editingEventId) {
+      const updated = updateManualCalendarEvent(editingEventId, payload, user?.id);
+      if (!updated) {
+        toast({ title: 'Could not update event', variant: 'destructive' });
+        return;
+      }
+    } else {
+      addManualCalendarEvent(payload, user?.id);
+    }
     setAddDialogOpen(false);
-    toast({ title: 'Event added to calendar' });
+    setEditingEventId(null);
+    toast({ title: editingEventId ? 'Event updated' : 'Event added to calendar' });
     void refreshEvents();
   };
 
@@ -1536,6 +1609,7 @@ export default function CalendarPage() {
                         key={event.id}
                         event={event}
                         googleEnabled={googlePrefs.enabled}
+                        onEdit={event.module === 'manual' ? openEditDialog : undefined}
                         onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                       />
                     ))}
@@ -1563,6 +1637,7 @@ export default function CalendarPage() {
                               key={event.id}
                               event={event}
                               googleEnabled={googlePrefs.enabled}
+                              onEdit={event.module === 'manual' ? openEditDialog : undefined}
                               onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                             />
                           ))}
@@ -1581,13 +1656,14 @@ export default function CalendarPage() {
             ) : (
               <div className="space-y-2">
                 {upcomingEvents.map((event) => (
-                  <EventRow
-                    key={event.id}
-                    event={event}
-                    googleEnabled={googlePrefs.enabled}
-                    compact
-                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
-                  />
+                <EventRow
+                  key={event.id}
+                  event={event}
+                  googleEnabled={googlePrefs.enabled}
+                  compact
+                  onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                  onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                />
                 ))}
               </div>
             )}
@@ -1777,6 +1853,7 @@ export default function CalendarPage() {
                     key={event.id}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
+                    onEdit={event.module === 'manual' ? openEditDialog : undefined}
                     onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
@@ -1786,11 +1863,19 @@ export default function CalendarPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <Dialog
+        open={addDialogOpen}
+        onOpenChange={(open) => {
+          setAddDialogOpen(open);
+          if (!open) setEditingEventId(null);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-display">Add calendar event</DialogTitle>
-            <DialogDescription>Create a personal event on your schedule.</DialogDescription>
+            <DialogTitle className="font-display">{editingEventId ? 'Edit calendar event' : 'Add calendar event'}</DialogTitle>
+            <DialogDescription>
+              {editingEventId ? 'Update this manual event.' : 'Create a personal event on your schedule.'}
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
@@ -1820,9 +1905,7 @@ export default function CalendarPage() {
                 value={draftDate}
                 onChange={(e) => {
                   setDraftDate(e.target.value);
-                  setDraftTravelMinutes(null);
-                  setDraftTrafficMinutes(null);
-                  setDraftLeaveByIso(null);
+                  resetDraftTravelEstimate();
                 }}
               />
             </div>
@@ -1839,9 +1922,7 @@ export default function CalendarPage() {
                     value={draftTime}
                     onChange={(e) => {
                       setDraftTime(e.target.value);
-                      setDraftTravelMinutes(null);
-                      setDraftTrafficMinutes(null);
-                      setDraftLeaveByIso(null);
+                      resetDraftTravelEstimate();
                     }}
                   />
                 </div>
@@ -1858,29 +1939,47 @@ export default function CalendarPage() {
                 value={draftLocation}
                 onChange={(e) => {
                   setDraftLocation(e.target.value);
-                  setDraftTravelMinutes(null);
-                  setDraftTrafficMinutes(null);
-                  setDraftLeaveByIso(null);
+                  resetDraftTravelEstimate();
                 }}
               />
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="space-y-1">
+                <label className="text-sm font-medium">Leaving from source</label>
+                <Select value={draftDepartureSource} onValueChange={(value) => applyDepartureSource(value as DepartureSource, true)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">Home</SelectItem>
+                    <SelectItem value="work">Work</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
                 <label className="text-sm font-medium">Leaving from</label>
                 <Input
-                  placeholder="Home, work, school, or another starting point"
+                  placeholder={
+                    draftDepartureSource === 'home'
+                      ? 'Home address'
+                      : draftDepartureSource === 'work'
+                      ? 'Work address'
+                      : 'Custom starting point'
+                  }
                   value={draftHomeAddress}
                   onChange={(e) => {
                     setDraftHomeAddress(e.target.value);
-                    setDraftTravelMinutes(null);
-                    setDraftTrafficMinutes(null);
-                    setDraftLeaveByIso(null);
+                    resetDraftTravelEstimate();
                   }}
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void saveHomeAddressFromDraft()} disabled={smsSaving}>
+                <Button type="button" variant="outline" size="sm" onClick={() => void saveAddressFromDraft('home')} disabled={smsSaving}>
                   {smsSaving ? 'Saving...' : 'Save as home address'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void saveAddressFromDraft('work')} disabled={smsSaving}>
+                  {smsSaving ? 'Saving...' : 'Save as work address'}
                 </Button>
                 <Button
                   type="button"
@@ -1904,10 +2003,31 @@ export default function CalendarPage() {
                 </p>
               )}
               {draftLeaveByIso && (
-                <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
-                  <span className="text-sm">Text me 10 min before I need to leave</span>
-                  <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
-                </label>
+                <div className="space-y-2">
+                  <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                    <span className="text-sm">
+                      Text me {draftLeaveReminderLeadMinutes} min before I need to leave
+                    </span>
+                    <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                  </label>
+                  {draftLeaveReminderEnabled && (
+                    <div className="space-y-1">
+                      <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Leave reminder lead</label>
+                      <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Choose minutes" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 minutes</SelectItem>
+                          <SelectItem value="15">15 minutes</SelectItem>
+                          <SelectItem value="30">30 minutes</SelectItem>
+                          <SelectItem value="45">45 minutes</SelectItem>
+                          <SelectItem value="60">60 minutes</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             <div className="space-y-1">
@@ -1927,7 +2047,7 @@ export default function CalendarPage() {
             </Button>
             <Button onClick={createManualEvent}>
               <CalendarDays className="w-4 h-4 mr-2" />
-              Add event
+              {editingEventId ? 'Save event' : 'Add event'}
             </Button>
           </div>
         </DialogContent>
@@ -1940,11 +2060,13 @@ function EventRow({
   event,
   googleEnabled,
   compact,
+  onEdit,
   onDelete,
 }: {
   event: CalendarEvent;
   googleEnabled: boolean;
   compact?: boolean;
+  onEdit?: (event: CalendarEvent) => void;
   onDelete?: (id: string) => void;
 }) {
   return (
@@ -1976,6 +2098,17 @@ function EventRow({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {onEdit && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => onEdit(event)}
+              aria-label={`Edit ${event.title}`}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
           {googleEnabled && (
             <Button asChild variant="ghost" size="icon" className="h-8 w-8">
               <a

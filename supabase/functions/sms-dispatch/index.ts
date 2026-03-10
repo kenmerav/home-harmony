@@ -206,6 +206,146 @@ function recipientListForModule(
   return fallbackRecipients;
 }
 
+type OnboardingHealthSnapshot = {
+  healthTrackingFocus: string[];
+  wellnessGoals: string[];
+  waterTarget: string | null;
+  stepTarget: string | null;
+  alcoholTarget: string | null;
+  wakeUpTime: string | null;
+  sleepDurationTarget: string | null;
+};
+
+function parseOnboardingHealthSnapshot(value: unknown): OnboardingHealthSnapshot {
+  const settings = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const onboardingRaw =
+    settings.onboarding && typeof settings.onboarding === "object"
+      ? (settings.onboarding as Record<string, unknown>)
+      : settings;
+  const listFrom = (field: string): string[] => {
+    const raw = onboardingRaw[field];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((entry) => typeof entry === "string")
+      .map((entry) => String(entry).trim())
+      .filter((entry) => entry.length > 0);
+  };
+  const textFrom = (field: string): string | null => {
+    const raw = onboardingRaw[field];
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  return {
+    healthTrackingFocus: listFrom("healthTrackingFocus"),
+    wellnessGoals: listFrom("wellnessGoals"),
+    waterTarget: textFrom("waterTarget"),
+    stepTarget: textFrom("stepTarget"),
+    alcoholTarget: textFrom("alcoholTarget"),
+    wakeUpTime: textFrom("wakeUpTime"),
+    sleepDurationTarget: textFrom("sleepDurationTarget"),
+  };
+}
+
+function parseSleepDurationHours(value: string | null): number {
+  if (!value) return 8;
+  const match = value.match(/(\d+)/);
+  const parsed = Number.parseInt(match?.[1] || "", 10);
+  if (!Number.isFinite(parsed)) return 8;
+  return Math.max(6, Math.min(10, parsed));
+}
+
+function formatMinutesLocal(value: number): string {
+  const normalized = ((Math.round(value) % 1440) + 1440) % 1440;
+  const hour24 = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function workoutCountThisWeek(state: unknown, timezone: string, localNow: DateTime): number {
+  if (!state || typeof state !== "object") return 0;
+  const workouts = Array.isArray((state as { workouts?: unknown[] }).workouts)
+    ? ((state as { workouts?: unknown[] }).workouts as unknown[])
+    : [];
+  const weekStart = localNow.startOf("week");
+  const weekEnd = weekStart.plus({ days: 7 });
+  let count = 0;
+
+  for (const raw of workouts) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    let workoutAt: DateTime | null = null;
+
+    if (typeof row.date === "string" && row.date.trim()) {
+      const fromDate = DateTime.fromISO(`${row.date}T00:00:00`, { zone: timezone });
+      if (fromDate.isValid) workoutAt = fromDate;
+    }
+
+    if (!workoutAt && Number.isFinite(Number(row.startTime))) {
+      const fromStart = DateTime.fromMillis(Number(row.startTime), { zone: "utc" }).setZone(timezone);
+      if (fromStart.isValid) workoutAt = fromStart;
+    }
+
+    if (!workoutAt) continue;
+    if (workoutAt >= weekStart && workoutAt < weekEnd) count += 1;
+  }
+
+  return count;
+}
+
+function buildWellnessNudgeMessage(input: {
+  snapshot: OnboardingHealthSnapshot;
+  workoutCountWeek: number;
+}): string | null {
+  const { snapshot, workoutCountWeek } = input;
+  const lines: string[] = [];
+
+  const wantsWorkoutTracking =
+    snapshot.healthTrackingFocus.includes("Workout tracking") ||
+    snapshot.healthTrackingFocus.includes("Goal tracking (water, steps, alcohol)");
+
+  if (wantsWorkoutTracking && workoutCountWeek === 0) {
+    lines.push("You have not logged a workout yet this week. A 20-minute session still counts and keeps momentum going.");
+  }
+
+  const wantsWater = snapshot.wellnessGoals.includes("Increase water intake");
+  if (wantsWater && snapshot.waterTarget && snapshot.waterTarget !== "No target right now") {
+    lines.push(`Water check: your target is ${snapshot.waterTarget} today.`);
+  }
+
+  const wantsSteps = snapshot.wellnessGoals.includes("Hit a daily step goal");
+  if (wantsSteps && snapshot.stepTarget && snapshot.stepTarget !== "No target right now") {
+    lines.push(`Step target reminder: aim for ${snapshot.stepTarget} today.`);
+  }
+
+  const wantsAlcohol = snapshot.wellnessGoals.includes("Limit alcohol");
+  if (wantsAlcohol && snapshot.alcoholTarget && snapshot.alcoholTarget !== "Not tracking") {
+    lines.push(`Alcohol goal: ${snapshot.alcoholTarget}.`);
+  }
+
+  if (snapshot.wellnessGoals.includes("Improve sleep consistency")) {
+    const sleepHours = parseSleepDurationHours(snapshot.sleepDurationTarget);
+    if (snapshot.wakeUpTime && /^\d{2}:\d{2}$/.test(snapshot.wakeUpTime)) {
+      const wakeMinutes = parseTimeToMinutes(snapshot.wakeUpTime);
+      const bedtimeMinutes = wakeMinutes - sleepHours * 60;
+      const windDownMinutes = bedtimeMinutes - 60;
+      lines.push(
+        `Sleep plan: wake at ${formatMinutesLocal(wakeMinutes)}, target bedtime ${formatMinutesLocal(
+          bedtimeMinutes,
+        )}, wind down by ${formatMinutesLocal(windDownMinutes)}.`,
+      );
+    } else {
+      lines.push("Sleep consistency win: set a wind-down reminder 60 minutes before bed tonight.");
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return `Home Harmony goal check-in: ${lines.slice(0, 3).join(" ")}`;
+}
+
 async function fetchDailyEvents(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -519,6 +659,67 @@ serve(async (req) => {
                   errors.push(`weekly-plan:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
                   await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
                 }
+              }
+            }
+          }
+        }
+
+        const shouldSendWellnessNudge = isDueAt(
+          localNow,
+          String(row.night_before_time || "20:00"),
+          windowMinutes,
+        );
+
+        if (shouldSendWellnessNudge) {
+          const { data: profileRow, error: profileError } = await supabase
+            .from("profiles")
+            .select("onboarding_settings")
+            .eq("id", row.user_id)
+            .maybeSingle();
+          if (profileError) throw profileError;
+
+          const snapshot = parseOnboardingHealthSnapshot(profileRow?.onboarding_settings || null);
+          let workoutCountWeek = 0;
+
+          if (
+            snapshot.healthTrackingFocus.includes("Workout tracking") ||
+            snapshot.healthTrackingFocus.includes("Goal tracking (water, steps, alcohol)")
+          ) {
+            const { data: workoutStateRow, error: workoutError } = await supabase
+              .from("workout_state")
+              .select("state")
+              .eq("user_id", row.user_id)
+              .maybeSingle();
+            if (workoutError) {
+              console.error("Failed to read workout_state for SMS nudge:", workoutError.message);
+            } else {
+              workoutCountWeek = workoutCountThisWeek(workoutStateRow?.state, timezone, localNow);
+            }
+          }
+
+          const body = buildWellnessNudgeMessage({ snapshot, workoutCountWeek });
+          if (body) {
+            for (const recipient of digestRecipients) {
+              const dedupeKey = `wellness:${row.user_id}:${todayLocal.toISODate()}:${recipient}`;
+              const logId = await insertDedupeLog(
+                supabase,
+                row.user_id,
+                dedupeKey,
+                "wellness_nudge",
+                nowUtc.toISO(),
+                { timezone, to: recipient },
+              );
+              if (!logId) continue;
+              try {
+                const result = await sendTwilioSms(recipient, body);
+                messagesSent += 1;
+                await markLogStatus(supabase, logId, "sent", result.sid, {
+                  timezone,
+                  to: recipient,
+                });
+              } catch (sendError) {
+                errors.push(`wellness:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
               }
             }
           }
