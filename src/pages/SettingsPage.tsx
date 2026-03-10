@@ -289,8 +289,8 @@ export default function SettingsPage() {
           if (mounted) {
             setSmsPrefs({
               ...sms,
-              home_address: sms.home_address || savedDepartureProfile.homeAddress,
-              work_address: sms.work_address || savedDepartureProfile.workAddress,
+              home_address: savedDepartureProfile.homeAddress || sms.home_address,
+              work_address: savedDepartureProfile.workAddress || sms.work_address,
             });
           }
         } catch (error) {
@@ -485,6 +485,7 @@ export default function SettingsPage() {
   };
 
   const save = async () => {
+    const { homeAddress, workAddress } = persistDepartureAddresses(true);
     const payload: StoredOnboardingResult = {
       completedAt: new Date().toISOString(),
       onboarding: answers as unknown as Record<string, unknown>,
@@ -492,7 +493,6 @@ export default function SettingsPage() {
     };
     try {
       await saveOnboardingResult(user?.id, payload);
-      const { homeAddress, workAddress } = persistDepartureAddresses(true);
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences({
           ...smsPrefs,
@@ -521,11 +521,12 @@ export default function SettingsPage() {
   };
 
   const saveAccountDetails = async () => {
+    const { homeAddress, workAddress } = persistDepartureAddresses(true);
+
     if (!user?.id || isDemoUser) {
       toast({
-        title: 'Sign in required',
-        description: 'Account details can only be changed from a signed-in account.',
-        variant: 'destructive',
+        title: 'Addresses saved',
+        description: 'Sign in to save name and email changes.',
       });
       return;
     }
@@ -538,7 +539,7 @@ export default function SettingsPage() {
     if (fullName.length < 2) {
       toast({
         title: 'Full name is required',
-        description: 'Enter at least 2 characters for your name.',
+        description: 'Addresses were saved. Enter at least 2 characters for your name.',
         variant: 'destructive',
       });
       return;
@@ -546,7 +547,7 @@ export default function SettingsPage() {
     if (!EMAIL_PATTERN.test(nextEmail)) {
       toast({
         title: 'Valid email required',
-        description: 'Enter a valid account email address.',
+        description: 'Addresses were saved. Enter a valid account email address.',
         variant: 'destructive',
       });
       return;
@@ -558,22 +559,29 @@ export default function SettingsPage() {
         full_name: fullName,
         household_name: householdName || null,
       });
-      const { homeAddress, workAddress } = persistDepartureAddresses(true);
 
       if (canUseRemoteSms) {
-        const savedSms = await saveSmsPreferences({
-          ...smsPrefs,
-          home_address: homeAddress,
-          work_address: workAddress,
-        });
-        setSmsPrefs(savedSms);
-        saveDepartureAddressProfile(
-          {
-            homeAddress: savedSms.home_address,
-            workAddress: savedSms.work_address,
-          },
-          user?.id,
-        );
+        try {
+          const savedSms = await saveSmsPreferences({
+            ...smsPrefs,
+            home_address: homeAddress,
+            work_address: workAddress,
+          });
+          setSmsPrefs(savedSms);
+          saveDepartureAddressProfile(
+            {
+              homeAddress: savedSms.home_address,
+              workAddress: savedSms.work_address,
+            },
+            user?.id,
+          );
+        } catch (smsError) {
+          toast({
+            title: 'Address sync skipped',
+            description: smsError instanceof Error ? smsError.message : 'Saved locally. SMS profile sync failed.',
+            variant: 'destructive',
+          });
+        }
       }
 
       if (nextEmail !== currentEmail) {
