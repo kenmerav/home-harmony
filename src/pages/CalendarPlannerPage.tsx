@@ -23,7 +23,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -537,46 +536,6 @@ export default function CalendarPlannerPage() {
       setDraftTravelError(error instanceof Error ? error.message : 'Could not estimate travel time.');
     } finally {
       setDraftTravelLoading(false);
-    }
-  };
-
-  const saveAddressFromDraft = async (target: 'home' | 'work') => {
-    const nextAddress = draftHomeAddress.trim();
-    if (!nextAddress) {
-      toast({
-        title: `Enter your ${target === 'home' ? 'home' : 'work'} address first`,
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (!canUseRemoteSms) {
-      setSmsPrefs((prev) => ({
-        ...prev,
-        home_address: target === 'home' ? nextAddress : prev.home_address,
-        work_address: target === 'work' ? nextAddress : prev.work_address,
-      }));
-      toast({ title: `${target === 'home' ? 'Home' : 'Work'} address saved for this session` });
-      return;
-    }
-    setSmsSaving(true);
-    try {
-      const saved = await saveSmsPreferences({
-        ...smsPrefs,
-        home_address: target === 'home' ? nextAddress : smsPrefs.home_address,
-        work_address: target === 'work' ? nextAddress : smsPrefs.work_address,
-      });
-      setSmsPrefs(saved);
-      const nextDraft = target === 'home' ? saved.home_address : saved.work_address;
-      setDraftHomeAddress(nextDraft || nextAddress);
-      toast({ title: `${target === 'home' ? 'Home' : 'Work'} address saved` });
-    } catch (error) {
-      toast({
-        title: `Could not save ${target === 'home' ? 'home' : 'work'} address`,
-        description: error instanceof Error ? error.message : 'Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setSmsSaving(false);
     }
   };
 
@@ -1132,7 +1091,7 @@ export default function CalendarPlannerPage() {
       </Dialog>
 
       <Dialog open={filterDialogOpen} onOpenChange={setFilterDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Calendar filters</DialogTitle>
             <DialogDescription>Choose which event types show in your planner and day popout.</DialogDescription>
@@ -1389,12 +1348,11 @@ export default function CalendarPlannerPage() {
               </div>
             )}
             <div className="space-y-1">
-              <label className="text-sm font-medium">Notes</label>
-              <Textarea
+              <label className="text-sm font-medium">Notes (optional)</label>
+              <Input
                 value={draftDescription}
                 onChange={(e) => setDraftDescription(e.target.value)}
-                placeholder="Optional details"
-                className="min-h-[96px]"
+                placeholder="Add a short note"
               />
             </div>
             <div className="space-y-1">
@@ -1440,12 +1398,6 @@ export default function CalendarPlannerPage() {
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void saveAddressFromDraft('home')} disabled={smsSaving}>
-                  {smsSaving ? 'Saving...' : 'Save as home address'}
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => void saveAddressFromDraft('work')} disabled={smsSaving}>
-                  {smsSaving ? 'Saving...' : 'Save as work address'}
-                </Button>
                 <Button
                   type="button"
                   variant="outline"
