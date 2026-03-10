@@ -84,7 +84,7 @@ const CARDIO_KEY = 'liftlog_cardio_sessions';
 
 type CalendarViewMode = 'month' | 'week';
 type CalendarSetupMode = 'google' | 'apple';
-type DepartureSource = 'home' | 'work' | 'custom';
+type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
 
 type WeekdayChore = {
   name: string;
@@ -793,6 +793,18 @@ export default function CalendarPage() {
 
   const eventDates = useMemo(() => filteredEvents.map((event) => parseISO(event.startsAt)), [filteredEvents]);
 
+  const savedDepartureAddresses = useMemo(() => {
+    const unique = new Set<string>();
+    const addAddress = (value?: string | null) => {
+      const next = (value || '').trim();
+      if (next) unique.add(next);
+    };
+    addAddress(smsPrefs.home_address);
+    addAddress(smsPrefs.work_address);
+    events.forEach((event) => addAddress(event.travelFromAddress));
+    return Array.from(unique);
+  }, [events, smsPrefs.home_address, smsPrefs.work_address]);
+
   const resetDraftTravelEstimate = useCallback(() => {
     setDraftTravelMinutes(null);
     setDraftTrafficMinutes(null);
@@ -804,16 +816,37 @@ export default function CalendarPage() {
     (source: DepartureSource): string => {
       if (source === 'work') return (smsPrefs.work_address || '').trim();
       if (source === 'home') return (smsPrefs.home_address || '').trim();
+      if (source.startsWith('saved:')) return decodeURIComponent(source.slice('saved:'.length)).trim();
       return '';
     },
     [smsPrefs.home_address, smsPrefs.work_address],
   );
 
+  const departureOptions = useMemo(() => {
+    const homeAddress = (smsPrefs.home_address || '').trim();
+    const workAddress = (smsPrefs.work_address || '').trim();
+    const options: Array<{ value: DepartureSource; label: string }> = [
+      { value: 'home', label: homeAddress ? 'Home' : 'Home (set in Settings)' },
+      { value: 'work', label: workAddress ? 'Work' : 'Work (set in Settings)' },
+    ];
+
+    savedDepartureAddresses.forEach((address) => {
+      if (address === homeAddress || address === workAddress) return;
+      options.push({
+        value: `saved:${encodeURIComponent(address)}` as DepartureSource,
+        label: address,
+      });
+    });
+
+    options.push({ value: 'other', label: 'Other' });
+    return options;
+  }, [savedDepartureAddresses, smsPrefs.home_address, smsPrefs.work_address]);
+
   const applyDepartureSource = useCallback(
-    (source: DepartureSource, preserveCustom = true) => {
+    (source: DepartureSource, preserveOther = true) => {
       setDraftDepartureSource(source);
       setDraftHomeAddress((prev) => {
-        if (source === 'custom') return preserveCustom ? prev : '';
+        if (source === 'other') return preserveOther ? prev : '';
         return addressForSource(source);
       });
       resetDraftTravelEstimate();
@@ -836,8 +869,14 @@ export default function CalendarPage() {
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
-    applyDepartureSource(smsPrefs.default_departure_source || 'home', false);
-    setDraftHomeAddress(addressForSource(smsPrefs.default_departure_source || 'home'));
+    const defaultDepartureSource: DepartureSource =
+      smsPrefs.default_departure_source === 'work'
+        ? 'work'
+        : smsPrefs.default_departure_source === 'custom'
+        ? 'other'
+        : 'home';
+    applyDepartureSource(defaultDepartureSource, false);
+    setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');
     setAddDialogOpen(true);
@@ -865,7 +904,9 @@ export default function CalendarPage() {
         ? 'home'
         : currentFrom && workAddress && currentFrom === workAddress
         ? 'work'
-        : 'custom';
+        : currentFrom
+        ? (`saved:${encodeURIComponent(currentFrom)}` as DepartureSource)
+        : 'other';
     setDraftDepartureSource(source);
     setDraftHomeAddress(currentFrom || addressForSource(source));
     setDraftTravelMinutes(event.travelDurationMinutes ?? null);
@@ -887,7 +928,11 @@ export default function CalendarPage() {
       setDraftTravelError('Travel estimate is available for timed events only.');
       return;
     }
-    const origin = draftHomeAddress.trim() || addressForSource(draftDepartureSource);
+    const selectedOrigin =
+      draftDepartureSource === 'other'
+        ? draftHomeAddress.trim()
+        : addressForSource(draftDepartureSource);
+    const origin = selectedOrigin || draftHomeAddress.trim();
     const destination = draftLocation.trim();
     if (!origin || !destination) {
       setDraftTravelError('Add both leaving-from address and event location to estimate travel time.');
@@ -948,7 +993,12 @@ export default function CalendarPage() {
       description: draftDescription,
       calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
       location: draftLocation.trim() || undefined,
-      travelFromAddress: (draftHomeAddress.trim() || addressForSource(draftDepartureSource)) || undefined,
+      travelFromAddress:
+        (
+          draftDepartureSource === 'other'
+            ? draftHomeAddress.trim()
+            : addressForSource(draftDepartureSource)
+        ) || undefined,
       travelMode: 'driving' as const,
       travelDurationMinutes: draftTravelMinutes,
       trafficDurationMinutes: draftTrafficMinutes,
@@ -1954,35 +2004,41 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium">Leaving from source</label>
-                <Select value={draftDepartureSource} onValueChange={(value) => applyDepartureSource(value as DepartureSource, true)}>
+                <label className="text-sm font-medium">Leaving from</label>
+                <Select
+                  value={draftDepartureSource}
+                  onValueChange={(value) => applyDepartureSource(value as DepartureSource, true)}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Choose source" />
+                    <SelectValue placeholder="Choose location" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="home">Home</SelectItem>
-                    <SelectItem value="work">Work</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
+                    {departureOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Leaving from</label>
-                <Input
-                  placeholder={
-                    draftDepartureSource === 'home'
-                      ? 'Home address'
-                      : draftDepartureSource === 'work'
-                      ? 'Work address'
-                      : 'Custom starting point'
-                  }
-                  value={draftHomeAddress}
-                  onChange={(e) => {
-                    setDraftHomeAddress(e.target.value);
-                    resetDraftTravelEstimate();
-                  }}
-                />
-              </div>
+              {draftDepartureSource === 'other' ? (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Other address</label>
+                  <Input
+                    placeholder="Enter departure address"
+                    value={draftHomeAddress}
+                    onChange={(e) => {
+                      setDraftHomeAddress(e.target.value);
+                      resetDraftTravelEstimate();
+                    }}
+                  />
+                </div>
+              ) : null}
+              {draftDepartureSource !== 'other' && !addressForSource(draftDepartureSource) ? (
+                <p className="text-xs text-muted-foreground">
+                  Set this address in Settings to enable commute estimates.
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
