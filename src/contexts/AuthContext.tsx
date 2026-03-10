@@ -26,6 +26,7 @@ interface ProfileInfo {
   goals: string | null;
   dietaryPreferences: string[];
   timezone: string | null;
+  onboardingCompletedAt: string | null;
 }
 
 interface AuthContextValue {
@@ -65,6 +66,7 @@ const DEMO_PROFILE: ProfileInfo = {
   goals: 'Save time, eat better, and simplify shopping.',
   dietaryPreferences: ['Kid Friendly', 'High Protein'],
   timezone: 'America/New_York',
+  onboardingCompletedAt: new Date().toISOString(),
 };
 
 const ADMIN_EMAIL = 'kroberts035@gmail.com';
@@ -92,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfileLoading(true);
     const { data, error } = await supabase
       .from('profiles')
-      .select('full_name,household_name,phone,family_size,goals,dietary_preferences,timezone')
+      .select('full_name,household_name,phone,family_size,goals,dietary_preferences,timezone,onboarding_completed_at')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         goals: data?.goals || null,
         dietaryPreferences: data?.dietary_preferences || [],
         timezone: data?.timezone || null,
+        onboardingCompletedAt: data?.onboarding_completed_at || null,
       });
     }
     setProfileLoading(false);
@@ -228,13 +231,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isDemoUser, user]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const isProfileComplete = Boolean(
+    const profileFieldComplete = Boolean(
       profile?.fullName?.trim() &&
       typeof profile?.familySize === 'number' &&
       profile.familySize > 0 &&
       profile?.goals?.trim() &&
       profile.dietaryPreferences.length > 0,
     );
+    const isProfileComplete = Boolean(profile?.onboardingCompletedAt || profileFieldComplete);
     const status = subscription?.status || 'inactive';
     const isSubscribed = !BILLING_ENABLED || status === 'active' || status === 'trialing';
     const userEmail = user?.email?.trim().toLowerCase() || '';
@@ -341,6 +345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             goals: (updates.goals as string | undefined) ?? prev?.goals ?? null,
             dietaryPreferences: (updates.dietary_preferences as string[] | undefined) ?? prev?.dietaryPreferences ?? [],
             timezone: prev?.timezone ?? null,
+            onboardingCompletedAt: prev?.onboardingCompletedAt ?? null,
           }));
           return;
         }
