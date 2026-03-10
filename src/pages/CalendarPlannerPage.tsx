@@ -65,6 +65,7 @@ import {
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
+import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
@@ -248,6 +249,7 @@ export default function CalendarPlannerPage() {
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editingEventSource, setEditingEventSource] = useState<CalendarEvent | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftLocation, setDraftLocation] = useState('');
@@ -444,6 +446,7 @@ export default function CalendarPlannerPage() {
 
   const openAddDialog = () => {
     setEditingEventId(null);
+    setEditingEventSource(null);
     setDraftDate(format(selectedDate, 'yyyy-MM-dd'));
     setDraftTime('18:00');
     setDraftEndTime('');
@@ -464,8 +467,8 @@ export default function CalendarPlannerPage() {
   };
 
   const openEditDialog = (event: CalendarEvent) => {
-    if (event.module !== 'manual') return;
-    setEditingEventId(event.id);
+    setEditingEventSource(event);
+    setEditingEventId(event.module === 'manual' ? event.id : null);
     const start = parseISO(event.startsAt);
     const end = event.endsAt ? parseISO(event.endsAt) : null;
     setDraftTitle(event.title);
@@ -611,6 +614,39 @@ export default function CalendarPlannerPage() {
       endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
       allDay: draftAllDay,
     };
+    const editingSource = editingEventSource;
+    if (editingSource?.source === 'task') {
+      const relatedId = editingSource.relatedId || editingSource.id;
+      const updatedTask = updateTaskFromCalendarRelatedId(
+        relatedId,
+        {
+          title: draftTitle,
+          notes: draftDescription,
+          date: draftDate,
+          time: draftAllDay ? undefined : draftTime || '09:00',
+        },
+        user?.id,
+      );
+      if (!updatedTask) {
+        toast({ title: 'Could not update task event', variant: 'destructive' });
+        return;
+      }
+      setAddDialogOpen(false);
+      setEditingEventId(null);
+      setEditingEventSource(null);
+      toast({ title: 'Task event updated' });
+      void refreshEvents();
+      return;
+    }
+
+    if (editingSource && editingSource.source !== 'manual') {
+      toast({
+        title: 'Edit this in its source module',
+        description: 'For now, chores, workouts, meals, and reminders are edited from their own pages.',
+      });
+      return;
+    }
+
     if (editingEventId) {
       const updated = updateManualCalendarEvent(editingEventId, payload, user?.id);
       if (!updated) {
@@ -622,6 +658,7 @@ export default function CalendarPlannerPage() {
     }
     setAddDialogOpen(false);
     setEditingEventId(null);
+    setEditingEventSource(null);
     toast({ title: editingEventId ? 'Event updated' : 'Event added' });
     void refreshEvents();
   };
@@ -966,7 +1003,7 @@ export default function CalendarPlannerPage() {
                     key={event.id}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                     onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
@@ -1057,7 +1094,7 @@ export default function CalendarPlannerPage() {
                   event={event}
                   googleEnabled={googlePrefs.enabled}
                   compact
-                  onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                   onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                 />
               ))}
@@ -1084,7 +1121,7 @@ export default function CalendarPlannerPage() {
                     key={event.id}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                     onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
@@ -1282,14 +1319,19 @@ export default function CalendarPlannerPage() {
         open={addDialogOpen}
         onOpenChange={(open) => {
           setAddDialogOpen(open);
-          if (!open) setEditingEventId(null);
+          if (!open) {
+            setEditingEventId(null);
+            setEditingEventSource(null);
+          }
         }}
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-display">{editingEventId ? 'Edit planner event' : 'Add planner event'}</DialogTitle>
+            <DialogTitle className="font-display">
+              {editingEventSource ? 'Edit planner event' : 'Add planner event'}
+            </DialogTitle>
             <DialogDescription>
-              {editingEventId ? 'Update this manual event.' : 'Create a manual event for this calendar.'}
+              {editingEventSource ? 'Update this calendar item.' : 'Create a manual event for this calendar.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1460,7 +1502,7 @@ export default function CalendarPlannerPage() {
             </Button>
             <Button onClick={createManualEvent}>
               <Plus className="mr-2 h-4 w-4" />
-              {editingEventId ? 'Save event' : 'Add event'}
+              {editingEventSource ? 'Save event' : 'Add event'}
             </Button>
           </div>
         </DialogContent>

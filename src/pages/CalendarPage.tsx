@@ -39,7 +39,7 @@ import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { estimateCookMinutes } from '@/lib/recipeTime';
-import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
+import { listTaskDatesInRange, loadTasks, updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { estimateCommuteEta } from '@/lib/api/commute';
 import {
   defaultSmsPreferences,
@@ -408,6 +408,7 @@ export default function CalendarPage() {
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editingEventSource, setEditingEventSource] = useState<CalendarEvent | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftLocation, setDraftLocation] = useState('');
@@ -823,6 +824,7 @@ export default function CalendarPage() {
 
   const openAddDialog = () => {
     setEditingEventId(null);
+    setEditingEventSource(null);
     setDraftDate(format(selectedDate, 'yyyy-MM-dd'));
     setDraftTime('18:00');
     setDraftEndTime('');
@@ -843,8 +845,8 @@ export default function CalendarPage() {
   };
 
   const openEditDialog = (event: CalendarEvent) => {
-    if (event.module !== 'manual') return;
-    setEditingEventId(event.id);
+    setEditingEventSource(event);
+    setEditingEventId(event.module === 'manual' ? event.id : null);
     const start = parseISO(event.startsAt);
     const end = event.endsAt ? parseISO(event.endsAt) : null;
     setDraftTitle(event.title);
@@ -1001,6 +1003,39 @@ export default function CalendarPage() {
       endsAt,
       allDay: draftAllDay,
     };
+    const editingSource = editingEventSource;
+    if (editingSource?.source === 'task') {
+      const relatedId = editingSource.relatedId || editingSource.id;
+      const updatedTask = updateTaskFromCalendarRelatedId(
+        relatedId,
+        {
+          title: draftTitle,
+          notes: draftDescription,
+          date: draftDate,
+          time: draftAllDay ? undefined : draftTime || '09:00',
+        },
+        user?.id,
+      );
+      if (!updatedTask) {
+        toast({ title: 'Could not update task event', variant: 'destructive' });
+        return;
+      }
+      setAddDialogOpen(false);
+      setEditingEventId(null);
+      setEditingEventSource(null);
+      toast({ title: 'Task event updated' });
+      void refreshEvents();
+      return;
+    }
+
+    if (editingSource && editingSource.source !== 'manual') {
+      toast({
+        title: 'Edit this in its source module',
+        description: 'For now, chores, workouts, meals, and reminders are edited from their own pages.',
+      });
+      return;
+    }
+
     if (editingEventId) {
       const updated = updateManualCalendarEvent(editingEventId, payload, user?.id);
       if (!updated) {
@@ -1012,6 +1047,7 @@ export default function CalendarPage() {
     }
     setAddDialogOpen(false);
     setEditingEventId(null);
+    setEditingEventSource(null);
     toast({ title: editingEventId ? 'Event updated' : 'Event added to calendar' });
     void refreshEvents();
   };
@@ -1618,7 +1654,7 @@ export default function CalendarPage() {
                         key={event.id}
                         event={event}
                         googleEnabled={googlePrefs.enabled}
-                        onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                        onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                         onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                       />
                     ))}
@@ -1646,7 +1682,7 @@ export default function CalendarPage() {
                               key={event.id}
                               event={event}
                               googleEnabled={googlePrefs.enabled}
-                              onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                              onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                               onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                             />
                           ))}
@@ -1670,7 +1706,7 @@ export default function CalendarPage() {
                   event={event}
                   googleEnabled={googlePrefs.enabled}
                   compact
-                  onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                   onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                 />
                 ))}
@@ -1862,7 +1898,7 @@ export default function CalendarPage() {
                     key={event.id}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.module === 'manual' ? openEditDialog : undefined}
+                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
                     onDelete={event.module === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
@@ -1876,14 +1912,19 @@ export default function CalendarPage() {
         open={addDialogOpen}
         onOpenChange={(open) => {
           setAddDialogOpen(open);
-          if (!open) setEditingEventId(null);
+          if (!open) {
+            setEditingEventId(null);
+            setEditingEventSource(null);
+          }
         }}
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-display">{editingEventId ? 'Edit calendar event' : 'Add calendar event'}</DialogTitle>
+            <DialogTitle className="font-display">
+              {editingEventSource ? 'Edit calendar event' : 'Add calendar event'}
+            </DialogTitle>
             <DialogDescription>
-              {editingEventId ? 'Update this manual event.' : 'Create a personal event on your schedule.'}
+              {editingEventSource ? 'Update this calendar item.' : 'Create a personal event on your schedule.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -2056,7 +2097,7 @@ export default function CalendarPage() {
             </Button>
             <Button onClick={createManualEvent}>
               <CalendarDays className="w-4 h-4 mr-2" />
-              {editingEventId ? 'Save event' : 'Add event'}
+              {editingEventSource ? 'Save event' : 'Add event'}
             </Button>
           </div>
         </DialogContent>

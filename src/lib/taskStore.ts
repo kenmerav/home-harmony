@@ -117,6 +117,49 @@ export function saveTasks(tasks: HouseTask[], userId?: string | null) {
   window.localStorage.setItem(keyForUser(userId), JSON.stringify(tasks));
 }
 
+export interface TaskCalendarEditInput {
+  title: string;
+  notes?: string;
+  date?: string;
+  time?: string;
+}
+
+export function updateTaskFromCalendarRelatedId(
+  relatedId: string,
+  input: TaskCalendarEditInput,
+  userId?: string | null,
+): boolean {
+  const normalizedRelatedId = String(relatedId || '').trim();
+  if (!normalizedRelatedId) return false;
+
+  const tasks = loadTasks(userId);
+  const targetIndex = tasks.findIndex((task) => {
+    const baseId = `task-${task.id}`;
+    return normalizedRelatedId === baseId || normalizedRelatedId.startsWith(`${baseId}-`);
+  });
+
+  if (targetIndex < 0) return false;
+
+  const current = tasks[targetIndex];
+  const nextTitle = input.title?.trim();
+  const nextNotes = input.notes?.trim();
+  const nextReminderTime = normalizeReminderTime(input.time);
+  const isDateOnly = typeof input.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.date);
+
+  const updated: HouseTask = {
+    ...current,
+    title: nextTitle || current.title,
+    notes: nextNotes || undefined,
+    reminderTime: nextReminderTime || current.reminderTime,
+    reminderEnabled: nextReminderTime ? true : current.reminderEnabled,
+    dueDate: current.frequency === 'once' && isDateOnly ? input.date : current.dueDate,
+  };
+
+  tasks[targetIndex] = updated;
+  saveTasks(tasks, userId);
+  return true;
+}
+
 export function taskOccursOnDate(task: HouseTask, targetDate: Date): boolean {
   const target = dateOnly(targetDate);
   const anchor = getAnchorDate(task);
