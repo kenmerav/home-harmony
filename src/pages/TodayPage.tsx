@@ -45,7 +45,7 @@ import {
   listDashboardProfiles,
 } from '@/lib/macroGame';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
-import { loadTasks } from '@/lib/taskStore';
+import { loadTasks, taskOccursOnDate } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
@@ -238,13 +238,13 @@ export default function TodayPage() {
     };
   }, [refreshTick, user?.id]);
 
-  const todaysTasks = useMemo(
-    () =>
-      loadTasks(user?.id)
-        .filter((task) => task.frequency === 'once' || task.day === currentDay)
-        .slice(0, 6),
-    [currentDay, refreshTick, user?.id],
-  );
+  const todaysTasks = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return loadTasks(user?.id)
+      .filter((task) => taskOccursOnDate(task, today))
+      .slice(0, 6);
+  }, [refreshTick, user?.id]);
 
   const pendingTaskCount = todaysTasks.filter((task) => task.status !== 'done').length;
   const pendingChoreCount = childChores.reduce((sum, child) => sum + Math.max(child.total - child.completed, 0), 0);
