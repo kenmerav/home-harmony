@@ -22,6 +22,7 @@ import {
   type StarterRecipeProfile,
 } from '@/data/starterDinnerRecipes';
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
+import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -188,12 +189,23 @@ type AppointmentReminder = (typeof APPOINTMENT_REMINDER_OPTIONS)[number];
 type CalendarSystem = (typeof CALENDAR_SYSTEM_OPTIONS)[number];
 type DesiredOutcome = (typeof DESIRED_OUTCOME_OPTIONS)[number];
 
+interface KidProfileInput {
+  name: string;
+  age: string;
+}
+
+interface NormalizedKidProfile {
+  name: string;
+  age: number;
+  ageRange: KidAgeRange;
+}
+
 type StepId =
   | 'welcome'
   | 'painPoint'
   | 'aha'
   | 'household'
-  | 'kidAgeRanges'
+  | 'kidDetails'
   | 'weeklyRhythm'
   | 'mealStyles'
   | 'dietPreferences'
@@ -222,6 +234,7 @@ type PlanModule = 'meals' | 'groceries' | 'chores' | 'tasks' | 'workouts';
 interface OnboardingAnswers {
   adultsCount: number;
   kidsCount: number;
+  kidProfiles: KidProfileInput[];
   kidAgeRanges: KidAgeRange[];
   mainPainPoint: MainPainPoint | null;
   weeklyRhythm: WeeklyRhythm[];
@@ -273,6 +286,7 @@ interface AccountDraft {
 const DEFAULT_ONBOARDING: OnboardingAnswers = {
   adultsCount: 2,
   kidsCount: 0,
+  kidProfiles: [],
   kidAgeRanges: [],
   mainPainPoint: null,
   weeklyRhythm: [],
@@ -338,6 +352,56 @@ const parseRecipeLinks = (raw: string): string[] => {
 
   return Array.from(unique);
 };
+
+function ageToRange(age: number): KidAgeRange {
+  if (age <= 4) return '0-4';
+  if (age <= 8) return '5-8';
+  if (age <= 12) return '9-12';
+  return '13-17';
+}
+
+function normalizeKidAge(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 2);
+  if (!digits) return '';
+  const parsed = Number.parseInt(digits, 10);
+  if (!Number.isFinite(parsed)) return '';
+  return String(Math.max(0, Math.min(17, parsed)));
+}
+
+function normalizeKidProfiles(profiles: KidProfileInput[], kidsCount: number): KidProfileInput[] {
+  const trimmed = profiles
+    .slice(0, Math.max(0, kidsCount))
+    .map((kid) => ({
+      name: kid.name || '',
+      age: normalizeKidAge(kid.age || ''),
+    }));
+  while (trimmed.length < kidsCount) {
+    trimmed.push({ name: '', age: '' });
+  }
+  return trimmed;
+}
+
+function parseKidProfiles(profiles: KidProfileInput[]): NormalizedKidProfile[] {
+  return profiles
+    .map((kid) => {
+      const age = Number.parseInt(kid.age, 10);
+      return {
+        name: kid.name.trim(),
+        age,
+      };
+    })
+    .filter((kid) => kid.name.length > 0 && Number.isFinite(kid.age))
+    .map((kid) => ({
+      name: kid.name,
+      age: kid.age,
+      ageRange: ageToRange(kid.age),
+    }));
+}
+
+function deriveKidAgeRanges(profiles: KidProfileInput[]): KidAgeRange[] {
+  const ranges = parseKidProfiles(profiles).map((kid) => kid.ageRange);
+  return Array.from(new Set(ranges));
+}
 
 const formatFileSize = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
@@ -470,9 +534,11 @@ function buildGoalsText(answers: OnboardingAnswers): string {
   const avoidFoods = parseListText(answers.avoidFoods);
   const recipeRequests = parseListText(answers.recipesToImplement);
   const recipeLinks = parseRecipeLinks(answers.recipeLinks);
+  const kids = parseKidProfiles(answers.kidProfiles);
   return [
     `Main pressure: ${answers.mainPainPoint || 'not provided'}.`,
     `Desired outcome: ${answers.desiredOutcome || 'calmer week'}.`,
+    kids.length > 0 ? `Kids: ${kids.map((kid) => `${kid.name} (${kid.age})`).join(', ')}.` : null,
     `Weekly rhythm: ${answers.weeklyRhythm.join(', ') || 'not provided'}.`,
     `Meal style: ${answers.mealStylePreferences.join(', ') || 'not provided'}.`,
     `Diet preferences: ${answers.dietPreferences.join(', ') || 'not provided'}.`,
@@ -498,7 +564,7 @@ function buildGoalsText(answers: OnboardingAnswers): string {
 
 function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): StepId[] {
   const steps: StepId[] = ['welcome', 'painPoint', 'aha', 'household'];
-  if (answers.kidsCount > 0) steps.push('kidAgeRanges');
+  if (answers.kidsCount > 0) steps.push('kidDetails');
   steps.push(
     'weeklyRhythm',
     'mealStyles',
@@ -541,8 +607,14 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
       return answers.mainPainPoint !== null;
     case 'household':
       return answers.adultsCount > 0 && answers.kidsCount >= 0;
-    case 'kidAgeRanges':
-      return answers.kidsCount === 0 || answers.kidAgeRanges.length > 0;
+    case 'kidDetails':
+      if (answers.kidsCount === 0) return true;
+      if (answers.kidProfiles.length !== answers.kidsCount) return false;
+      return answers.kidProfiles.every((kid) => {
+        if (!kid.name.trim()) return false;
+        const age = Number.parseInt(kid.age, 10);
+        return Number.isFinite(age) && age >= 0 && age <= 17;
+      });
     case 'weeklyRhythm':
       return answers.weeklyRhythm.length > 0;
     case 'mealStyles':
@@ -637,6 +709,17 @@ export default function OnboardingPage() {
 
     if (draft?.onboarding) {
       const incoming = draft.onboarding as Partial<OnboardingAnswers> & { foodRestrictionsText?: string };
+      const incomingKidsCount = Number.isFinite(incoming.kidsCount)
+        ? Math.max(0, Math.min(8, Math.round(Number(incoming.kidsCount))))
+        : DEFAULT_ONBOARDING.kidsCount;
+      const incomingKidProfiles = Array.isArray(incoming.kidProfiles)
+        ? incoming.kidProfiles
+            .map((kid) => ({
+              name: typeof kid?.name === 'string' ? kid.name : '',
+              age: typeof kid?.age === 'string' ? kid.age : '',
+            }))
+            .slice(0, incomingKidsCount)
+        : [];
       const restrictions = Array.isArray(incoming.foodRestrictions)
         ? incoming.foodRestrictions
             .map((item) => (typeof item === 'string' ? item.trim() : ''))
@@ -646,14 +729,27 @@ export default function OnboardingPage() {
         typeof incoming.foodRestrictionsText === 'string' && incoming.foodRestrictionsText.trim().length > 0
           ? incoming.foodRestrictionsText
           : restrictions.join(', ');
+      const normalizedKids = normalizeKidProfiles(incomingKidProfiles, incomingKidsCount);
+      const derivedRanges = deriveKidAgeRanges(normalizedKids);
+      const legacyRanges = Array.isArray(incoming.kidAgeRanges)
+        ? incoming.kidAgeRanges.filter((range): range is KidAgeRange =>
+            KID_AGE_RANGE_OPTIONS.includes(range as KidAgeRange),
+          )
+        : [];
 
       setAnswers((prev) => ({
         ...prev,
         ...incoming,
+        kidsCount: incomingKidsCount,
+        kidProfiles: normalizedKids,
+        kidAgeRanges: incomingKidsCount > 0 ? (derivedRanges.length > 0 ? derivedRanges : legacyRanges) : [],
         foodRestrictions: restrictions,
         foodRestrictionsText: restrictionText,
       }));
-      if (draft.stepId) setCurrentStepId(draft.stepId as StepId);
+      if (draft.stepId) {
+        const mappedStep = draft.stepId === 'kidAgeRanges' ? 'kidDetails' : draft.stepId;
+        setCurrentStepId(mappedStep as StepId);
+      }
     } else {
       setAnswers(DEFAULT_ONBOARDING);
       setCurrentStepId('welcome');
@@ -768,6 +864,36 @@ export default function OnboardingPage() {
     setAnswers((prev) => ({ ...prev, [key]: value }));
   };
 
+  const setKidsCount = (nextKidsCount: number) => {
+    const clamped = Math.max(0, Math.min(8, nextKidsCount));
+    setAnswers((prev) => {
+      const kidProfiles = normalizeKidProfiles(prev.kidProfiles, clamped);
+      return {
+        ...prev,
+        kidsCount: clamped,
+        kidProfiles,
+        kidAgeRanges: clamped > 0 ? deriveKidAgeRanges(kidProfiles) : [],
+      };
+    });
+  };
+
+  const updateKidProfile = (index: number, updates: Partial<KidProfileInput>) => {
+    setAnswers((prev) => {
+      const kidProfiles = normalizeKidProfiles(prev.kidProfiles, prev.kidsCount);
+      if (index < 0 || index >= kidProfiles.length) return prev;
+      kidProfiles[index] = {
+        ...kidProfiles[index],
+        ...updates,
+        age: updates.age !== undefined ? normalizeKidAge(updates.age) : kidProfiles[index].age,
+      };
+      return {
+        ...prev,
+        kidProfiles,
+        kidAgeRanges: deriveKidAgeRanges(kidProfiles),
+      };
+    });
+  };
+
   const goBack = () => {
     if (submitting || accountSubmitting) return;
     const idx = steps.indexOf(currentStepId);
@@ -794,17 +920,24 @@ export default function OnboardingPage() {
     setSubmitError(null);
 
     try {
-      const familySize = answers.adultsCount + answers.kidsCount;
-      const dietaryPreferences = normalizeDietaryPreferences(answers);
+      const normalizedKidProfiles = parseKidProfiles(normalizeKidProfiles(answers.kidProfiles, answers.kidsCount));
+      const resolvedKidAgeRanges = Array.from(new Set(normalizedKidProfiles.map((kid) => kid.ageRange)));
+      const resolvedAnswers: OnboardingAnswers = {
+        ...answers,
+        kidProfiles: normalizeKidProfiles(answers.kidProfiles, answers.kidsCount),
+        kidAgeRanges: answers.kidsCount > 0 ? resolvedKidAgeRanges : [],
+      };
+      const familySize = resolvedAnswers.adultsCount + resolvedAnswers.kidsCount;
+      const dietaryPreferences = normalizeDietaryPreferences(resolvedAnswers);
       const fullName = profile?.fullName?.trim() || account.fullName.trim() || (user.email?.split('@')[0] || 'Home Harmony User');
       const householdName = profile?.householdName?.trim() || account.householdName.trim() || `${familySize} Person Home`;
-      const normalizedPhone = normalizePhone(answers.phoneNumber);
+      const normalizedPhone = normalizePhone(resolvedAnswers.phoneNumber);
 
       await updateProfile({
         full_name: fullName,
         household_name: householdName,
         family_size: familySize,
-        goals: buildGoalsText(answers),
+        goals: buildGoalsText(resolvedAnswers),
         dietary_preferences: dietaryPreferences,
         phone: normalizedPhone || null,
       });
@@ -816,14 +949,23 @@ export default function OnboardingPage() {
       }
 
       try {
+        seedChoresForKidsIfEmpty(
+          normalizedKidProfiles.map((kid) => ({ name: kid.name, age: kid.age })),
+          user.id,
+        );
+      } catch (choreSeedError) {
+        console.error('Failed to seed kid chores from onboarding:', choreSeedError);
+      }
+
+      try {
         await seedStarterRecipesIfEmpty(
           {
-            dietPreferences: answers.dietPreferences,
-            mealStylePreferences: answers.mealStylePreferences,
-            foodRestrictions: answers.foodRestrictions,
-            avoidFoods: parseListText(answers.avoidFoods),
-            weeklyRhythm: answers.weeklyRhythm,
-            kidsCount: answers.kidsCount,
+            dietPreferences: resolvedAnswers.dietPreferences,
+            mealStylePreferences: resolvedAnswers.mealStylePreferences,
+            foodRestrictions: resolvedAnswers.foodRestrictions,
+            avoidFoods: parseListText(resolvedAnswers.avoidFoods),
+            weeklyRhythm: resolvedAnswers.weeklyRhythm,
+            kidsCount: resolvedAnswers.kidsCount,
           },
           18,
         );
@@ -833,7 +975,7 @@ export default function OnboardingPage() {
 
       let importedLinkRecipeCount = 0;
       let failedLinkImports = 0;
-      const recipeLinks = parseRecipeLinks(answers.recipeLinks);
+      const recipeLinks = parseRecipeLinks(resolvedAnswers.recipeLinks);
       if (recipeLinks.length > 0) {
         try {
           const extractedFromLinks: ExtractedRecipe[] = [];
@@ -880,31 +1022,32 @@ export default function OnboardingPage() {
       }
 
       setPlanRules({
-        preferFavorites: answers.planningStyle !== 'I mostly build my own plan',
-        preferKidFriendly: answers.kidsCount > 0 || answers.mealStylePreferences.includes('Kid-friendly'),
+        preferFavorites: resolvedAnswers.planningStyle !== 'I mostly build my own plan',
+        preferKidFriendly:
+          resolvedAnswers.kidsCount > 0 || resolvedAnswers.mealStylePreferences.includes('Kid-friendly'),
         maxCookMinutes:
-          answers.mealStylePreferences.includes('Quick meals') ||
-          answers.mealStylePreferences.includes('Healthy and easy') ||
-          answers.weeklyRhythm.includes('Fast-paced work week') ||
-          answers.weeklyRhythm.includes('Sports-heavy week')
+          resolvedAnswers.mealStylePreferences.includes('Quick meals') ||
+          resolvedAnswers.mealStylePreferences.includes('Healthy and easy') ||
+          resolvedAnswers.weeklyRhythm.includes('Fast-paced work week') ||
+          resolvedAnswers.weeklyRhythm.includes('Sports-heavy week')
             ? 30
             : null,
-        dayLocks: buildDayLocks(answers, availableRecipes),
+        dayLocks: buildDayLocks(resolvedAnswers, availableRecipes),
       });
 
       if (
-        answers.morningTextChoice === 'Yes, send me a daily schedule text each morning' &&
+        resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning' &&
         normalizedPhone
       ) {
         try {
           const timezoneGuess =
             typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York';
           const reminderOffsets =
-            answers.appointmentReminder === '30 minutes before'
+            resolvedAnswers.appointmentReminder === '30 minutes before'
               ? [30]
-              : answers.appointmentReminder === '1 hour before'
+              : resolvedAnswers.appointmentReminder === '1 hour before'
               ? [60]
-              : answers.appointmentReminder === 'Both 1 hour and 30 minutes'
+              : resolvedAnswers.appointmentReminder === 'Both 1 hour and 30 minutes'
               ? [60, 30]
               : [];
 
@@ -923,7 +1066,7 @@ export default function OnboardingPage() {
 
       const payload: StoredOnboardingResult = {
         completedAt: new Date().toISOString(),
-        onboarding: answers as unknown as Record<string, unknown>,
+        onboarding: resolvedAnswers as unknown as Record<string, unknown>,
         personalizedPlan: personalizedPlan as unknown as Record<string, unknown>,
       };
 
@@ -933,20 +1076,22 @@ export default function OnboardingPage() {
         'onboarding_complete',
         {
           adultsCount: answers.adultsCount,
-          kidsCount: answers.kidsCount,
-          painPoint: answers.mainPainPoint,
-          outcome: answers.desiredOutcome,
-          mealStyles: answers.mealStylePreferences,
-          diets: answers.dietPreferences,
-          staples: answers.weeklyStaples,
-          hasRecipeRequests: parseListText(answers.recipesToImplement).length > 0,
+          kidsCount: resolvedAnswers.kidsCount,
+          painPoint: resolvedAnswers.mainPainPoint,
+          outcome: resolvedAnswers.desiredOutcome,
+          mealStyles: resolvedAnswers.mealStylePreferences,
+          diets: resolvedAnswers.dietPreferences,
+          staples: resolvedAnswers.weeklyStaples,
+          kidProfiles: normalizedKidProfiles.map((kid) => `${kid.name}:${kid.age}`),
+          hasRecipeRequests: parseListText(resolvedAnswers.recipesToImplement).length > 0,
           hasRecipeLinks: recipeLinks.length > 0,
           hasRecipePdf: Boolean(recipePdfFile),
           importedLinkRecipeCount,
           failedLinkImports,
           pdfImportQueued,
-          morningText: answers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
-          calendarSystem: answers.calendarSystem,
+          morningText:
+            resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
+          calendarSystem: resolvedAnswers.calendarSystem,
         },
         `onboarding_complete:${user.id}`,
       );
@@ -1111,15 +1256,12 @@ export default function OnboardingPage() {
                 <Button
                   variant="outline"
                   type="button"
-                  onClick={() => {
-                    const next = Math.max(0, answers.kidsCount - 1);
-                    setAnswers((prev) => ({ ...prev, kidsCount: next, kidAgeRanges: next === 0 ? [] : prev.kidAgeRanges }));
-                  }}
+                  onClick={() => setKidsCount(answers.kidsCount - 1)}
                 >
                   -
                 </Button>
                 <span className="min-w-8 text-center text-lg font-semibold">{answers.kidsCount}</span>
-                <Button variant="outline" type="button" onClick={() => setSingle('kidsCount', Math.min(8, answers.kidsCount + 1))}>
+                <Button variant="outline" type="button" onClick={() => setKidsCount(answers.kidsCount + 1)}>
                   +
                 </Button>
               </div>
@@ -1130,22 +1272,44 @@ export default function OnboardingPage() {
       footer = <BottomCTA primaryLabel="Continue" onPrimary={goNext} />;
       break;
 
-    case 'kidAgeRanges':
+    case 'kidDetails':
       content = (
-        <QuestionScreen title="What are your kids' age ranges?" helper="This helps with kid-friendly meal matching.">
-          <OptionList
-            options={KID_AGE_RANGE_OPTIONS}
-            selected={answers.kidAgeRanges}
-            onToggle={(value) => setAnswers((prev) => ({ ...prev, kidAgeRanges: toggleValue(prev.kidAgeRanges, value) }))}
-            multi
-          />
+        <QuestionScreen
+          title="Tell us about your kids"
+          helper="Add each kid's name and age so chores and meals are pre-configured automatically."
+        >
+          <div className="space-y-3">
+            {normalizeKidProfiles(answers.kidProfiles, answers.kidsCount).map((kid, index) => (
+              <div key={`kid-${index}`} className="rounded-xl border border-border p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Kid {index + 1}</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_140px]">
+                  <Input
+                    value={kid.name}
+                    onChange={(event) => updateKidProfile(index, { name: event.target.value })}
+                    placeholder="Name"
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    max={17}
+                    value={kid.age}
+                    onChange={(event) => updateKidProfile(index, { age: event.target.value })}
+                    placeholder="Age"
+                  />
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              We use this to seed chores and improve kid-friendly meal matching from day one.
+            </p>
+          </div>
         </QuestionScreen>
       );
       footer = (
         <BottomCTA
           primaryLabel="Continue"
           onPrimary={goNext}
-          primaryDisabled={!isStepComplete('kidAgeRanges', answers, account)}
+          primaryDisabled={!isStepComplete('kidDetails', answers, account)}
         />
       );
       break;
