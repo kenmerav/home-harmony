@@ -780,59 +780,118 @@ serve(async (req) => {
           const events = [...todayEvents, ...tomorrowEvents];
           for (const event of events) {
             if (!isUsableDateTime(event.startsAtLocal) || !isUsableDateTime(event.startsAtUtc)) continue;
+            const eventUsesManualReminder = event.module === "manual" && event.leaveReminderEnabled;
 
-            for (const offset of offsets) {
-              const leadMinutes = Number(offset);
-              if (!Number.isFinite(leadMinutes) || leadMinutes < 5) continue;
-              const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
-              if (!isUsableDateTime(sendAt)) continue;
+            if (!eventUsesManualReminder) {
+              for (const offset of offsets) {
+                const leadMinutes = Number(offset);
+                if (!Number.isFinite(leadMinutes) || leadMinutes < 5) continue;
+                const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
+                if (!isUsableDateTime(sendAt)) continue;
 
-              const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
-              if (!isUsableDateTime(closeAt)) continue;
-              if (localNow < sendAt || localNow >= closeAt) continue;
+                const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+                if (!isUsableDateTime(closeAt)) continue;
+                if (localNow < sendAt || localNow >= closeAt) continue;
 
-              const sendAtUtc = sendAt.toUTC();
-              if (!isUsableDateTime(sendAtUtc)) continue;
-              const sendAtIso = sendAtUtc.toISO();
-              if (!sendAtIso) continue;
+                const sendAtUtc = sendAt.toUTC();
+                if (!isUsableDateTime(sendAtUtc)) continue;
+                const sendAtIso = sendAtUtc.toISO();
+                if (!sendAtIso) continue;
 
-              const dedupeKey = `event:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
-              const eventRecipients = recipientListForModule(event.module, moduleRecipients, digestRecipients);
-              if (eventRecipients.length === 0) continue;
+                const dedupeKey = `event:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
+                const eventRecipients = recipientListForModule(event.module, moduleRecipients, digestRecipients);
+                if (eventRecipients.length === 0) continue;
 
-              for (const recipient of eventRecipients) {
-                const recipientDedupeKey = `${dedupeKey}:${recipient}`;
-                const logId = await insertDedupeLog(
-                  supabase,
-                  row.user_id,
-                  recipientDedupeKey,
-                  "event_reminder",
-                  sendAtIso,
-                  { timezone, eventId: event.id, offsetMinutes: leadMinutes, to: recipient },
-                );
-                if (!logId) continue;
+                for (const recipient of eventRecipients) {
+                  const recipientDedupeKey = `${dedupeKey}:${recipient}`;
+                  const logId = await insertDedupeLog(
+                    supabase,
+                    row.user_id,
+                    recipientDedupeKey,
+                    "event_reminder",
+                    sendAtIso,
+                    { timezone, eventId: event.id, offsetMinutes: leadMinutes, to: recipient },
+                  );
+                  if (!logId) continue;
 
-                try {
-                  const eventTime = event.startsAtLocal.toFormat("h:mm a");
-                  const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
-                  const result = await sendTwilioSms(recipient, body);
-                  messagesSent += 1;
-                  await markLogStatus(supabase, logId, "sent", result.sid, {
-                    timezone,
-                    eventId: event.id,
-                    eventStart: event.startsAtLocal.toISO(),
-                    to: recipient,
-                  });
-                } catch (sendError) {
-                  errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
-                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                  try {
+                    const eventTime = event.startsAtLocal.toFormat("h:mm a");
+                    const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                    const result = await sendTwilioSms(recipient, body);
+                    messagesSent += 1;
+                    await markLogStatus(supabase, logId, "sent", result.sid, {
+                      timezone,
+                      eventId: event.id,
+                      eventStart: event.startsAtLocal.toISO(),
+                      to: recipient,
+                    });
+                  } catch (sendError) {
+                    errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                    await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                  }
                 }
               }
             }
 
             if (event.module === "manual" && event.leaveReminderEnabled) {
-              if (event.startsAtLocal <= localNow) continue;
               const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
+              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
+              if (!recipients.length) continue;
+
+              const hasCommuteRouting = Boolean(
+                String(event.travelFromAddress || "").trim() && String(event.locationText || "").trim(),
+              );
+
+              if (!hasCommuteRouting) {
+                const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
+                if (!isUsableDateTime(sendAt)) continue;
+                const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+                if (!isUsableDateTime(closeAt)) continue;
+                if (localNow < sendAt || localNow >= closeAt) continue;
+
+                const sendAtUtc = sendAt.toUTC();
+                if (!isUsableDateTime(sendAtUtc)) continue;
+                const sendAtIso = sendAtUtc.toISO();
+                if (!sendAtIso) continue;
+
+                for (const recipient of recipients) {
+                  const dedupeKey = `manual-start:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${leadMinutes}:${recipient}`;
+                  const logId = await insertDedupeLog(
+                    supabase,
+                    row.user_id,
+                    dedupeKey,
+                    "manual_event_reminder",
+                    sendAtIso,
+                    {
+                      timezone,
+                      eventId: event.id,
+                      to: recipient,
+                      leadMinutes,
+                    },
+                  );
+                  if (!logId) continue;
+
+                  try {
+                    const eventTime = event.startsAtLocal.toFormat("h:mm a");
+                    const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                    const result = await sendTwilioSms(recipient, body);
+                    messagesSent += 1;
+                    await markLogStatus(supabase, logId, "sent", result.sid, {
+                      timezone,
+                      eventId: event.id,
+                      to: recipient,
+                      eventStart: event.startsAtLocal.toISO(),
+                      leadMinutes,
+                    });
+                  } catch (sendError) {
+                    errors.push(`manual-start:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                    await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                  }
+                }
+                continue;
+              }
+
+              if (event.startsAtLocal <= localNow) continue;
               const baselineTravelMinutes = Number.isFinite(Number(event.trafficDurationMinutes))
                 ? Math.max(1, Math.round(Number(event.trafficDurationMinutes)))
                 : Number.isFinite(Number(event.travelDurationMinutes))
@@ -860,9 +919,6 @@ serve(async (req) => {
                 Number.isFinite(Number(travel.baseMinutes)) && Number.isFinite(Number(travel.trafficMinutes))
                   ? Math.max(0, Number(travel.trafficMinutes) - Number(travel.baseMinutes))
                   : 0;
-              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
-              if (!recipients.length) continue;
-
               for (const recipient of recipients) {
                 const dedupeKey = `leave:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${recipient}`;
                 const logId = await insertDedupeLog(

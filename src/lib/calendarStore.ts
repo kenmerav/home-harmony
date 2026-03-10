@@ -30,6 +30,7 @@ export interface CalendarEvent {
 export interface ManualCalendarEventInput {
   title: string;
   description?: string;
+  module?: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
   travelFromAddress?: string;
@@ -68,6 +69,7 @@ interface StoredManualEvent {
   id: string;
   title: string;
   description?: string;
+  module: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
   travelFromAddress?: string;
@@ -128,14 +130,27 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<StoredManualEvent>;
   if (!input.id || !input.title || !input.startsAt) return null;
+  const moduleValue = String(input.module || '').toLowerCase();
+  const module: CalendarEventModule =
+    moduleValue === 'meals'
+    || moduleValue === 'tasks'
+    || moduleValue === 'chores'
+    || moduleValue === 'workouts'
+    || moduleValue === 'reminders'
+    || moduleValue === 'manual'
+      ? (moduleValue as CalendarEventModule)
+      : 'manual';
   const calendarLayer =
     typeof input.calendarLayer === 'string' && input.calendarLayer.trim()
       ? input.calendarLayer.trim()
-      : 'family';
+      : module === 'manual'
+      ? 'family'
+      : module;
   return {
     id: input.id,
     title: input.title,
     description: input.description,
+    module,
     calendarLayer,
     location: typeof input.location === 'string' ? input.location : undefined,
     travelFromAddress: typeof input.travelFromAddress === 'string' ? input.travelFromAddress : undefined,
@@ -417,7 +432,7 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
     endsAt: row.endsAt,
     allDay: row.allDay,
     source: 'manual',
-    module: 'manual',
+    module: row.module,
     readonly: false,
   }));
 }
@@ -430,7 +445,8 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     id: localId,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
-    calendarLayer: input.calendarLayer?.trim() || 'family',
+    module: input.module || 'manual',
+    calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
     location: input.location?.trim() || undefined,
     travelFromAddress: input.travelFromAddress?.trim() || undefined,
     travelMode: input.travelMode || 'driving',
@@ -480,7 +496,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
         starts_at: row.startsAt,
         ends_at: row.endsAt || null,
         all_day: row.allDay,
-        module: 'manual',
+        module: row.module,
         source: 'manual',
         calendar_layer: row.calendarLayer || 'family',
         timezone_name: timezoneName,
@@ -513,7 +529,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     endsAt: row.endsAt,
     allDay: row.allDay,
     source: 'manual',
-    module: 'manual',
+    module: row.module,
     readonly: false,
   };
 }
@@ -535,7 +551,8 @@ export function updateManualCalendarEvent(
     ...existing,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
-    calendarLayer: input.calendarLayer?.trim() || 'family',
+    module: input.module || 'manual',
+    calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
     location: input.location?.trim() || undefined,
     travelFromAddress: input.travelFromAddress?.trim() || undefined,
     travelMode: input.travelMode || 'driving',
@@ -581,7 +598,7 @@ export function updateManualCalendarEvent(
         starts_at: updated.startsAt,
         ends_at: updated.endsAt || null,
         all_day: updated.allDay,
-        module: 'manual',
+        module: updated.module,
         source: 'manual',
         calendar_layer: updated.calendarLayer || 'family',
         timezone_name: timezoneName,
@@ -612,7 +629,7 @@ export function updateManualCalendarEvent(
     endsAt: updated.endsAt,
     allDay: updated.allDay,
     source: 'manual',
-    module: 'manual',
+    module: updated.module,
     readonly: false,
   };
 }

@@ -948,7 +948,7 @@ export default function CalendarPage() {
 
   const openEditDialog = (event: CalendarEvent) => {
     setEditingEventSource(event);
-    setEditingEventId(event.module === 'manual' ? event.id : null);
+    setEditingEventId(event.source === 'manual' ? event.id : null);
     const start = parseISO(event.startsAt);
     const end = event.endsAt ? parseISO(event.endsAt) : null;
     setDraftTitle(event.title);
@@ -1055,6 +1055,7 @@ export default function CalendarPage() {
     const payload = {
       title: draftTitle,
       description: draftDescription,
+      module: editingEventSource?.source === 'manual' ? editingEventSource.module : 'manual',
       calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
       location: draftLocation.trim() || undefined,
       travelFromAddress:
@@ -1728,7 +1729,7 @@ export default function CalendarPage() {
                         event={event}
                         googleEnabled={googlePrefs.enabled}
                         onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                        onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                        onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                       />
                     ))}
                   </div>
@@ -1756,7 +1757,7 @@ export default function CalendarPage() {
                               event={event}
                               googleEnabled={googlePrefs.enabled}
                               onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                              onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                              onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                             />
                           ))}
                         </div>
@@ -1780,7 +1781,7 @@ export default function CalendarPage() {
                   googleEnabled={googlePrefs.enabled}
                   compact
                   onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                  onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                  onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                 />
                 ))}
               </div>
@@ -1972,7 +1973,7 @@ export default function CalendarPage() {
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                    onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
               </div>

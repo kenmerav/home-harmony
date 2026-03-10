@@ -4,6 +4,7 @@ import {
   addHours,
   addMinutes,
   addMonths,
+  addWeeks,
   endOfMonth,
   endOfWeek,
   format,
@@ -79,6 +80,10 @@ type CalendarModuleFilterSettings = {
   labelOverrides: ModuleLabelOverrides;
 };
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
+type RecurrenceCadence = 'weekly' | 'monthly';
+
+const RECURRING_OCCURRENCE_COUNT = 12;
+const BUILT_IN_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
 
 const CALENDAR_MODULE_FILTER_SETTINGS_KEY = 'homehub.calendar.module-filter-settings.v1';
 const FILTER_COLOR_SWATCHES = [
@@ -224,6 +229,14 @@ function withTime(baseDate: Date, hhmm: string): Date {
   return date;
 }
 
+function defaultLayerForModule(module: CalendarEventModule): string {
+  return module === 'manual' ? 'family' : module;
+}
+
+function isCalendarModule(value: string): value is CalendarEventModule {
+  return (BUILT_IN_FILTER_MODULES as string[]).includes(value);
+}
+
 export default function CalendarPlannerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -281,7 +294,10 @@ export default function CalendarPlannerPage() {
   const [draftTime, setDraftTime] = useState('18:00');
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
+  const [draftModule, setDraftModule] = useState<CalendarEventModule>('manual');
   const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
+  const [draftRecurringEnabled, setDraftRecurringEnabled] = useState(false);
+  const [draftRecurringCadence, setDraftRecurringCadence] = useState<RecurrenceCadence>('weekly');
   const [departureAddressProfile, setDepartureAddressProfile] = useState(() =>
     loadDepartureAddressProfile(user?.id),
   );
@@ -472,18 +488,55 @@ export default function CalendarPlannerPage() {
     [filterPresets],
   );
 
-  const manualLayerOptions = useMemo(() => {
-    const options: Array<{ value: string; label: string }> = [{ value: 'family', label: 'Family' }];
-    const seen = new Set<string>(['family']);
-    filterPresets.forEach((preset) => {
-      const label = normalizeCalendarFilterName(preset.name);
-      const value = normalizeCalendarLayerName(label);
+  const assignFilterOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+
+    BUILT_IN_FILTER_MODULES.forEach((module) => {
+      const label = moduleFilterSettings.labelOverrides[module]?.trim() || CALENDAR_MODULE_META[module].label;
+      const value = `module:${module}`;
       if (seen.has(value)) return;
       seen.add(value);
       options.push({ value, label });
     });
+
+    filterPresets.forEach((preset) => {
+      const label = normalizeCalendarFilterName(preset.name);
+      const layer = normalizeCalendarLayerName(label);
+      if (layer === 'family') return;
+      const value = `custom:${layer}`;
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    });
+
     return options;
-  }, [filterPresets]);
+  }, [filterPresets, moduleFilterSettings.labelOverrides]);
+
+  const draftAssignFilterValue = useMemo(() => {
+    if (draftModule !== 'manual') return `module:${draftModule}`;
+    const layer = normalizeCalendarLayerName(draftCalendarLayer || 'family');
+    if (layer === 'family') return 'module:manual';
+    const customValue = `custom:${layer}`;
+    return assignFilterOptions.some((option) => option.value === customValue) ? customValue : 'module:manual';
+  }, [assignFilterOptions, draftCalendarLayer, draftModule]);
+
+  const applyAssignFilterValue = (value: string) => {
+    if (value.startsWith('module:')) {
+      const moduleValue = value.slice('module:'.length).trim().toLowerCase();
+      if (isCalendarModule(moduleValue)) {
+        setDraftModule(moduleValue);
+        setDraftCalendarLayer(defaultLayerForModule(moduleValue));
+      }
+      return;
+    }
+
+    if (value.startsWith('custom:')) {
+      const layer = normalizeCalendarLayerName(value.slice('custom:'.length));
+      setDraftModule('manual');
+      setDraftCalendarLayer(layer || 'family');
+    }
+  };
 
   const filteredEvents = useMemo(
     () =>
@@ -549,9 +602,12 @@ export default function CalendarPlannerPage() {
     setDraftAllDay(false);
     const firstEnabledPreset = filterPresets.find((preset) => preset.enabled);
     const fallbackPreset = filterPresets[0];
+    setDraftModule('manual');
     setDraftCalendarLayer(
       normalizeCalendarLayerName(firstEnabledPreset?.name || fallbackPreset?.name || 'family'),
     );
+    setDraftRecurringEnabled(false);
+    setDraftRecurringCadence('weekly');
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
@@ -570,7 +626,7 @@ export default function CalendarPlannerPage() {
 
   const openEditDialog = (event: CalendarEvent) => {
     setEditingEventSource(event);
-    setEditingEventId(event.module === 'manual' ? event.id : null);
+    setEditingEventId(event.source === 'manual' ? event.id : null);
     const start = parseISO(event.startsAt);
     const end = event.endsAt ? parseISO(event.endsAt) : null;
     setDraftTitle(event.title);
@@ -580,7 +636,12 @@ export default function CalendarPlannerPage() {
     setDraftAllDay(!!event.allDay);
     setDraftTime(event.allDay ? '18:00' : format(start, 'HH:mm'));
     setDraftEndTime(event.allDay || !end ? '' : format(end, 'HH:mm'));
-    setDraftCalendarLayer(normalizeCalendarLayerName(event.calendarLayer || 'family'));
+    setDraftModule(event.source === 'manual' ? event.module : 'manual');
+    setDraftCalendarLayer(
+      normalizeCalendarLayerName(event.source === 'manual' ? event.calendarLayer || defaultLayerForModule(event.module) : 'family'),
+    );
+    setDraftRecurringEnabled(false);
+    setDraftRecurringCadence('weekly');
 
     const homeAddress = (smsPrefs.home_address || '').trim();
     const workAddress = (smsPrefs.work_address || '').trim();
@@ -653,7 +714,7 @@ export default function CalendarPlannerPage() {
       toast({ title: 'Add a title first', variant: 'destructive' });
       return;
     }
-    if (!draftCalendarLayer.trim()) {
+    if (draftModule === 'manual' && !draftCalendarLayer.trim()) {
       toast({ title: 'Choose a filter first', variant: 'destructive' });
       return;
     }
@@ -663,30 +724,54 @@ export default function CalendarPlannerPage() {
       : draftEndTime
       ? `${draftDate}T${draftEndTime}:00`
       : undefined;
-    const payload = {
+    const selectedTravelFromAddress = (
+      draftDepartureSource === 'other'
+        ? draftHomeAddress.trim()
+        : addressForSource(draftDepartureSource)
+    ) || undefined;
+    const selectedLayer = normalizeCalendarLayerName(
+      draftModule === 'manual'
+        ? draftCalendarLayer
+        : defaultLayerForModule(draftModule),
+    );
+    const reminderLeadMinutes = Math.max(
+      5,
+      Math.min(120, Number.parseInt(draftLeaveReminderLeadMinutes || '10', 10) || 10),
+    );
+
+    const baseStartDate = new Date(startsAt);
+    if (!Number.isFinite(baseStartDate.getTime())) {
+      toast({ title: 'Invalid start date/time', variant: 'destructive' });
+      return;
+    }
+    const baseEndDate = endsAt ? new Date(endsAt) : null;
+    const endOffsetMs =
+      baseEndDate && Number.isFinite(baseEndDate.getTime()) && baseEndDate.getTime() > baseStartDate.getTime()
+        ? baseEndDate.getTime() - baseStartDate.getTime()
+        : null;
+    const leaveLeadMs =
+      draftLeaveByIso && Number.isFinite(parseISO(draftLeaveByIso).getTime())
+        ? Math.max(0, baseStartDate.getTime() - parseISO(draftLeaveByIso).getTime())
+        : null;
+
+    const buildPayloadForStart = (startDate: Date) => ({
       title: draftTitle,
       description: draftDescription,
-      calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
+      module: draftModule,
+      calendarLayer: selectedLayer,
       location: draftLocation.trim() || undefined,
-      travelFromAddress:
-        (
-          draftDepartureSource === 'other'
-            ? draftHomeAddress.trim()
-            : addressForSource(draftDepartureSource)
-        ) || undefined,
+      travelFromAddress: selectedTravelFromAddress,
       travelMode: 'driving' as const,
       travelDurationMinutes: draftTravelMinutes,
       trafficDurationMinutes: draftTrafficMinutes,
-      recommendedLeaveAt: draftLeaveByIso,
+      recommendedLeaveAt:
+        leaveLeadMs !== null ? new Date(startDate.getTime() - leaveLeadMs).toISOString() : null,
       leaveReminderEnabled: draftLeaveReminderEnabled,
-      leaveReminderLeadMinutes: Math.max(
-        5,
-        Math.min(120, Number.parseInt(draftLeaveReminderLeadMinutes || '10', 10) || 10),
-      ),
-      startsAt: new Date(startsAt).toISOString(),
-      endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
+      leaveReminderLeadMinutes: reminderLeadMinutes,
+      startsAt: startDate.toISOString(),
+      endsAt: endOffsetMs !== null ? new Date(startDate.getTime() + endOffsetMs).toISOString() : undefined,
       allDay: draftAllDay,
-    };
+    });
     const editingSource = editingEventSource;
     if (editingSource?.source === 'task') {
       const relatedId = editingSource.relatedId || editingSource.id;
@@ -721,18 +806,35 @@ export default function CalendarPlannerPage() {
     }
 
     if (editingEventId) {
-      const updated = updateManualCalendarEvent(editingEventId, payload, user?.id);
+      const updated = updateManualCalendarEvent(editingEventId, buildPayloadForStart(baseStartDate), user?.id);
       if (!updated) {
         toast({ title: 'Could not update event', variant: 'destructive' });
         return;
       }
     } else {
-      addManualCalendarEvent(payload, user?.id);
+      if (draftRecurringEnabled) {
+        const startDates = Array.from({ length: RECURRING_OCCURRENCE_COUNT }, (_, index) => {
+          if (index === 0) return baseStartDate;
+          return draftRecurringCadence === 'monthly'
+            ? addMonths(baseStartDate, index)
+            : addWeeks(baseStartDate, index);
+        });
+        startDates.forEach((occurrenceStart) => {
+          addManualCalendarEvent(buildPayloadForStart(occurrenceStart), user?.id);
+        });
+        toast({
+          title: `${startDates.length} recurring events added`,
+          description: `Repeats ${draftRecurringCadence} for the next ${startDates.length - 1} occurrences.`,
+        });
+      } else {
+        addManualCalendarEvent(buildPayloadForStart(baseStartDate), user?.id);
+      }
     }
     setAddDialogOpen(false);
     setEditingEventId(null);
     setEditingEventSource(null);
-    toast({ title: editingEventId ? 'Event updated' : 'Event added' });
+    if (editingEventId) toast({ title: 'Event updated' });
+    if (!editingEventId && !draftRecurringEnabled) toast({ title: 'Event added' });
     void refreshEvents();
   };
 
@@ -1077,7 +1179,7 @@ export default function CalendarPlannerPage() {
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                    onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
               </div>
@@ -1168,7 +1270,7 @@ export default function CalendarPlannerPage() {
                   googleEnabled={googlePrefs.enabled}
                   compact
                   onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                  onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                  onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                 />
               ))}
             </div>
@@ -1195,7 +1297,7 @@ export default function CalendarPlannerPage() {
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                    onDelete={event.module === 'manual' ? removeManualEvent : undefined}
+                    onDelete={event.source === 'manual' ? removeManualEvent : undefined}
                   />
                 ))}
               </div>
@@ -1414,12 +1516,12 @@ export default function CalendarPlannerPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Assign filter</label>
-              <Select value={draftCalendarLayer} onValueChange={setDraftCalendarLayer}>
+              <Select value={draftAssignFilterValue} onValueChange={applyAssignFilterValue}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose filter" />
                 </SelectTrigger>
                 <SelectContent>
-                  {manualLayerOptions.map((option) => (
+                  {assignFilterOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -1461,6 +1563,70 @@ export default function CalendarPlannerPage() {
                 </div>
               </div>
             )}
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Text reminder</span>
+                <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+              </div>
+              {draftLeaveReminderEnabled ? (
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reminder timing</label>
+                  <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Choose minutes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10 minutes before</SelectItem>
+                      <SelectItem value="15">15 minutes before</SelectItem>
+                      <SelectItem value="30">30 minutes before</SelectItem>
+                      <SelectItem value="45">45 minutes before</SelectItem>
+                      <SelectItem value="60">1 hour before</SelectItem>
+                      <SelectItem value="90">1.5 hours before</SelectItem>
+                      <SelectItem value="120">2 hours before</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                If a commute is estimated, this reminder is sent before leave time. Otherwise it is sent before event start.
+              </p>
+            </div>
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Recurring event</span>
+                <Switch
+                  checked={draftRecurringEnabled}
+                  onCheckedChange={setDraftRecurringEnabled}
+                  disabled={Boolean(editingEventId)}
+                />
+              </div>
+              {editingEventId ? (
+                <p className="text-xs text-muted-foreground">
+                  To change recurrence for an existing event, create a new recurring event.
+                </p>
+              ) : draftRecurringEnabled ? (
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Repeat</label>
+                  <Select
+                    value={draftRecurringCadence}
+                    onValueChange={(value) => setDraftRecurringCadence(value as RecurrenceCadence)}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Choose cadence" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Adds this event plus the next {RECURRING_OCCURRENCE_COUNT - 1} occurrences.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">This event will be created once.</p>
+              )}
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Notes (optional)</label>
               <Input
@@ -1543,33 +1709,6 @@ export default function CalendarPlannerPage() {
                     : ''}
                   . Leave by {format(parseISO(draftLeaveByIso), 'h:mm a')}.
                 </p>
-              )}
-              {draftLeaveByIso && (
-                <div className="space-y-2">
-                  <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
-                    <span className="text-sm">
-                      Text me {draftLeaveReminderLeadMinutes} min before I need to leave
-                    </span>
-                    <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
-                  </label>
-                  {draftLeaveReminderEnabled && (
-                    <div className="space-y-1">
-                      <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Leave reminder lead</label>
-                      <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Choose minutes" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="10">10 minutes</SelectItem>
-                          <SelectItem value="15">15 minutes</SelectItem>
-                          <SelectItem value="30">30 minutes</SelectItem>
-                          <SelectItem value="45">45 minutes</SelectItem>
-                          <SelectItem value="60">60 minutes</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
               )}
             </div>
           </div>
