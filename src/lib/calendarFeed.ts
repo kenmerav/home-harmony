@@ -369,6 +369,136 @@ function loadCardio(): CardioSession[] {
   }
 }
 
+function collectDerivedEventsForRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  userId?: string | null,
+): CalendarEvent[] {
+  const derivedEvents: CalendarEvent[] = [];
+
+  const taskRows = loadTasks(userId);
+  taskRows.forEach((task) => {
+    if (task.status === 'done') return;
+    const occurrences = listTaskDatesInRange(task, rangeStart, rangeEnd);
+    if (occurrences.length === 0) return;
+    const reminderTime = task.reminderTime || '09:00';
+
+    occurrences.forEach((date) => {
+      const start = withTime(date, reminderTime);
+      const eventId = task.frequency === 'once' ? `task-${task.id}` : `task-${task.id}-${format(date, 'yyyy-MM-dd')}`;
+      derivedEvents.push({
+        id: eventId,
+        title: task.title,
+        description: task.notes,
+        startsAt: start.toISOString(),
+        endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
+        allDay: task.frequency === 'once',
+        source: 'task',
+        module: 'tasks',
+        relatedId: eventId,
+        readonly: true,
+      });
+    });
+  });
+
+  const choreState = loadChoreState(userId);
+  choreState.forEach((child) => {
+    child.weeklyChores
+      .filter((chore) => !chore.isCompleted)
+      .forEach((chore) => {
+        normalizeChoreDays(chore).forEach((day) => {
+          weeklyDatesInRange(rangeStart, rangeEnd, day).forEach((date) => {
+            const relatedId = `chore-${child.name}-${chore.name}-${day}-${format(date, 'yyyy-MM-dd')}`;
+            derivedEvents.push({
+              id: relatedId,
+              title: `${child.name}: ${chore.name}`,
+              startsAt: withTime(date, '16:30').toISOString(),
+              endsAt: withTime(date, '17:00').toISOString(),
+              allDay: false,
+              source: 'chore',
+              module: 'chores',
+              relatedId,
+              readonly: true,
+            });
+          });
+        });
+      });
+
+    child.extraChores
+      .filter((extra) => !extra.isCompleted && !extra.isFailed && !!extra.dueAt)
+      .forEach((extra) => {
+        const due = new Date(extra.dueAt);
+        if (!inRange(due, rangeStart, rangeEnd)) return;
+        const relatedId = `extra-${child.name}-${extra.name}-${extra.dueAt}`;
+        derivedEvents.push({
+          id: relatedId,
+          title: `${child.name}: ${extra.name} due`,
+          startsAt: due.toISOString(),
+          endsAt: addMinutes(due, 30).toISOString(),
+          allDay: false,
+          source: 'chore',
+          module: 'chores',
+          relatedId,
+          readonly: true,
+        });
+      });
+  });
+
+  loadWorkouts().forEach((workout) => {
+    if (!workout.date) return;
+    const fallbackStart = parseISO(`${workout.date}T07:00:00`);
+    const start = Number.isFinite(workout.startTime) ? new Date(workout.startTime) : fallbackStart;
+    if (!inRange(start, rangeStart, rangeEnd)) return;
+    const end = Number.isFinite(workout.endTime) ? new Date(workout.endTime) : addHours(start, 1);
+    const relatedId = `workout-${workout.id}`;
+
+    derivedEvents.push({
+      id: relatedId,
+      title: `Workout (${workout.exercises.length} exercises)`,
+      description: workout.notes,
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      allDay: false,
+      source: 'workout',
+      module: 'workouts',
+      relatedId,
+      readonly: true,
+    });
+  });
+
+  loadCardio().forEach((session) => {
+    if (!session.date) return;
+    const start = parseISO(`${session.date}T07:30:00`);
+    if (!inRange(start, rangeStart, rangeEnd)) return;
+    const relatedId = `cardio-${session.id}`;
+    derivedEvents.push({
+      id: relatedId,
+      title: `Cardio: ${session.type}`,
+      description: `${session.duration} min • ${session.distance}`,
+      startsAt: start.toISOString(),
+      endsAt: addMinutes(start, Math.max(15, session.duration)).toISOString(),
+      allDay: false,
+      source: 'workout',
+      module: 'workouts',
+      relatedId,
+      readonly: true,
+    });
+  });
+
+  return derivedEvents;
+}
+
+export async function syncDerivedCalendarSnapshot(
+  userId: string | null | undefined,
+  anchorDate: Date = new Date(),
+): Promise<void> {
+  if (!userId || userId === 'demo-user') return;
+  const snapshotStart = addDays(anchorDate, -14);
+  const snapshotEnd = addDays(anchorDate, 180);
+  const derivedEvents = collectDerivedEventsForRange(snapshotStart, snapshotEnd, userId);
+  await syncDerivedCalendarEvents(userId, snapshotStart, snapshotEnd, derivedEvents);
+}
+
 export async function fetchCalendarEventsForMonth(month: Date, userId?: string | null): Promise<CalendarEvent[]> {
   const rangeStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
   const rangeEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
@@ -439,108 +569,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     }
   });
 
-  const taskRows = loadTasks(userId);
-  taskRows.forEach((task) => {
-    if (task.status === 'done') return;
-    const occurrences = listTaskDatesInRange(task, rangeStart, rangeEnd);
-    if (occurrences.length === 0) return;
-    const reminderTime = task.reminderTime || '09:00';
-
-    occurrences.forEach((date) => {
-      const start = withTime(date, reminderTime);
-      const eventId = task.frequency === 'once' ? `task-${task.id}` : `task-${task.id}-${format(date, 'yyyy-MM-dd')}`;
-      nextEvents.push({
-        id: eventId,
-        title: task.title,
-        description: task.notes,
-        startsAt: start.toISOString(),
-        endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
-        allDay: task.frequency === 'once',
-        source: 'task',
-        module: 'tasks',
-        relatedId: task.id,
-        readonly: true,
-      });
-    });
-  });
-
-  const choreState = loadChoreState(userId);
-  choreState.forEach((child) => {
-    child.weeklyChores
-      .filter((chore) => !chore.isCompleted)
-      .forEach((chore) => {
-        normalizeChoreDays(chore).forEach((day) => {
-          weeklyDatesInRange(rangeStart, rangeEnd, day).forEach((date) => {
-            nextEvents.push({
-              id: `chore-${child.name}-${chore.name}-${day}-${format(date, 'yyyy-MM-dd')}`,
-              title: `${child.name}: ${chore.name}`,
-              startsAt: withTime(date, '16:30').toISOString(),
-              endsAt: withTime(date, '17:00').toISOString(),
-              allDay: false,
-              source: 'chore',
-              module: 'chores',
-              readonly: true,
-            });
-          });
-        });
-      });
-
-    child.extraChores
-      .filter((extra) => !extra.isCompleted && !extra.isFailed && !!extra.dueAt)
-      .forEach((extra) => {
-        const due = new Date(extra.dueAt);
-        if (!inRange(due, rangeStart, rangeEnd)) return;
-        nextEvents.push({
-          id: `extra-${child.name}-${extra.name}-${extra.dueAt}`,
-          title: `${child.name}: ${extra.name} due`,
-          startsAt: due.toISOString(),
-          endsAt: addMinutes(due, 30).toISOString(),
-          allDay: false,
-          source: 'chore',
-          module: 'chores',
-          readonly: true,
-        });
-      });
-  });
-
-  loadWorkouts().forEach((workout) => {
-    if (!workout.date) return;
-    const fallbackStart = parseISO(`${workout.date}T07:00:00`);
-    const start = Number.isFinite(workout.startTime) ? new Date(workout.startTime) : fallbackStart;
-    if (!inRange(start, rangeStart, rangeEnd)) return;
-    const end = Number.isFinite(workout.endTime) ? new Date(workout.endTime) : addHours(start, 1);
-
-    nextEvents.push({
-      id: `workout-${workout.id}`,
-      title: `Workout (${workout.exercises.length} exercises)`,
-      description: workout.notes,
-      startsAt: start.toISOString(),
-      endsAt: end.toISOString(),
-      allDay: false,
-      source: 'workout',
-      module: 'workouts',
-      relatedId: workout.id,
-      readonly: true,
-    });
-  });
-
-  loadCardio().forEach((session) => {
-    if (!session.date) return;
-    const start = parseISO(`${session.date}T07:30:00`);
-    if (!inRange(start, rangeStart, rangeEnd)) return;
-    nextEvents.push({
-      id: `cardio-${session.id}`,
-      title: `Cardio: ${session.type}`,
-      description: `${session.duration} min • ${session.distance}`,
-      startsAt: start.toISOString(),
-      endsAt: addMinutes(start, Math.max(15, session.duration)).toISOString(),
-      allDay: false,
-      source: 'workout',
-      module: 'workouts',
-      relatedId: session.id,
-      readonly: true,
-    });
-  });
+  nextEvents.push(...collectDerivedEventsForRange(rangeStart, rangeEnd, userId));
 
   const groceryReminder = getOrderReminderSettings();
   if (groceryReminder.enabled) {

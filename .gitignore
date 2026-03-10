@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 .vercel
 .env*.local
+test-results/
+supabase/.temp/
+lineuppro/

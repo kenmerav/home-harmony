@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Workout, WorkoutTemplate, AppSettings, ExerciseHistory, CardioSession, WeightLog } from '@/workouts/types/workout';
 import { mergeStarterTemplates } from '@/workouts/data/starterTemplates';
+import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 
 const STORAGE_KEYS = {
   workouts: 'liftlog_workouts',
@@ -238,6 +239,11 @@ function useWorkoutStoreInternal() {
     if (!isLoaded) return;
     toLocalStorage(persistedState);
   }, [isLoaded, persistedState]);
+
+  useEffect(() => {
+    if (!isLoaded || !user || isDemoUser) return;
+    void syncDerivedCalendarSnapshot(user.id, new Date());
+  }, [cardioSessions, isDemoUser, isLoaded, user?.id, workouts]);
 
   useEffect(() => {
     if (!isLoaded || !user || isDemoUser) return;

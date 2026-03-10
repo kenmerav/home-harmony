@@ -27,6 +27,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { loadTasks, saveTasks, taskOccursOnDate, taskFrequencyLabel } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
+import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 
 const statusOrder: TaskStatus[] = ['in_progress', 'not_started', 'done'];
 
@@ -94,6 +95,11 @@ export default function TasksPage() {
   useEffect(() => {
     if (!tasksLoaded) return;
     saveTasks(tasks, user?.id);
+  }, [tasks, tasksLoaded, user?.id]);
+
+  useEffect(() => {
+    if (!tasksLoaded) return;
+    void syncDerivedCalendarSnapshot(user?.id, new Date());
   }, [tasks, tasksLoaded, user?.id]);
 
   const cycleStatus = (taskId: string) => {

@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 
@@ -238,6 +239,11 @@ export default function ChoresPage() {
   useEffect(() => {
     if (loadedForKey !== activeKey) return;
     saveState(state, user?.id);
+  }, [state, user?.id, loadedForKey, activeKey]);
+
+  useEffect(() => {
+    if (loadedForKey !== activeKey) return;
+    void syncDerivedCalendarSnapshot(user?.id, new Date());
   }, [state, user?.id, loadedForKey, activeKey]);
 
   useEffect(() => {
