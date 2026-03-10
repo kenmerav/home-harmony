@@ -3,11 +3,7 @@ import { extractPdfText } from '@/lib/pdfParser';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
-import {
-  buildPersonalizedStarterRecipes,
-  buildStarterDinnerRecipes,
-  type StarterRecipeProfile,
-} from '@/data/starterDinnerRecipes';
+import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
 
 export interface ExtractedRecipe {
   name: string;
@@ -1112,6 +1108,7 @@ export async function seedStarterRecipesIfEmpty(
     return { inserted: 0, skipped: true };
   }
 
+  const { buildPersonalizedStarterRecipes, buildStarterDinnerRecipes } = await import('@/data/starterDinnerRecipes');
   const starterRecipes = Array.isArray(dietaryPreferences)
     ? buildStarterDinnerRecipes(dietaryPreferences, targetCount)
     : buildPersonalizedStarterRecipes(dietaryPreferences, targetCount);

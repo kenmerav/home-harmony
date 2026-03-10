@@ -167,6 +167,7 @@ export function useSeoMeta(input: {
     input.description,
     input.faq,
     input.image,
+    input.imageAlt,
     input.keywords,
     input.modifiedTime,
     input.publishedTime,

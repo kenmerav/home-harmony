@@ -362,7 +362,10 @@ function useWorkoutStoreInternal() {
 
       if (records.length === 0) return null;
 
-      const allSets = records.flatMap(r => r.sets.map(s => ({ ...s, date: r.date })));
+      type CompletedSetWithDate = ExerciseHistory['records'][number]['sets'][number] & { date: string };
+      const allSets: CompletedSetWithDate[] = records.flatMap(r =>
+        r.sets.map((s): CompletedSetWithDate => ({ ...s, date: r.date })),
+      );
 
       const maxWeightSet = allSets.reduce(
         (max, s) => (s.weight > max.weight ? s : max),
@@ -378,11 +381,11 @@ function useWorkoutStoreInternal() {
         exerciseName,
         records,
         personalRecords: {
-          maxWeight: { value: maxWeightSet.weight, date: (maxWeightSet as any).date },
+          maxWeight: { value: maxWeightSet.weight, date: maxWeightSet.date },
           maxReps: {
             value: maxRepsSet.reps,
             weight: maxRepsSet.weight,
-            date: (maxRepsSet as any).date,
+            date: maxRepsSet.date,
           },
           maxVolume: { value: maxVolumeRecord.totalVolume, date: maxVolumeRecord.date },
         },

@@ -160,7 +160,7 @@ export function listTaskDatesInRange(task: HouseTask, rangeStart: Date, rangeEnd
   const start = dateOnly(rangeStart);
   const end = dateOnly(rangeEnd);
   const dates: Date[] = [];
-  let cursor = new Date(start);
+  const cursor = new Date(start);
   while (cursor <= end) {
     if (taskOccursOnDate(task, cursor)) {
       dates.push(new Date(cursor));

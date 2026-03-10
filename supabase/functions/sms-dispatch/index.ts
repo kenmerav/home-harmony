@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fetchGoogleDriveTrafficEstimate } from "../_shared/traffic.ts";
 import { sendTwilioSms } from "../_shared/twilio.ts";
 
 type CalendarEvent = {
@@ -435,18 +436,56 @@ async function fetchDailyEvents(
 
 async function resolveTrafficMinutesForEvent(
   event: CalendarEvent,
+  cache: Map<string, { trafficMinutes: number | null; baseMinutes: number | null }>,
 ): Promise<{
   trafficMinutes: number | null;
   baseMinutes: number | null;
 }> {
-  return {
-    trafficMinutes: Number.isFinite(Number(event.trafficDurationMinutes))
-      ? Number(event.trafficDurationMinutes)
-      : Number.isFinite(Number(event.travelDurationMinutes))
-      ? Number(event.travelDurationMinutes)
-      : null,
-    baseMinutes: Number.isFinite(Number(event.travelDurationMinutes)) ? Number(event.travelDurationMinutes) : null,
-  };
+  const fallbackBaseMinutes = Number.isFinite(Number(event.travelDurationMinutes))
+    ? Math.max(1, Math.round(Number(event.travelDurationMinutes)))
+    : null;
+  const fallbackTrafficMinutes = Number.isFinite(Number(event.trafficDurationMinutes))
+    ? Math.max(1, Math.round(Number(event.trafficDurationMinutes)))
+    : fallbackBaseMinutes;
+
+  const origin = String(event.travelFromAddress || "").trim();
+  const destination = String(event.locationText || "").trim();
+  if (!origin || !destination) {
+    return {
+      trafficMinutes: fallbackTrafficMinutes,
+      baseMinutes: fallbackBaseMinutes,
+    };
+  }
+
+  const departureEpochSeconds = Math.max(
+    Math.floor(event.startsAtUtc.toSeconds()),
+    Math.floor(Date.now() / 1000),
+  );
+  const cacheKey = `${origin}||${destination}||${departureEpochSeconds}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const estimate = await fetchGoogleDriveTrafficEstimate({
+      origin,
+      destination,
+      departureEpochSeconds,
+    });
+    const resolved = {
+      trafficMinutes: estimate.trafficDurationMinutes,
+      baseMinutes: estimate.durationMinutes,
+    };
+    cache.set(cacheKey, resolved);
+    return resolved;
+  } catch (error) {
+    console.error("Traffic lookup failed in sms-dispatch:", error instanceof Error ? error.message : error);
+    const fallbackResolved = {
+      trafficMinutes: fallbackTrafficMinutes,
+      baseMinutes: fallbackBaseMinutes,
+    };
+    cache.set(cacheKey, fallbackResolved);
+    return fallbackResolved;
+  }
 }
 
 serve(async (req) => {
@@ -467,6 +506,7 @@ serve(async (req) => {
     const windowMinutes = Number.parseInt(Deno.env.get("SMS_DISPATCH_WINDOW_MINUTES") || "5", 10) || 5;
     const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "10", 10) || 10;
     const nowUtc = DateTime.utc();
+    const trafficLookupCache = new Map<string, { trafficMinutes: number | null; baseMinutes: number | null }>();
 
     const { data: prefs, error } = await supabase
       .from("sms_preferences")
@@ -793,7 +833,15 @@ serve(async (req) => {
             if (event.module === "manual" && event.leaveReminderEnabled) {
               if (event.startsAtLocal <= localNow) continue;
               const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
-              const travel = await resolveTrafficMinutesForEvent(event);
+              const baselineTravelMinutes = Number.isFinite(Number(event.trafficDurationMinutes))
+                ? Math.max(1, Math.round(Number(event.trafficDurationMinutes)))
+                : Number.isFinite(Number(event.travelDurationMinutes))
+                ? Math.max(1, Math.round(Number(event.travelDurationMinutes)))
+                : 30;
+              const baselineSendAt = event.startsAtLocal.minus({ minutes: baselineTravelMinutes + leadMinutes });
+              if (localNow < baselineSendAt.minus({ minutes: 90 })) continue;
+
+              const travel = await resolveTrafficMinutesForEvent(event, trafficLookupCache);
               if (!travel.trafficMinutes || travel.trafficMinutes < 1) continue;
 
               const leaveAt = event.startsAtLocal.minus({ minutes: travel.trafficMinutes });

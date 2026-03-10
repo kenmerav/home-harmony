@@ -42,7 +42,7 @@ export default function Index() {
     const today = new Date();
     
     // Check backwards from today, skipping Sundays
-    let checkDate = new Date(today);
+    const checkDate = new Date(today);
     let foundFirstWorkout = false;
     
     // First, find the most recent workout day (could be today or earlier)
