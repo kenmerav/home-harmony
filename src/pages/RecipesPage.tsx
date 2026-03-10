@@ -43,6 +43,8 @@ import { getRecipeImageUrl } from '@/data/recipeImages';
 import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
 import { isDemoModeEnabled } from '@/lib/demoMode';
+import { getNextWeekOf, loadWeeklyPlanningStatus, type WeeklyPlanningStatus } from '@/lib/api/weeklyPlanningStatus';
+import { Link } from 'react-router-dom';
 
 function isEdgeTransportFailure(errorMessage?: string): boolean {
   const value = String(errorMessage || '').toLowerCase();
@@ -302,6 +304,8 @@ export default function RecipesPage() {
   const [isGeneratingAiRecipe, setIsGeneratingAiRecipe] = useState(false);
   const [importJobs, setImportJobs] = useState<CookbookImportJob[]>([]);
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const [nextWeekPlanning, setNextWeekPlanning] = useState<WeeklyPlanningStatus | null>(null);
+  const [planningLoading, setPlanningLoading] = useState(false);
   const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
   const hasLoadedImportJobsRef = useRef(false);
 
@@ -357,6 +361,35 @@ export default function RecipesPage() {
 
     return () => window.clearInterval(timer);
   }, [loadImportJobs]);
+
+  useEffect(() => {
+    if (isDemoModeEnabled()) {
+      setNextWeekPlanning(null);
+      setPlanningLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      setPlanningLoading(true);
+      try {
+        const status = await loadWeeklyPlanningStatus(getNextWeekOf());
+        if (!cancelled) setNextWeekPlanning(status);
+      } catch (error) {
+        if (!cancelled) {
+          setNextWeekPlanning(null);
+          console.error('Failed to load weekly planning status:', error);
+        }
+      } finally {
+        if (!cancelled) setPlanningLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [recipes.length]);
 
   useEffect(() => {
     if (!importJobs.length) {
@@ -457,6 +490,12 @@ export default function RecipesPage() {
   const filteredBoardRecommendations = PINTEREST_BOARD_RECOMMENDATIONS.filter(
     (board) => recipeStyleFilter === 'all' || board.styles.includes(recipeStyleFilter),
   );
+
+  const checklistRecipeReady = recipes.length >= 8;
+  const checklistMealsReady = !!nextWeekPlanning?.meals_generated_at;
+  const checklistGroceryReady = !!nextWeekPlanning?.groceries_ordered;
+  const checklistDoneCount = [checklistRecipeReady, checklistMealsReady, checklistGroceryReady].filter(Boolean).length;
+  const checklistAllDone = checklistDoneCount === 3;
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const bulkParsedUrls = parseBulkUrlInput(bulkUrlsInput);
   const bulkUrlCount = bulkParsedUrls.length;
@@ -1275,6 +1314,75 @@ export default function RecipesPage() {
           </div>
         }
       />
+
+      <div className="mb-6 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">First-week setup checklist</p>
+            <p className="text-sm text-muted-foreground">
+              {checklistAllDone
+                ? 'Nice work. Your recipes, meals, and grocery workflow are ready for next week.'
+                : `Complete these 3 steps to start using recipes, meals, and grocery together (${checklistDoneCount}/3 done).`}
+            </p>
+          </div>
+          <span
+            className={cn(
+              'rounded-full px-2.5 py-1 text-xs font-medium',
+              checklistAllDone ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {checklistDoneCount}/3
+          </span>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2">
+            <div className="flex items-center gap-2">
+              {checklistRecipeReady ? <Check className="h-4 w-4 text-primary" /> : <span className="h-2 w-2 rounded-full bg-muted-foreground/60" />}
+              <p className="text-sm">Add at least 8 recipes</p>
+            </div>
+            {!checklistRecipeReady && (
+              <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
+                Add Recipes
+              </Button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2">
+            <div className="flex items-center gap-2">
+              {checklistMealsReady ? <Check className="h-4 w-4 text-primary" /> : <span className="h-2 w-2 rounded-full bg-muted-foreground/60" />}
+              <p className="text-sm">Generate next week&apos;s meal plan</p>
+            </div>
+            {!checklistMealsReady && (
+              <Link to="/meals">
+                <Button size="sm" variant="outline">
+                  Plan Meals
+                </Button>
+              </Link>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2">
+            <div className="flex items-center gap-2">
+              {checklistGroceryReady ? <Check className="h-4 w-4 text-primary" /> : <span className="h-2 w-2 rounded-full bg-muted-foreground/60" />}
+              <p className="text-sm">Review grocery list and mark ordered</p>
+            </div>
+            {!checklistGroceryReady && (
+              <Link to="/grocery">
+                <Button size="sm" variant="outline">
+                  Open Grocery
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {planningLoading && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Checking next-week meal and grocery progress...
+          </p>
+        )}
+      </div>
 
       {/* Search */}
       <div className="relative mb-6">
