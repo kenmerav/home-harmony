@@ -63,6 +63,7 @@ import {
   saveStoredCalendarFilterPresets,
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
+import { loadCommonDepartureAddresses } from '@/lib/departureAddresses';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
@@ -266,9 +267,16 @@ export default function CalendarPlannerPage() {
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
   const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
+  const [commonDepartureAddresses, setCommonDepartureAddresses] = useState<string[]>(() =>
+    loadCommonDepartureAddresses(user?.id),
+  );
 
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
   }, [user?.id]);
 
   useEffect(() => {
@@ -328,9 +336,10 @@ export default function CalendarPlannerPage() {
     };
     addAddress(smsPrefs.home_address);
     addAddress(smsPrefs.work_address);
+    commonDepartureAddresses.forEach((address) => addAddress(address));
     events.forEach((event) => addAddress(event.travelFromAddress));
     return Array.from(unique);
-  }, [events, smsPrefs.home_address, smsPrefs.work_address]);
+  }, [commonDepartureAddresses, events, smsPrefs.home_address, smsPrefs.work_address]);
 
   const addressForSource = useCallback(
     (source: DepartureSource): string => {
@@ -397,6 +406,15 @@ export default function CalendarPlannerPage() {
     window.addEventListener('homehub:calendar-events-updated', handler);
     return () => window.removeEventListener('homehub:calendar-events-updated', handler);
   }, [refreshEvents]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
+    };
+    window.addEventListener('homehub:departure-addresses-updated', handler);
+    return () => window.removeEventListener('homehub:departure-addresses-updated', handler);
+  }, [user?.id]);
 
   const customManualLayerSet = useMemo(
     () => new Set(filterPresets.map((preset) => normalizeCalendarLayerName(preset.name))),

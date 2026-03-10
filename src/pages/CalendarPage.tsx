@@ -72,6 +72,7 @@ import {
   saveStoredCalendarFilterPresets,
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
+import { loadCommonDepartureAddresses } from '@/lib/departureAddresses';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -425,9 +426,16 @@ export default function CalendarPage() {
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
   const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
+  const [commonDepartureAddresses, setCommonDepartureAddresses] = useState<string[]>(() =>
+    loadCommonDepartureAddresses(user?.id),
+  );
 
   useEffect(() => {
     setGooglePrefsState(getGoogleCalendarPrefs(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
   }, [user?.id]);
 
   useEffect(() => {
@@ -717,6 +725,15 @@ export default function CalendarPage() {
     return () => window.removeEventListener('homehub:calendar-events-updated', handler);
   }, [refreshEvents]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
+    };
+    window.addEventListener('homehub:departure-addresses-updated', handler);
+    return () => window.removeEventListener('homehub:departure-addresses-updated', handler);
+  }, [user?.id]);
+
   const customManualLayerSet = useMemo(
     () => new Set(filterPresets.map((preset) => normalizeCalendarLayerName(preset.name))),
     [filterPresets],
@@ -801,9 +818,10 @@ export default function CalendarPage() {
     };
     addAddress(smsPrefs.home_address);
     addAddress(smsPrefs.work_address);
+    commonDepartureAddresses.forEach((address) => addAddress(address));
     events.forEach((event) => addAddress(event.travelFromAddress));
     return Array.from(unique);
-  }, [events, smsPrefs.home_address, smsPrefs.work_address]);
+  }, [commonDepartureAddresses, events, smsPrefs.home_address, smsPrefs.work_address]);
 
   const resetDraftTravelEstimate = useCallback(() => {
     setDraftTravelMinutes(null);

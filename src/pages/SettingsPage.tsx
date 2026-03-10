@@ -20,6 +20,10 @@ import {
   type SmsPreferences,
   type SmsReminderModule,
 } from '@/lib/api/sms';
+import {
+  loadCommonDepartureAddresses,
+  saveCommonDepartureAddresses,
+} from '@/lib/departureAddresses';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -235,6 +239,8 @@ export default function SettingsPage() {
     householdName: '',
     email: '',
   });
+  const [commonDepartureAddresses, setCommonDepartureAddresses] = useState<string[]>([]);
+  const [commonDepartureDraft, setCommonDepartureDraft] = useState('');
   const [accountSaving, setAccountSaving] = useState(false);
   const [bodyUnits, setBodyUnits] = useState<Record<'me' | 'wife', BodyUnitSystem>>({
     me: 'imperial',
@@ -272,6 +278,7 @@ export default function SettingsPage() {
         me: profiles.me.macroPlan.bodyUnitSystem || 'imperial',
         wife: profiles.wife.macroPlan.bodyUnitSystem || 'imperial',
       });
+      setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
       if (canUseRemoteSms) {
         try {
           const sms = await loadSmsPreferences();
@@ -413,6 +420,7 @@ export default function SettingsPage() {
         const savedSms = await saveSmsPreferences(smsPrefs);
         setSmsPrefs(savedSms);
       }
+      setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
       updateMacroPlan('me', { bodyUnitSystem: bodyUnits.me });
       updateMacroPlan('wife', { bodyUnitSystem: bodyUnits.wife });
       toast({ title: 'Settings saved', description: 'Onboarding preferences were updated.' });
@@ -464,6 +472,16 @@ export default function SettingsPage() {
         household_name: householdName || null,
       });
 
+      if (canUseRemoteSms) {
+        const savedSms = await saveSmsPreferences({
+          ...smsPrefs,
+          home_address: smsPrefs.home_address.trim(),
+          work_address: smsPrefs.work_address.trim(),
+        });
+        setSmsPrefs(savedSms);
+      }
+      setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
+
       if (nextEmail !== currentEmail) {
         await updateEmail(nextEmail);
         toast({
@@ -482,6 +500,23 @@ export default function SettingsPage() {
     } finally {
       setAccountSaving(false);
     }
+  };
+
+  const addCommonDepartureAddress = () => {
+    const next = commonDepartureDraft.trim().replace(/\s+/g, ' ');
+    if (!next) return;
+    setCommonDepartureAddresses((prev) => {
+      const saved = saveCommonDepartureAddresses([...prev, next], user?.id);
+      return saved;
+    });
+    setCommonDepartureDraft('');
+  };
+
+  const removeCommonDepartureAddress = (value: string) => {
+    setCommonDepartureAddresses((prev) => {
+      const next = prev.filter((item) => item !== value);
+      return saveCommonDepartureAddresses(next, user?.id);
+    });
   };
 
   if (loading) {
@@ -538,6 +573,61 @@ export default function SettingsPage() {
                 This is the email used for sign-in and account notifications.
               </p>
             </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Home address</p>
+              <Input
+                placeholder="123 Main St, Phoenix, AZ"
+                value={smsPrefs.home_address}
+                onChange={(e) => updateSmsPref('home_address', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Work address</p>
+              <Input
+                placeholder="Office address (optional)"
+                value={smsPrefs.work_address}
+                onChange={(e) => updateSmsPref('work_address', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <p className="text-sm font-medium">Other common leaving-from addresses</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  placeholder="Gym, school, childcare, parent pickup, etc."
+                  value={commonDepartureDraft}
+                  onChange={(e) => setCommonDepartureDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCommonDepartureAddress();
+                    }
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={addCommonDepartureAddress}>
+                  Add
+                </Button>
+              </div>
+              {commonDepartureAddresses.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {commonDepartureAddresses.map((address) => (
+                    <button
+                      key={address}
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted"
+                      onClick={() => removeCommonDepartureAddress(address)}
+                      title="Remove address"
+                    >
+                      <span className="max-w-[240px] truncate">{address}</span>
+                      <span className="text-foreground">x</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Add common places you leave from so events can reuse them quickly.
+                </p>
+              )}
+            </div>
           </div>
           <div className="mt-4">
             <Button variant="outline" onClick={() => void saveAccountDetails()} disabled={accountSaving}>
@@ -572,25 +662,6 @@ export default function SettingsPage() {
                     placeholder="America/New_York"
                     value={smsPrefs.timezone}
                     onChange={(e) => updateSmsPref('timezone', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Home address</p>
-                  <Input
-                    placeholder="123 Main St, Phoenix, AZ"
-                    value={smsPrefs.home_address}
-                    onChange={(e) => updateSmsPref('home_address', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Work address</p>
-                  <Input
-                    placeholder="Office address (optional)"
-                    value={smsPrefs.work_address}
-                    onChange={(e) => updateSmsPref('work_address', e.target.value)}
                   />
                 </div>
               </div>
