@@ -2078,8 +2078,34 @@ function EventRow({
   onEdit?: (event: CalendarEvent) => void;
   onDelete?: (id: string) => void;
 }) {
+  const canEdit = Boolean(onEdit);
+  const handleRowEdit = () => {
+    if (!onEdit) return;
+    onEdit(event);
+  };
+
   return (
-    <div className={cn('rounded-lg border border-border p-3', compact && 'py-2')}>
+    <div
+      className={cn(
+        'rounded-lg border border-border p-3',
+        compact && 'py-2',
+        canEdit && 'cursor-pointer transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
+      role={canEdit ? 'button' : undefined}
+      tabIndex={canEdit ? 0 : undefined}
+      onClick={canEdit ? handleRowEdit : undefined}
+      onKeyDown={
+        canEdit
+          ? (eventKey) => {
+              if (eventKey.key === 'Enter' || eventKey.key === ' ') {
+                eventKey.preventDefault();
+                handleRowEdit();
+              }
+            }
+          : undefined
+      }
+      aria-label={canEdit ? `Edit ${event.title}` : undefined}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{event.title}</p>
@@ -2112,7 +2138,10 @@ function EventRow({
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => onEdit(event)}
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                onEdit(event);
+              }}
               aria-label={`Edit ${event.title}`}
             >
               <Pencil className="w-4 h-4" />
@@ -2124,6 +2153,7 @@ function EventRow({
                 href={buildGoogleEventUrl(event)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(clickEvent) => clickEvent.stopPropagation()}
                 aria-label={`Open ${event.title} in Google Calendar`}
               >
                 <ExternalLink className="w-4 h-4" />
@@ -2135,7 +2165,10 @@ function EventRow({
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => onDelete(event.id)}
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                onDelete(event.id);
+              }}
               aria-label={`Delete ${event.title}`}
             >
               <Trash2 className="w-4 h-4" />
