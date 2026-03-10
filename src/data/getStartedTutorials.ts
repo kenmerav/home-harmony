@@ -377,13 +377,13 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
   },
   {
     slug: 'apple-calendar-readonly-sync',
-    title: 'Connect Apple Calendar (read-only feed)',
+    title: 'Connect Apple or Google Calendar (read-only feed)',
     summary:
-      'Publish your Home Harmony calendar as a secure ICS subscription so Apple Calendar mirrors updates automatically.',
-    audience: 'Apple Calendar users',
+      'Publish your Home Harmony calendar as a secure ICS subscription so Apple or Google Calendar mirrors updates automatically.',
+    audience: 'Apple and Google Calendar users',
     timeToComplete: '4 to 6 min',
     primaryRoute: '/calendar/connect-apple',
-    primaryCta: 'Connect Apple Calendar',
+    primaryCta: 'Open Calendar Setup',
     heroImage: '/tutorials/calendar-apple-connect.jpg',
     heroAlt: 'Calendar sync concept showing one-way subscription from Home Harmony',
     outcomes: [
@@ -406,11 +406,11 @@ export const FEATURE_TUTORIALS: FeatureTutorial[] = [
         },
       },
       {
-        title: 'Subscribe on iPhone or Mac',
+        title: 'Subscribe in Apple or Google',
         steps: [
-          'Go to Settings > Calendar > Accounts > Add Account > Other > Add Subscribed Calendar.',
-          'Paste URL and save.',
-          'Name the calendar so family members know it is read-only from Home Harmony.',
+          'Apple: Settings > Calendar > Accounts > Add Account > Other > Add Subscribed Calendar.',
+          'Google: Calendar web > Other calendars > + > From URL.',
+          'Paste URL and save so family members know this is a read-only mirror from Home Harmony.',
         ],
         screenshot: {
           src: '/tutorials/calendar-apple-connect.jpg',

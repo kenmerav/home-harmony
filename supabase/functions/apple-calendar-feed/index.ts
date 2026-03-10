@@ -33,7 +33,7 @@ type CalendarEventRow = {
   is_deleted: boolean | null;
 };
 
-const CONNECT_LAYERS: FeedLayer[] = ["all", "family", "meals", "kids", "chores", "deliveries"];
+const CONNECT_LAYERS: FeedLayer[] = [...FEED_LAYERS];
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 120;

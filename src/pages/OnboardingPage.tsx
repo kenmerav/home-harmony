@@ -1130,7 +1130,7 @@ export default function OnboardingPage() {
       );
       if (shouldOpenCalendarSetup) {
         const setupMode = answers.calendarSystem === 'Google Calendar' ? 'google' : 'apple';
-        navigate(`/calendar?setup=${setupMode}&source=onboarding`, { replace: true });
+        navigate(`/calendar/connect-apple?platform=${setupMode}&source=onboarding`, { replace: true });
       } else {
         navigate(getPostAuthRoute(isSubscribed), { replace: true });
       }

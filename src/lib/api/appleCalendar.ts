@@ -1,6 +1,17 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export const APPLE_FEED_LAYERS = ['all', 'family', 'meals', 'kids', 'chores', 'deliveries'] as const;
+export const APPLE_FEED_LAYERS = [
+  'all',
+  'family',
+  'meals',
+  'kids',
+  'chores',
+  'deliveries',
+  'manual',
+  'tasks',
+  'workouts',
+  'reminders',
+] as const;
 export type AppleFeedLayer = (typeof APPLE_FEED_LAYERS)[number];
 
 export interface AppleCalendarFeedUrls {

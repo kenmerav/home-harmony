@@ -1244,33 +1244,46 @@ export default function CalendarPlannerPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Calendar integrations" subtitle="Home Harmony is the source of truth">
+          <SectionCard title="Calendar integrations" subtitle="Plan in Home Harmony, then display in your calendar app">
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Google quick-add links</span>
-                <Switch checked={googlePrefs.enabled} onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Calendar label</label>
-                <Input
-                  value={googlePrefs.selectedCalendarLabel}
-                  onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Full OAuth sync is next. This planner currently supports one-click Google event creation.
-              </p>
-
               <div className="rounded-lg border border-border p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">Apple Calendar subscribed feeds</p>
+                  <p className="text-sm font-medium">Google Calendar</p>
                   <Button variant="outline" size="sm" asChild>
-                    <Link to="/calendar/connect-apple">Connect Apple</Link>
+                    <Link to="/calendar/connect-apple?platform=google">Connect Google</Link>
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Plan in Home Harmony, see it in Apple Calendar. Edit events in Home Harmony and Apple Calendar will
-                  reflect them.
+                  Subscribe once with your private URL. Home Harmony updates the feed; Google Calendar reflects it.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Apple Calendar</p>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple?platform=apple">Connect Apple</Link>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  One-way subscribed feeds: edit in Home Harmony, and Apple Calendar updates automatically.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Google quick-add links (optional)</span>
+                  <Switch checked={googlePrefs.enabled} onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Calendar label</label>
+                  <Input
+                    value={googlePrefs.selectedCalendarLabel}
+                    onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Optional helper link from each event. Subscription setup above is the main sync path.
                 </p>
               </div>
             </div>

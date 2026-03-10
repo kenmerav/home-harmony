@@ -1436,18 +1436,6 @@ export default function CalendarPage() {
     setSearchParams(next, { replace: true });
   };
 
-  const startGoogleSetup = () => {
-    updateGooglePrefs({
-      enabled: true,
-      connectionStatus: googlePrefs.connectionStatus === 'connected' ? 'connected' : 'pending_oauth',
-      connectedAt: googlePrefs.connectedAt || new Date().toISOString(),
-    });
-    toast({
-      title: 'Google quick-add enabled',
-      description: 'Your event cards now include one-click add-to-Google links.',
-    });
-  };
-
   return (
     <AppLayout>
       <PageHeader
@@ -1661,21 +1649,43 @@ export default function CalendarPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Calendar integrations" subtitle="Plan in Home Harmony, see it anywhere">
+          <SectionCard title="Calendar integrations" subtitle="Plan in Home Harmony, then display in your calendar app">
             <div className="space-y-3">
               <div className="rounded-lg border border-border p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Google Calendar</span>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple?platform=google">Connect Google</Link>
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Status</span>
+                  <Badge variant="outline">{googlePrefs.enabled ? 'Quick-add enabled' : 'Ready to connect'}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Subscribe once with your private URL. Google Calendar will mirror Home Harmony updates.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Apple Calendar</span>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple?platform=apple">Connect Apple</Link>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  One-way subscribed feeds: edit events in Home Harmony, and Apple Calendar reflects updates automatically.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Google quick-add links (optional)</span>
                   <Switch
                     checked={googlePrefs.enabled}
                     onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })}
                   />
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Status</span>
-                  <Badge variant="outline">
-                    {googlePrefs.connectionStatus === 'connected' ? 'Connected' : 'OAuth setup pending'}
-                  </Badge>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Target calendar label</label>
@@ -1685,23 +1695,8 @@ export default function CalendarPage() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Use quick add links on each event. Full OAuth push sync can be connected next.
+                  Optional helper links on each event. Feed subscription is the recommended sync path.
                 </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Apple Calendar</span>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to="/calendar/connect-apple">Connect feed</Link>
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  One-way subscribed feeds: edit events in Home Harmony, and Apple Calendar reflects updates automatically.
-                </p>
-                <Button variant="ghost" size="sm" onClick={exportCurrentMonthIcs}>
-                  Export .ics snapshot
-                </Button>
               </div>
 
               <Button
@@ -1832,17 +1827,17 @@ export default function CalendarPage() {
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <p className="text-sm font-medium">Google setup</p>
                 <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
-                  <li>Enable Google quick-add links.</li>
-                  <li>Open an event and tap the external link icon.</li>
-                  <li>Save to your preferred Google calendar.</li>
+                  <li>Open Connect Google and copy your private All events feed URL.</li>
+                  <li>In Google Calendar web, go to Other calendars &gt; + &gt; From URL.</li>
+                  <li>Paste the feed URL and click Add calendar.</li>
                 </ol>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={startGoogleSetup}>
-                    Enable Google quick-add
+                  <Button type="button" asChild>
+                    <Link to="/calendar/connect-apple?platform=google">Open Google setup</Link>
                   </Button>
                   <Button type="button" variant="outline" asChild>
-                    <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer">
-                      Open Google Calendar
+                    <a href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl" target="_blank" rel="noreferrer">
+                      Open Google Add by URL
                     </a>
                   </Button>
                 </div>
@@ -1851,13 +1846,13 @@ export default function CalendarPage() {
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <p className="text-sm font-medium">Apple setup</p>
                 <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
-                  <li>Open Connect Apple to get your private subscribed feed links.</li>
+                  <li>Open Connect Apple and copy your private All events feed URL.</li>
                   <li>Use Settings &gt; Calendar &gt; Accounts &gt; Add Account &gt; Other &gt; Add Subscribed Calendar.</li>
                   <li>Paste your feed URL and save.</li>
                 </ol>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" asChild>
-                    <Link to="/calendar/connect-apple">Open Apple feed setup</Link>
+                    <Link to="/calendar/connect-apple?platform=apple">Open Apple setup</Link>
                   </Button>
                   <Button type="button" variant="outline" onClick={exportCurrentMonthIcs}>
                     Download .ics snapshot

@@ -236,9 +236,14 @@ export default function GetStartedPage() {
 
         <SectionCard title="Need more help?" subtitle="These links jump directly to the right setup surfaces.">
           <div className="flex flex-wrap gap-2">
-            <Link to="/calendar/connect-apple">
+            <Link to="/calendar/connect-apple?platform=apple">
               <Button variant="outline" size="sm">
                 Apple Calendar guide
+              </Button>
+            </Link>
+            <Link to="/calendar/connect-apple?platform=google">
+              <Button variant="outline" size="sm">
+                Google Calendar guide
               </Button>
             </Link>
             <Link to="/calendar">
