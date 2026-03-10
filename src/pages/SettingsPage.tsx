@@ -244,6 +244,9 @@ export default function SettingsPage() {
   });
   const [commonDepartureAddresses, setCommonDepartureAddresses] = useState<string[]>([]);
   const [commonDepartureDraft, setCommonDepartureDraft] = useState('');
+  const [savedDepartureProfile, setSavedDepartureProfile] = useState(() =>
+    loadDepartureAddressProfile(user?.id),
+  );
   const [accountSaving, setAccountSaving] = useState(false);
   const [bodyUnits, setBodyUnits] = useState<Record<'me' | 'wife', BodyUnitSystem>>({
     me: 'imperial',
@@ -282,6 +285,7 @@ export default function SettingsPage() {
         wife: profiles.wife.macroPlan.bodyUnitSystem || 'imperial',
       });
       const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
+      setSavedDepartureProfile(savedDepartureProfile);
       setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
       if (canUseRemoteSms) {
         try {
@@ -405,13 +409,14 @@ export default function SettingsPage() {
       });
 
     const savedCommon = saveCommonDepartureAddresses(nextCommon, user?.id);
-    saveDepartureAddressProfile(
+    const savedProfile = saveDepartureAddressProfile(
       {
         homeAddress,
         workAddress,
       },
       user?.id,
     );
+    setSavedDepartureProfile(savedProfile);
     setSmsPrefs((prev) => ({
       ...prev,
       home_address: homeAddress,
@@ -440,14 +445,21 @@ export default function SettingsPage() {
         home_address: homeAddress,
         work_address: workAddress,
       });
-      setSmsPrefs(saved);
-      saveDepartureAddressProfile(
+      const mergedHome = saved.home_address || homeAddress;
+      const mergedWork = saved.work_address || workAddress;
+      setSmsPrefs({
+        ...saved,
+        home_address: mergedHome,
+        work_address: mergedWork,
+      });
+      const savedProfile = saveDepartureAddressProfile(
         {
-          homeAddress: saved.home_address,
-          workAddress: saved.work_address,
+          homeAddress: mergedHome,
+          workAddress: mergedWork,
         },
         user?.id,
       );
+      setSavedDepartureProfile(savedProfile);
       toast({ title: 'SMS settings saved' });
     } catch (error) {
       toast({
@@ -499,14 +511,21 @@ export default function SettingsPage() {
           home_address: homeAddress,
           work_address: workAddress,
         });
-        setSmsPrefs(savedSms);
-        saveDepartureAddressProfile(
+        const mergedHome = savedSms.home_address || homeAddress;
+        const mergedWork = savedSms.work_address || workAddress;
+        setSmsPrefs({
+          ...savedSms,
+          home_address: mergedHome,
+          work_address: mergedWork,
+        });
+        const savedProfile = saveDepartureAddressProfile(
           {
-            homeAddress: savedSms.home_address,
-            workAddress: savedSms.work_address,
+            homeAddress: mergedHome,
+            workAddress: mergedWork,
           },
           user?.id,
         );
+        setSavedDepartureProfile(savedProfile);
       }
       updateMacroPlan('me', { bodyUnitSystem: bodyUnits.me });
       updateMacroPlan('wife', { bodyUnitSystem: bodyUnits.wife });
@@ -567,14 +586,21 @@ export default function SettingsPage() {
             home_address: homeAddress,
             work_address: workAddress,
           });
-          setSmsPrefs(savedSms);
-          saveDepartureAddressProfile(
+          const mergedHome = savedSms.home_address || homeAddress;
+          const mergedWork = savedSms.work_address || workAddress;
+          setSmsPrefs({
+            ...savedSms,
+            home_address: mergedHome,
+            work_address: mergedWork,
+          });
+          const savedProfile = saveDepartureAddressProfile(
             {
-              homeAddress: savedSms.home_address,
-              workAddress: savedSms.work_address,
+              homeAddress: mergedHome,
+              workAddress: mergedWork,
             },
             user?.id,
           );
+          setSavedDepartureProfile(savedProfile);
         } catch (smsError) {
           toast({
             title: 'Address sync skipped',
@@ -637,6 +663,9 @@ export default function SettingsPage() {
     );
   }
 
+  const displayHomeAddress = smsPrefs.home_address.trim() || savedDepartureProfile.homeAddress;
+  const displayWorkAddress = smsPrefs.work_address.trim() || savedDepartureProfile.workAddress;
+
   return (
     <AppLayout>
       <PageHeader
@@ -689,8 +718,8 @@ export default function SettingsPage() {
                 value={smsPrefs.home_address}
                 onChange={(e) => updateSmsPref('home_address', e.target.value)}
               />
-              {smsPrefs.home_address.trim() ? (
-                <p className="text-xs text-muted-foreground">Saved as Home: {smsPrefs.home_address.trim()}</p>
+              {displayHomeAddress ? (
+                <p className="text-xs text-muted-foreground">Saved as Home: {displayHomeAddress}</p>
               ) : (
                 <p className="text-xs text-muted-foreground">No home address saved yet.</p>
               )}
@@ -702,8 +731,8 @@ export default function SettingsPage() {
                 value={smsPrefs.work_address}
                 onChange={(e) => updateSmsPref('work_address', e.target.value)}
               />
-              {smsPrefs.work_address.trim() ? (
-                <p className="text-xs text-muted-foreground">Saved as Work: {smsPrefs.work_address.trim()}</p>
+              {displayWorkAddress ? (
+                <p className="text-xs text-muted-foreground">Saved as Work: {displayWorkAddress}</p>
               ) : (
                 <p className="text-xs text-muted-foreground">No work address saved yet.</p>
               )}
