@@ -1,4 +1,5 @@
 const COMMON_DEPARTURE_ADDRESSES_KEY = 'homehub.commonDepartureAddresses.v1';
+const DEPARTURE_ADDRESS_PROFILE_KEY = 'homehub.departureAddressProfile.v1';
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -6,6 +7,10 @@ function canUseStorage(): boolean {
 
 function scopedKey(userId?: string | null): string {
   return `${COMMON_DEPARTURE_ADDRESSES_KEY}:${userId || 'anon'}`;
+}
+
+function profileKey(userId?: string | null): string {
+  return `${DEPARTURE_ADDRESS_PROFILE_KEY}:${userId || 'anon'}`;
 }
 
 function normalizeAddress(value: unknown): string {
@@ -46,3 +51,42 @@ export function saveCommonDepartureAddresses(addresses: string[], userId?: strin
   return cleaned;
 }
 
+export interface DepartureAddressProfile {
+  homeAddress: string;
+  workAddress: string;
+}
+
+const EMPTY_PROFILE: DepartureAddressProfile = {
+  homeAddress: '',
+  workAddress: '',
+};
+
+export function loadDepartureAddressProfile(userId?: string | null): DepartureAddressProfile {
+  if (!canUseStorage()) return { ...EMPTY_PROFILE };
+  try {
+    const raw = window.localStorage.getItem(profileKey(userId));
+    if (!raw) return { ...EMPTY_PROFILE };
+    const parsed = JSON.parse(raw) as Partial<DepartureAddressProfile> | null;
+    return {
+      homeAddress: normalizeAddress(parsed?.homeAddress || ''),
+      workAddress: normalizeAddress(parsed?.workAddress || ''),
+    };
+  } catch {
+    return { ...EMPTY_PROFILE };
+  }
+}
+
+export function saveDepartureAddressProfile(
+  profile: Partial<DepartureAddressProfile>,
+  userId?: string | null,
+): DepartureAddressProfile {
+  const cleaned: DepartureAddressProfile = {
+    homeAddress: normalizeAddress(profile.homeAddress || ''),
+    workAddress: normalizeAddress(profile.workAddress || ''),
+  };
+  if (canUseStorage()) {
+    window.localStorage.setItem(profileKey(userId), JSON.stringify(cleaned));
+    window.dispatchEvent(new CustomEvent('homehub:departure-addresses-updated'));
+  }
+  return cleaned;
+}

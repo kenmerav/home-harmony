@@ -72,7 +72,7 @@ import {
   saveStoredCalendarFilterPresets,
   saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
-import { loadCommonDepartureAddresses } from '@/lib/departureAddresses';
+import { loadCommonDepartureAddresses, loadDepartureAddressProfile } from '@/lib/departureAddresses';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -184,6 +184,10 @@ const smsModuleLabel: Record<SmsReminderModule, string> = {
 
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function normalizeAddressKey(value?: string | null): string {
+  return (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function parsePhoneList(input: string): string[] {
@@ -426,6 +430,9 @@ export default function CalendarPage() {
   const [draftEndTime, setDraftEndTime] = useState('');
   const [draftAllDay, setDraftAllDay] = useState(false);
   const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
+  const [departureAddressProfile, setDepartureAddressProfile] = useState(() =>
+    loadDepartureAddressProfile(user?.id),
+  );
   const [commonDepartureAddresses, setCommonDepartureAddresses] = useState<string[]>(() =>
     loadCommonDepartureAddresses(user?.id),
   );
@@ -435,6 +442,7 @@ export default function CalendarPage() {
   }, [user?.id]);
 
   useEffect(() => {
+    setDepartureAddressProfile(loadDepartureAddressProfile(user?.id));
     setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
   }, [user?.id]);
 
@@ -728,6 +736,7 @@ export default function CalendarPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = () => {
+      setDepartureAddressProfile(loadDepartureAddressProfile(user?.id));
       setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
     };
     window.addEventListener('homehub:departure-addresses-updated', handler);
@@ -811,17 +820,25 @@ export default function CalendarPage() {
   const eventDates = useMemo(() => filteredEvents.map((event) => parseISO(event.startsAt)), [filteredEvents]);
 
   const savedDepartureAddresses = useMemo(() => {
-    const unique = new Set<string>();
+    const unique = new Map<string, string>();
     const addAddress = (value?: string | null) => {
       const next = (value || '').trim();
-      if (next) unique.add(next);
+      const key = normalizeAddressKey(next);
+      if (key && !unique.has(key)) unique.set(key, next.replace(/\s+/g, ' '));
     };
-    addAddress(smsPrefs.home_address);
-    addAddress(smsPrefs.work_address);
+    addAddress(smsPrefs.home_address || departureAddressProfile.homeAddress);
+    addAddress(smsPrefs.work_address || departureAddressProfile.workAddress);
     commonDepartureAddresses.forEach((address) => addAddress(address));
     events.forEach((event) => addAddress(event.travelFromAddress));
-    return Array.from(unique);
-  }, [commonDepartureAddresses, events, smsPrefs.home_address, smsPrefs.work_address]);
+    return Array.from(unique.values());
+  }, [
+    commonDepartureAddresses,
+    departureAddressProfile.homeAddress,
+    departureAddressProfile.workAddress,
+    events,
+    smsPrefs.home_address,
+    smsPrefs.work_address,
+  ]);
 
   const resetDraftTravelEstimate = useCallback(() => {
     setDraftTravelMinutes(null);
@@ -832,24 +849,32 @@ export default function CalendarPage() {
 
   const addressForSource = useCallback(
     (source: DepartureSource): string => {
-      if (source === 'work') return (smsPrefs.work_address || '').trim();
-      if (source === 'home') return (smsPrefs.home_address || '').trim();
+      if (source === 'work') return (smsPrefs.work_address || departureAddressProfile.workAddress || '').trim();
+      if (source === 'home') return (smsPrefs.home_address || departureAddressProfile.homeAddress || '').trim();
       if (source.startsWith('saved:')) return decodeURIComponent(source.slice('saved:'.length)).trim();
       return '';
     },
-    [smsPrefs.home_address, smsPrefs.work_address],
+    [
+      departureAddressProfile.homeAddress,
+      departureAddressProfile.workAddress,
+      smsPrefs.home_address,
+      smsPrefs.work_address,
+    ],
   );
 
   const departureOptions = useMemo(() => {
-    const homeAddress = (smsPrefs.home_address || '').trim();
-    const workAddress = (smsPrefs.work_address || '').trim();
+    const homeAddress = (smsPrefs.home_address || departureAddressProfile.homeAddress || '').trim();
+    const workAddress = (smsPrefs.work_address || departureAddressProfile.workAddress || '').trim();
+    const homeKey = normalizeAddressKey(homeAddress);
+    const workKey = normalizeAddressKey(workAddress);
     const options: Array<{ value: DepartureSource; label: string }> = [
-      { value: 'home', label: homeAddress ? 'Home' : 'Home (set in Settings)' },
-      { value: 'work', label: workAddress ? 'Work' : 'Work (set in Settings)' },
+      { value: 'home', label: 'Home' },
+      { value: 'work', label: 'Work' },
     ];
 
     savedDepartureAddresses.forEach((address) => {
-      if (address === homeAddress || address === workAddress) return;
+      const addressKey = normalizeAddressKey(address);
+      if (!addressKey || addressKey === homeKey || addressKey === workKey) return;
       options.push({
         value: `saved:${encodeURIComponent(address)}` as DepartureSource,
         label: address,
@@ -858,7 +883,13 @@ export default function CalendarPage() {
 
     options.push({ value: 'other', label: 'Other' });
     return options;
-  }, [savedDepartureAddresses, smsPrefs.home_address, smsPrefs.work_address]);
+  }, [
+    departureAddressProfile.homeAddress,
+    departureAddressProfile.workAddress,
+    savedDepartureAddresses,
+    smsPrefs.home_address,
+    smsPrefs.work_address,
+  ]);
 
   const applyDepartureSource = useCallback(
     (source: DepartureSource, preserveOther = true) => {
@@ -2055,6 +2086,11 @@ export default function CalendarPage() {
               {draftDepartureSource !== 'other' && !addressForSource(draftDepartureSource) ? (
                 <p className="text-xs text-muted-foreground">
                   Set this address in Settings to enable commute estimates.
+                </p>
+              ) : null}
+              {draftDepartureSource !== 'other' && addressForSource(draftDepartureSource) ? (
+                <p className="text-xs text-muted-foreground">
+                  Using: {addressForSource(draftDepartureSource)}
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-2">

@@ -22,7 +22,9 @@ import {
 } from '@/lib/api/sms';
 import {
   loadCommonDepartureAddresses,
+  loadDepartureAddressProfile,
   saveCommonDepartureAddresses,
+  saveDepartureAddressProfile,
 } from '@/lib/departureAddresses';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -278,11 +280,18 @@ export default function SettingsPage() {
         me: profiles.me.macroPlan.bodyUnitSystem || 'imperial',
         wife: profiles.wife.macroPlan.bodyUnitSystem || 'imperial',
       });
+      const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
       setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
       if (canUseRemoteSms) {
         try {
           const sms = await loadSmsPreferences();
-          if (mounted) setSmsPrefs(sms);
+          if (mounted) {
+            setSmsPrefs({
+              ...sms,
+              home_address: sms.home_address || savedDepartureProfile.homeAddress,
+              work_address: sms.work_address || savedDepartureProfile.workAddress,
+            });
+          }
         } catch (error) {
           if (mounted) {
             toast({
@@ -292,6 +301,12 @@ export default function SettingsPage() {
             });
           }
         }
+      } else if (mounted) {
+        setSmsPrefs((prev) => ({
+          ...prev,
+          home_address: savedDepartureProfile.homeAddress,
+          work_address: savedDepartureProfile.workAddress,
+        }));
       }
       setLoading(false);
     };
@@ -372,6 +387,13 @@ export default function SettingsPage() {
     try {
       const saved = await saveSmsPreferences(smsPrefs);
       setSmsPrefs(saved);
+      saveDepartureAddressProfile(
+        {
+          homeAddress: saved.home_address,
+          workAddress: saved.work_address,
+        },
+        user?.id,
+      );
       toast({ title: 'SMS settings saved' });
     } catch (error) {
       toast({
@@ -416,9 +438,31 @@ export default function SettingsPage() {
     };
     try {
       await saveOnboardingResult(user?.id, payload);
+      const normalizedHome = smsPrefs.home_address.trim();
+      const normalizedWork = smsPrefs.work_address.trim();
       if (canUseRemoteSms) {
-        const savedSms = await saveSmsPreferences(smsPrefs);
+        const savedSms = await saveSmsPreferences({
+          ...smsPrefs,
+          home_address: normalizedHome,
+          work_address: normalizedWork,
+        });
         setSmsPrefs(savedSms);
+        saveDepartureAddressProfile(
+          {
+            homeAddress: savedSms.home_address,
+            workAddress: savedSms.work_address,
+          },
+          user?.id,
+        );
+      } else {
+        setSmsPrefs((prev) => ({ ...prev, home_address: normalizedHome, work_address: normalizedWork }));
+        saveDepartureAddressProfile(
+          {
+            homeAddress: normalizedHome,
+            workAddress: normalizedWork,
+          },
+          user?.id,
+        );
       }
       setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
       updateMacroPlan('me', { bodyUnitSystem: bodyUnits.me });
@@ -471,14 +515,32 @@ export default function SettingsPage() {
         full_name: fullName,
         household_name: householdName || null,
       });
+      const normalizedHome = smsPrefs.home_address.trim();
+      const normalizedWork = smsPrefs.work_address.trim();
 
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences({
           ...smsPrefs,
-          home_address: smsPrefs.home_address.trim(),
-          work_address: smsPrefs.work_address.trim(),
+          home_address: normalizedHome,
+          work_address: normalizedWork,
         });
         setSmsPrefs(savedSms);
+        saveDepartureAddressProfile(
+          {
+            homeAddress: savedSms.home_address,
+            workAddress: savedSms.work_address,
+          },
+          user?.id,
+        );
+      } else {
+        setSmsPrefs((prev) => ({ ...prev, home_address: normalizedHome, work_address: normalizedWork }));
+        saveDepartureAddressProfile(
+          {
+            homeAddress: normalizedHome,
+            workAddress: normalizedWork,
+          },
+          user?.id,
+        );
       }
       setCommonDepartureAddresses(saveCommonDepartureAddresses(commonDepartureAddresses, user?.id));
 
@@ -505,6 +567,13 @@ export default function SettingsPage() {
   const addCommonDepartureAddress = () => {
     const next = commonDepartureDraft.trim().replace(/\s+/g, ' ');
     if (!next) return;
+    const home = smsPrefs.home_address.trim().toLowerCase();
+    const work = smsPrefs.work_address.trim().toLowerCase();
+    const nextKey = next.toLowerCase();
+    if (nextKey === home || nextKey === work) {
+      setCommonDepartureDraft('');
+      return;
+    }
     setCommonDepartureAddresses((prev) => {
       const saved = saveCommonDepartureAddresses([...prev, next], user?.id);
       return saved;
