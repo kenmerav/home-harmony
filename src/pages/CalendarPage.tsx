@@ -432,6 +432,8 @@ export default function CalendarPage() {
   const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
+  const [draftEventReminderEnabled, setDraftEventReminderEnabled] = useState(false);
+  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('30');
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
   const [draftLeaveReminderLeadMinutes, setDraftLeaveReminderLeadMinutes] = useState('10');
   const [draftTravelLoading, setDraftTravelLoading] = useState(false);
@@ -941,6 +943,8 @@ export default function CalendarPage() {
         : 'home';
     applyDepartureSource(defaultDepartureSource, false);
     setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
+    setDraftEventReminderEnabled(false);
+    setDraftEventReminderLeadMinutes('30');
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');
     setAddDialogOpen(true);
@@ -976,6 +980,8 @@ export default function CalendarPage() {
     setDraftTravelMinutes(event.travelDurationMinutes ?? null);
     setDraftTrafficMinutes(event.trafficDurationMinutes ?? null);
     setDraftLeaveByIso(event.recommendedLeaveAt || null);
+    setDraftEventReminderEnabled(!!event.eventReminderEnabled);
+    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes || 30));
     setDraftLeaveReminderEnabled(!!event.leaveReminderEnabled);
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
@@ -1058,6 +1064,11 @@ export default function CalendarPage() {
       module: editingEventSource?.source === 'manual' ? editingEventSource.module : 'manual',
       calendarLayer: normalizeCalendarLayerName(draftCalendarLayer),
       location: draftLocation.trim() || undefined,
+      eventReminderEnabled: draftEventReminderEnabled,
+      eventReminderLeadMinutes: Math.max(
+        5,
+        Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '30', 10) || 30),
+      ),
       travelFromAddress:
         (
           draftDepartureSource === 'other'
@@ -2056,6 +2067,36 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Scheduled reminder</span>
+                <Switch checked={draftEventReminderEnabled} onCheckedChange={setDraftEventReminderEnabled} />
+              </div>
+              {draftEventReminderEnabled ? (
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reminder timing</label>
+                  <Select value={draftEventReminderLeadMinutes} onValueChange={setDraftEventReminderLeadMinutes}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Choose minutes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10 minutes before</SelectItem>
+                      <SelectItem value="15">15 minutes before</SelectItem>
+                      <SelectItem value="30">30 minutes before</SelectItem>
+                      <SelectItem value="45">45 minutes before</SelectItem>
+                      <SelectItem value="60">1 hour before</SelectItem>
+                      <SelectItem value="90">1.5 hours before</SelectItem>
+                      <SelectItem value="120">2 hours before</SelectItem>
+                      <SelectItem value="180">3 hours before</SelectItem>
+                      <SelectItem value="240">4 hours before</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                Sends before event start time.
+              </p>
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Location</label>
               <Input
@@ -2131,33 +2172,37 @@ export default function CalendarPage() {
                   . Leave by {format(parseISO(draftLeaveByIso), 'h:mm a')}.
                 </p>
               )}
-              {draftLeaveByIso && (
-                <div className="space-y-2">
-                  <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
-                    <span className="text-sm">
-                      Text me {draftLeaveReminderLeadMinutes} min before I need to leave
-                    </span>
-                    <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
-                  </label>
-                  {draftLeaveReminderEnabled && (
-                    <div className="space-y-1">
-                      <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Leave reminder lead</label>
-                      <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Choose minutes" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="10">10 minutes</SelectItem>
-                          <SelectItem value="15">15 minutes</SelectItem>
-                          <SelectItem value="30">30 minutes</SelectItem>
-                          <SelectItem value="45">45 minutes</SelectItem>
-                          <SelectItem value="60">60 minutes</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="space-y-2">
+                <label className="w-full rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                  <span className="text-sm">
+                    Leave-by reminder
+                  </span>
+                  <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                </label>
+                {draftLeaveReminderEnabled && (
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reminder timing</label>
+                    <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Choose minutes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 minutes before leave time</SelectItem>
+                        <SelectItem value="10">10 minutes before leave time</SelectItem>
+                        <SelectItem value="15">15 minutes before leave time</SelectItem>
+                        <SelectItem value="30">30 minutes before leave time</SelectItem>
+                        <SelectItem value="45">45 minutes before leave time</SelectItem>
+                        <SelectItem value="60">1 hour before leave time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {!draftLeaveByIso ? (
+                      <p className="text-xs text-muted-foreground">
+                        Estimate route time first so Home Harmony can calculate leave-by.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Notes (optional)</label>

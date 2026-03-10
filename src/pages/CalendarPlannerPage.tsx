@@ -286,6 +286,8 @@ export default function CalendarPlannerPage() {
   const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
+  const [draftEventReminderEnabled, setDraftEventReminderEnabled] = useState(false);
+  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('30');
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
   const [draftLeaveReminderLeadMinutes, setDraftLeaveReminderLeadMinutes] = useState('10');
   const [draftTravelLoading, setDraftTravelLoading] = useState(false);
@@ -619,6 +621,8 @@ export default function CalendarPlannerPage() {
         : 'home';
     applyDepartureSource(defaultDepartureSource, false);
     setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
+    setDraftEventReminderEnabled(false);
+    setDraftEventReminderLeadMinutes('30');
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');
     setAddDialogOpen(true);
@@ -659,6 +663,8 @@ export default function CalendarPlannerPage() {
     setDraftTravelMinutes(event.travelDurationMinutes ?? null);
     setDraftTrafficMinutes(event.trafficDurationMinutes ?? null);
     setDraftLeaveByIso(event.recommendedLeaveAt || null);
+    setDraftEventReminderEnabled(!!event.eventReminderEnabled);
+    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes || 30));
     setDraftLeaveReminderEnabled(!!event.leaveReminderEnabled);
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
@@ -734,7 +740,11 @@ export default function CalendarPlannerPage() {
         ? draftCalendarLayer
         : defaultLayerForModule(draftModule),
     );
-    const reminderLeadMinutes = Math.max(
+    const eventReminderLeadMinutes = Math.max(
+      5,
+      Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '30', 10) || 30),
+    );
+    const leaveReminderLeadMinutes = Math.max(
       5,
       Math.min(120, Number.parseInt(draftLeaveReminderLeadMinutes || '10', 10) || 10),
     );
@@ -760,6 +770,8 @@ export default function CalendarPlannerPage() {
       module: draftModule,
       calendarLayer: selectedLayer,
       location: draftLocation.trim() || undefined,
+      eventReminderEnabled: draftEventReminderEnabled,
+      eventReminderLeadMinutes,
       travelFromAddress: selectedTravelFromAddress,
       travelMode: 'driving' as const,
       travelDurationMinutes: draftTravelMinutes,
@@ -767,7 +779,7 @@ export default function CalendarPlannerPage() {
       recommendedLeaveAt:
         leaveLeadMs !== null ? new Date(startDate.getTime() - leaveLeadMs).toISOString() : null,
       leaveReminderEnabled: draftLeaveReminderEnabled,
-      leaveReminderLeadMinutes: reminderLeadMinutes,
+      leaveReminderLeadMinutes,
       startsAt: startDate.toISOString(),
       endsAt: endOffsetMs !== null ? new Date(startDate.getTime() + endOffsetMs).toISOString() : undefined,
       allDay: draftAllDay,
@@ -1565,13 +1577,13 @@ export default function CalendarPlannerPage() {
             )}
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Text reminder</span>
-                <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                <span className="text-sm font-medium">Scheduled reminder</span>
+                <Switch checked={draftEventReminderEnabled} onCheckedChange={setDraftEventReminderEnabled} />
               </div>
-              {draftLeaveReminderEnabled ? (
+              {draftEventReminderEnabled ? (
                 <div className="space-y-1">
                   <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reminder timing</label>
-                  <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
+                  <Select value={draftEventReminderLeadMinutes} onValueChange={setDraftEventReminderLeadMinutes}>
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Choose minutes" />
                     </SelectTrigger>
@@ -1583,12 +1595,14 @@ export default function CalendarPlannerPage() {
                       <SelectItem value="60">1 hour before</SelectItem>
                       <SelectItem value="90">1.5 hours before</SelectItem>
                       <SelectItem value="120">2 hours before</SelectItem>
+                      <SelectItem value="180">3 hours before</SelectItem>
+                      <SelectItem value="240">4 hours before</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                If a commute is estimated, this reminder is sent before leave time. Otherwise it is sent before event start.
+                Sends before event start time.
               </p>
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3">
@@ -1710,6 +1724,35 @@ export default function CalendarPlannerPage() {
                   . Leave by {format(parseISO(draftLeaveByIso), 'h:mm a')}.
                 </p>
               )}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Leave-by reminder</span>
+                  <Switch checked={draftLeaveReminderEnabled} onCheckedChange={setDraftLeaveReminderEnabled} />
+                </div>
+                {draftLeaveReminderEnabled ? (
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Reminder timing</label>
+                    <Select value={draftLeaveReminderLeadMinutes} onValueChange={setDraftLeaveReminderLeadMinutes}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Choose minutes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 minutes before leave time</SelectItem>
+                        <SelectItem value="10">10 minutes before leave time</SelectItem>
+                        <SelectItem value="15">15 minutes before leave time</SelectItem>
+                        <SelectItem value="30">30 minutes before leave time</SelectItem>
+                        <SelectItem value="45">45 minutes before leave time</SelectItem>
+                        <SelectItem value="60">1 hour before leave time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {!draftLeaveByIso ? (
+                      <p className="text-xs text-muted-foreground">
+                        Estimate route time first so Home Harmony can calculate leave-by.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">

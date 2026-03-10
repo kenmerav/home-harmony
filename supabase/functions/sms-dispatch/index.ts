@@ -10,6 +10,8 @@ type CalendarEvent = {
   title: string;
   module: SmsReminderModule;
   locationText?: string | null;
+  eventReminderEnabled?: boolean;
+  eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string | null;
   travelDurationMinutes?: number | null;
   trafficDurationMinutes?: number | null;
@@ -399,7 +401,7 @@ async function fetchDailyEvents(
     const dayEndUtc = localDate.plus({ days: 1 }).startOf("day").toUTC().toISO();
     const { data } = await supabase
       .from("calendar_events")
-      .select("id,title,module,starts_at,location_text,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
+      .select("id,title,module,starts_at,location_text,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
       .eq("owner_id", userId)
       .eq("is_deleted", false)
       .gte("starts_at", dayStartUtc)
@@ -418,6 +420,8 @@ async function fetchDailyEvents(
         title: String(row.title || "Event"),
         module: eventModule,
         locationText: typeof row.location_text === "string" ? row.location_text : null,
+        eventReminderEnabled: !!row.event_reminder_enabled,
+        eventReminderLeadMinutes: normalizeLeadMinutes(row.event_reminder_lead_minutes, 30),
         travelFromAddress: typeof row.travel_from_address === "string" ? row.travel_from_address : null,
         travelDurationMinutes:
           Number.isFinite(Number(row.travel_duration_minutes)) ? Number(row.travel_duration_minutes) : null,
@@ -780,9 +784,11 @@ serve(async (req) => {
           const events = [...todayEvents, ...tomorrowEvents];
           for (const event of events) {
             if (!isUsableDateTime(event.startsAtLocal) || !isUsableDateTime(event.startsAtUtc)) continue;
-            const eventUsesManualReminder = event.module === "manual" && event.leaveReminderEnabled;
+            const manualUsesStartReminder = event.module === "manual" && !!event.eventReminderEnabled;
+            const manualUsesLeaveReminder = event.module === "manual" && !!event.leaveReminderEnabled;
+            const shouldUseGlobalOffsets = !(event.module === "manual" && (manualUsesStartReminder || manualUsesLeaveReminder));
 
-            if (!eventUsesManualReminder) {
+            if (shouldUseGlobalOffsets) {
               for (const offset of offsets) {
                 const leadMinutes = Number(offset);
                 if (!Number.isFinite(leadMinutes) || leadMinutes < 5) continue;
@@ -833,7 +839,58 @@ serve(async (req) => {
               }
             }
 
-            if (event.module === "manual" && event.leaveReminderEnabled) {
+            if (event.module === "manual" && manualUsesStartReminder) {
+              const leadMinutes = normalizeLeadMinutes(event.eventReminderLeadMinutes, 30);
+              const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
+              if (!isUsableDateTime(sendAt)) continue;
+              const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+              if (!isUsableDateTime(closeAt)) continue;
+              if (localNow < sendAt || localNow >= closeAt) continue;
+
+              const sendAtUtc = sendAt.toUTC();
+              if (!isUsableDateTime(sendAtUtc)) continue;
+              const sendAtIso = sendAtUtc.toISO();
+              if (!sendAtIso) continue;
+
+              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
+              if (!recipients.length) continue;
+              for (const recipient of recipients) {
+                const dedupeKey = `manual-start:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${leadMinutes}:${recipient}`;
+                const logId = await insertDedupeLog(
+                  supabase,
+                  row.user_id,
+                  dedupeKey,
+                  "manual_event_start_reminder",
+                  sendAtIso,
+                  {
+                    timezone,
+                    eventId: event.id,
+                    to: recipient,
+                    leadMinutes,
+                  },
+                );
+                if (!logId) continue;
+
+                try {
+                  const eventTime = event.startsAtLocal.toFormat("h:mm a");
+                  const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                  const result = await sendTwilioSms(recipient, body);
+                  messagesSent += 1;
+                  await markLogStatus(supabase, logId, "sent", result.sid, {
+                    timezone,
+                    eventId: event.id,
+                    to: recipient,
+                    eventStart: event.startsAtLocal.toISO(),
+                    leadMinutes,
+                  });
+                } catch (sendError) {
+                  errors.push(`manual-start:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
+                }
+              }
+            }
+
+            if (event.module === "manual" && manualUsesLeaveReminder) {
               const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
               const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
               if (!recipients.length) continue;
@@ -843,6 +900,7 @@ serve(async (req) => {
               );
 
               if (!hasCommuteRouting) {
+                if (manualUsesStartReminder) continue;
                 const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
                 if (!isUsableDateTime(sendAt)) continue;
                 const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
@@ -855,12 +913,12 @@ serve(async (req) => {
                 if (!sendAtIso) continue;
 
                 for (const recipient of recipients) {
-                  const dedupeKey = `manual-start:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${leadMinutes}:${recipient}`;
+                  const dedupeKey = `manual-leave-fallback:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${leadMinutes}:${recipient}`;
                   const logId = await insertDedupeLog(
                     supabase,
                     row.user_id,
                     dedupeKey,
-                    "manual_event_reminder",
+                    "manual_event_leave_fallback_reminder",
                     sendAtIso,
                     {
                       timezone,

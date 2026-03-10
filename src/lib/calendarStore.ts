@@ -11,6 +11,8 @@ export interface CalendarEvent {
   description?: string;
   calendarLayer?: string;
   location?: string;
+  eventReminderEnabled?: boolean;
+  eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
   travelMode?: 'driving';
   travelDurationMinutes?: number | null;
@@ -33,6 +35,8 @@ export interface ManualCalendarEventInput {
   module?: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
+  eventReminderEnabled?: boolean;
+  eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
   travelMode?: 'driving';
   travelDurationMinutes?: number | null;
@@ -72,6 +76,8 @@ interface StoredManualEvent {
   module: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
+  eventReminderEnabled?: boolean;
+  eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
   travelMode?: 'driving';
   travelDurationMinutes?: number | null;
@@ -146,6 +152,27 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
       : module === 'manual'
       ? 'family'
       : module;
+  const hasCommuteRouting = Boolean(
+    typeof input.travelFromAddress === 'string'
+      && input.travelFromAddress.trim()
+      && typeof input.location === 'string'
+      && input.location.trim(),
+  );
+  const legacyLeaveReminderEnabled = !!input.leaveReminderEnabled;
+  const normalizedEventReminderEnabled =
+    typeof input.eventReminderEnabled === 'boolean'
+      ? input.eventReminderEnabled
+      : legacyLeaveReminderEnabled && !hasCommuteRouting;
+  const normalizedEventReminderLeadMinutes =
+    typeof input.eventReminderLeadMinutes === 'number' && Number.isFinite(input.eventReminderLeadMinutes)
+      ? Math.max(5, Math.min(240, Math.round(input.eventReminderLeadMinutes)))
+      : typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
+      ? Math.max(5, Math.min(240, Math.round(input.leaveReminderLeadMinutes)))
+      : 30;
+  const normalizedLeaveReminderEnabled =
+    typeof input.leaveReminderEnabled === 'boolean'
+      ? input.leaveReminderEnabled && hasCommuteRouting
+      : false;
   return {
     id: input.id,
     title: input.title,
@@ -153,6 +180,8 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
     module,
     calendarLayer,
     location: typeof input.location === 'string' ? input.location : undefined,
+    eventReminderEnabled: normalizedEventReminderEnabled,
+    eventReminderLeadMinutes: normalizedEventReminderLeadMinutes,
     travelFromAddress: typeof input.travelFromAddress === 'string' ? input.travelFromAddress : undefined,
     travelMode: input.travelMode === 'driving' ? 'driving' : 'driving',
     travelDurationMinutes:
@@ -167,7 +196,7 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
       typeof input.recommendedLeaveAt === 'string' && input.recommendedLeaveAt.trim()
         ? input.recommendedLeaveAt
         : null,
-    leaveReminderEnabled: !!input.leaveReminderEnabled,
+    leaveReminderEnabled: normalizedLeaveReminderEnabled,
     leaveReminderLeadMinutes:
       typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
         ? Math.max(5, Math.min(120, Math.round(input.leaveReminderLeadMinutes)))
@@ -421,6 +450,8 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
     description: row.description,
     calendarLayer: row.calendarLayer || 'family',
     location: row.location,
+    eventReminderEnabled: row.eventReminderEnabled,
+    eventReminderLeadMinutes: row.eventReminderLeadMinutes,
     travelFromAddress: row.travelFromAddress,
     travelMode: row.travelMode,
     travelDurationMinutes: row.travelDurationMinutes,
@@ -441,14 +472,22 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
   const now = new Date().toISOString();
   const remoteId = crypto.randomUUID();
   const localId = `manual-${remoteId}`;
+  const normalizedLocation = input.location?.trim() || undefined;
+  const normalizedTravelFromAddress = input.travelFromAddress?.trim() || undefined;
+  const hasCommuteRouting = Boolean(normalizedLocation && normalizedTravelFromAddress);
   const row: StoredManualEvent = {
     id: localId,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
     module: input.module || 'manual',
     calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
-    location: input.location?.trim() || undefined,
-    travelFromAddress: input.travelFromAddress?.trim() || undefined,
+    location: normalizedLocation,
+    eventReminderEnabled: !!input.eventReminderEnabled,
+    eventReminderLeadMinutes:
+      typeof input.eventReminderLeadMinutes === 'number' && Number.isFinite(input.eventReminderLeadMinutes)
+        ? Math.max(5, Math.min(240, Math.round(input.eventReminderLeadMinutes)))
+        : 30,
+    travelFromAddress: normalizedTravelFromAddress,
     travelMode: input.travelMode || 'driving',
     travelDurationMinutes:
       typeof input.travelDurationMinutes === 'number' && Number.isFinite(input.travelDurationMinutes)
@@ -459,7 +498,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
         ? Math.max(1, Math.round(input.trafficDurationMinutes))
         : null,
     recommendedLeaveAt: input.recommendedLeaveAt || null,
-    leaveReminderEnabled: !!input.leaveReminderEnabled,
+    leaveReminderEnabled: !!input.leaveReminderEnabled && hasCommuteRouting,
     leaveReminderLeadMinutes:
       typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
         ? Math.max(5, Math.min(120, Math.round(input.leaveReminderLeadMinutes)))
@@ -486,6 +525,8 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
         title: row.title,
         description: row.description || null,
         location_text: row.location || null,
+        event_reminder_enabled: !!row.eventReminderEnabled,
+        event_reminder_lead_minutes: row.eventReminderLeadMinutes || 30,
         travel_from_address: row.travelFromAddress || null,
         travel_mode: row.travelMode || 'driving',
         travel_duration_minutes: row.travelDurationMinutes,
@@ -518,6 +559,8 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     description: row.description,
     calendarLayer: row.calendarLayer || 'family',
     location: row.location,
+    eventReminderEnabled: row.eventReminderEnabled,
+    eventReminderLeadMinutes: row.eventReminderLeadMinutes,
     travelFromAddress: row.travelFromAddress,
     travelMode: row.travelMode,
     travelDurationMinutes: row.travelDurationMinutes,
@@ -547,14 +590,22 @@ export function updateManualCalendarEvent(
   if (index < 0) return null;
 
   const existing = current[index];
+  const normalizedLocation = input.location?.trim() || undefined;
+  const normalizedTravelFromAddress = input.travelFromAddress?.trim() || undefined;
+  const hasCommuteRouting = Boolean(normalizedLocation && normalizedTravelFromAddress);
   const updated: StoredManualEvent = {
     ...existing,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
     module: input.module || 'manual',
     calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
-    location: input.location?.trim() || undefined,
-    travelFromAddress: input.travelFromAddress?.trim() || undefined,
+    location: normalizedLocation,
+    eventReminderEnabled: !!input.eventReminderEnabled,
+    eventReminderLeadMinutes:
+      typeof input.eventReminderLeadMinutes === 'number' && Number.isFinite(input.eventReminderLeadMinutes)
+        ? Math.max(5, Math.min(240, Math.round(input.eventReminderLeadMinutes)))
+        : 30,
+    travelFromAddress: normalizedTravelFromAddress,
     travelMode: input.travelMode || 'driving',
     travelDurationMinutes:
       typeof input.travelDurationMinutes === 'number' && Number.isFinite(input.travelDurationMinutes)
@@ -565,7 +616,7 @@ export function updateManualCalendarEvent(
         ? Math.max(1, Math.round(input.trafficDurationMinutes))
         : null,
     recommendedLeaveAt: input.recommendedLeaveAt || null,
-    leaveReminderEnabled: !!input.leaveReminderEnabled,
+    leaveReminderEnabled: !!input.leaveReminderEnabled && hasCommuteRouting,
     leaveReminderLeadMinutes:
       typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
         ? Math.max(5, Math.min(120, Math.round(input.leaveReminderLeadMinutes)))
@@ -588,6 +639,8 @@ export function updateManualCalendarEvent(
         title: updated.title,
         description: updated.description || null,
         location_text: updated.location || null,
+        event_reminder_enabled: !!updated.eventReminderEnabled,
+        event_reminder_lead_minutes: updated.eventReminderLeadMinutes || 30,
         travel_from_address: updated.travelFromAddress || null,
         travel_mode: updated.travelMode || 'driving',
         travel_duration_minutes: updated.travelDurationMinutes,
@@ -618,6 +671,8 @@ export function updateManualCalendarEvent(
     description: updated.description,
     calendarLayer: updated.calendarLayer || 'family',
     location: updated.location,
+    eventReminderEnabled: updated.eventReminderEnabled,
+    eventReminderLeadMinutes: updated.eventReminderLeadMinutes,
     travelFromAddress: updated.travelFromAddress,
     travelMode: updated.travelMode,
     travelDurationMinutes: updated.travelDurationMinutes,
