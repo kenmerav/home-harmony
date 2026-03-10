@@ -80,7 +80,7 @@ type CalendarModuleFilterSettings = {
   labelOverrides: ModuleLabelOverrides;
 };
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
-type RecurrenceCadence = 'weekly' | 'monthly';
+type RecurrenceCadence = 'daily' | 'weekly' | 'monthly';
 
 const RECURRING_OCCURRENCE_COUNT = 12;
 const BUILT_IN_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
@@ -827,9 +827,13 @@ export default function CalendarPlannerPage() {
       if (draftRecurringEnabled) {
         const startDates = Array.from({ length: RECURRING_OCCURRENCE_COUNT }, (_, index) => {
           if (index === 0) return baseStartDate;
-          return draftRecurringCadence === 'monthly'
-            ? addMonths(baseStartDate, index)
-            : addWeeks(baseStartDate, index);
+          if (draftRecurringCadence === 'monthly') {
+            return addMonths(baseStartDate, index);
+          }
+          if (draftRecurringCadence === 'weekly') {
+            return addWeeks(baseStartDate, index);
+          }
+          return addDays(baseStartDate, index);
         });
         startDates.forEach((occurrenceStart) => {
           addManualCalendarEvent(buildPayloadForStart(occurrenceStart), user?.id);
@@ -1629,6 +1633,7 @@ export default function CalendarPlannerPage() {
                       <SelectValue placeholder="Choose cadence" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
                       <SelectItem value="weekly">Weekly</SelectItem>
                       <SelectItem value="monthly">Monthly</SelectItem>
                     </SelectContent>
