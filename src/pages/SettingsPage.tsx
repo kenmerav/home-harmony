@@ -378,6 +378,13 @@ export default function SettingsPage() {
   const normalizeAddressField = (value: string): string =>
     value.trim().replace(/\s+/g, ' ');
 
+  const isSameOrContainedAddress = (candidateKey: string, referenceKey: string): boolean => {
+    if (!candidateKey || !referenceKey) return false;
+    return candidateKey === referenceKey
+      || candidateKey.includes(referenceKey)
+      || referenceKey.includes(candidateKey);
+  };
+
   const persistDepartureAddresses = (includeDraft = false) => {
     const homeAddress = normalizeAddressField(smsPrefs.home_address);
     const workAddress = normalizeAddressField(smsPrefs.work_address);
@@ -394,7 +401,7 @@ export default function SettingsPage() {
       .filter((item) => {
         const key = normalizeAddressForCompare(item);
         if (!key) return false;
-        return key !== homeKey && key !== workKey;
+        return !isSameOrContainedAddress(key, homeKey) && !isSameOrContainedAddress(key, workKey);
       });
 
     const savedCommon = saveCommonDepartureAddresses(nextCommon, user?.id);

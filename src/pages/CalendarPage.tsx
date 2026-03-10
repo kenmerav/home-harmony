@@ -194,6 +194,13 @@ function normalizeAddressKey(value?: string | null): string {
   return normalizeAddressForCompare(value);
 }
 
+function isSameOrContainedAddress(candidateKey: string, referenceKey: string): boolean {
+  if (!candidateKey || !referenceKey) return false;
+  return candidateKey === referenceKey
+    || candidateKey.includes(referenceKey)
+    || referenceKey.includes(candidateKey);
+}
+
 function parsePhoneList(input: string): string[] {
   return [...new Set(
     input
@@ -833,13 +840,11 @@ export default function CalendarPage() {
     addAddress(smsPrefs.home_address || departureAddressProfile.homeAddress);
     addAddress(smsPrefs.work_address || departureAddressProfile.workAddress);
     commonDepartureAddresses.forEach((address) => addAddress(address));
-    events.forEach((event) => addAddress(event.travelFromAddress));
     return Array.from(unique.values());
   }, [
     commonDepartureAddresses,
     departureAddressProfile.homeAddress,
     departureAddressProfile.workAddress,
-    events,
     smsPrefs.home_address,
     smsPrefs.work_address,
   ]);
@@ -878,7 +883,13 @@ export default function CalendarPage() {
 
     savedDepartureAddresses.forEach((address) => {
       const addressKey = normalizeAddressKey(address);
-      if (!addressKey || addressKey === homeKey || addressKey === workKey) return;
+      if (
+        !addressKey
+        || isSameOrContainedAddress(addressKey, homeKey)
+        || isSameOrContainedAddress(addressKey, workKey)
+      ) {
+        return;
+      }
       options.push({
         value: `saved:${encodeURIComponent(address)}` as DepartureSource,
         label: address,
