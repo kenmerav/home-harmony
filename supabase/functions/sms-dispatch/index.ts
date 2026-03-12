@@ -23,6 +23,7 @@ type CalendarEvent = {
 
 type SmsReminderModule = "meals" | "manual" | "tasks" | "chores" | "workouts" | "reminders";
 const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
+const DIGEST_MODULES: SmsReminderModule[] = [...SMS_REMINDER_MODULES];
 
 type SmsPreferenceRow = {
   user_id: string;
@@ -549,7 +550,7 @@ serve(async (req) => {
           row.user_id,
           timezone,
           todayLocal,
-          includeModules,
+          DIGEST_MODULES,
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
         const tomorrowEvents = await fetchDailyEvents(
@@ -557,7 +558,7 @@ serve(async (req) => {
           row.user_id,
           timezone,
           tomorrowLocal,
-          includeModules,
+          DIGEST_MODULES,
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
 
