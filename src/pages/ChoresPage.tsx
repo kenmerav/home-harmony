@@ -45,11 +45,14 @@ const dayLabels: Record<DayOfWeek, string> = {
 
 const allDays: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
+type RewardUnit = 'money' | 'points';
+
 interface RewardChore {
   id: string;
   name: string;
   isCompleted: boolean;
   reward: number;
+  rewardUnit: RewardUnit;
 }
 
 interface RewardWeeklyChore extends RewardChore {
@@ -106,6 +109,21 @@ function todayDateKey(): string {
 
 const money = (amount: number) => `$${amount.toFixed(2)}`;
 
+function normalizeRewardUnit(value: unknown): RewardUnit {
+  return value === 'points' ? 'points' : 'money';
+}
+
+function formatPoints(amount: number): string {
+  const normalized = Number.isFinite(amount) ? amount : 0;
+  return Number.isInteger(normalized)
+    ? `${normalized} pts`
+    : `${normalized.toFixed(2).replace(/\.?0+$/, '')} pts`;
+}
+
+function formatReward(amount: number, unit: RewardUnit): string {
+  return unit === 'points' ? formatPoints(amount) : money(amount);
+}
+
 function normalizeWeeklyDays(chore: RewardWeeklyChore): DayOfWeek[] {
   const fromDays = Array.isArray(chore.days)
     ? chore.days.filter((day): day is DayOfWeek => allDays.includes(day))
@@ -145,6 +163,12 @@ function loadState(userId?: string | null): ChoresState {
       const item = child as ChildEconomy;
       return {
         ...item,
+        dailyChores: Array.isArray(item.dailyChores)
+          ? item.dailyChores.map((chore) => ({
+              ...chore,
+              rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
+            }))
+          : [],
         weeklyChores: Array.isArray(item.weeklyChores)
           ? item.weeklyChores.map((chore) => {
               const weeklyDays = normalizeWeeklyDays(chore as RewardWeeklyChore);
@@ -152,6 +176,7 @@ function loadState(userId?: string | null): ChoresState {
                 ...chore,
                 day: weeklyDays[0],
                 days: weeklyDays,
+                rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
               };
             })
           : [],
@@ -222,6 +247,7 @@ export default function ChoresPage() {
   const [newChoreDay, setNewChoreDay] = useState<DayOfWeek>('monday');
   const [newChoreDays, setNewChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [newChoreReward, setNewChoreReward] = useState('1');
+  const [newChoreRewardUnit, setNewChoreRewardUnit] = useState<RewardUnit>('money');
   const [editChoreOpen, setEditChoreOpen] = useState(false);
   const [editingChoreTarget, setEditingChoreTarget] = useState<{
     childId: string;
@@ -230,6 +256,7 @@ export default function ChoresPage() {
   } | null>(null);
   const [editChoreName, setEditChoreName] = useState('');
   const [editChoreReward, setEditChoreReward] = useState('1');
+  const [editChoreRewardUnit, setEditChoreRewardUnit] = useState<RewardUnit>('money');
   const [editChoreDay, setEditChoreDay] = useState<DayOfWeek>('monday');
   const [editChoreDays, setEditChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [addExtraOpen, setAddExtraOpen] = useState(false);
@@ -326,7 +353,7 @@ export default function ChoresPage() {
       const dailyChores = child.dailyChores.map((chore) => {
         if (chore.id !== choreId) return chore;
         const nextCompleted = !chore.isCompleted;
-        delta = nextCompleted ? chore.reward : -chore.reward;
+        delta = chore.rewardUnit === 'money' ? (nextCompleted ? chore.reward : -chore.reward) : 0;
         return { ...chore, isCompleted: nextCompleted };
       });
       return {
@@ -344,7 +371,7 @@ export default function ChoresPage() {
       const weeklyChores = child.weeklyChores.map((chore) => {
         if (chore.id !== choreId) return chore;
         const nextCompleted = !chore.isCompleted;
-        delta = nextCompleted ? chore.reward : -chore.reward;
+        delta = chore.rewardUnit === 'money' ? (nextCompleted ? chore.reward : -chore.reward) : 0;
         return { ...chore, isCompleted: nextCompleted };
       });
       return {
@@ -399,6 +426,7 @@ export default function ChoresPage() {
     setNewChoreDay('monday');
     setNewChoreDays(['monday']);
     setNewChoreReward('1');
+    setNewChoreRewardUnit('money');
     setAddChoreOpen(true);
   };
 
@@ -433,6 +461,7 @@ export default function ChoresPage() {
           name: newChoreName.trim(),
           isCompleted: false,
           reward,
+          rewardUnit: newChoreRewardUnit,
         };
         return { ...child, dailyChores: [...child.dailyChores, newChore] };
       }
@@ -443,6 +472,7 @@ export default function ChoresPage() {
         days: [...newChoreDays],
         isCompleted: false,
         reward,
+        rewardUnit: newChoreRewardUnit,
       };
       return { ...child, weeklyChores: [...child.weeklyChores, newChore] };
     });
@@ -450,7 +480,7 @@ export default function ChoresPage() {
     setAddChoreOpen(false);
     toast({
       title: 'Chore added',
-      description: `"${newChoreName}" added with ${money(reward)} reward.`,
+      description: `"${newChoreName}" added with ${formatReward(reward, newChoreRewardUnit)} reward.`,
     });
   };
 
@@ -462,6 +492,7 @@ export default function ChoresPage() {
       if (!chore) return;
       setEditChoreName(chore.name);
       setEditChoreReward(String(chore.reward));
+      setEditChoreRewardUnit(normalizeRewardUnit(chore.rewardUnit));
       setEditChoreDay('monday');
       setEditChoreDays(['monday']);
     } else {
@@ -470,6 +501,7 @@ export default function ChoresPage() {
       const weeklyDays = normalizeWeeklyDays(chore);
       setEditChoreName(chore.name);
       setEditChoreReward(String(chore.reward));
+      setEditChoreRewardUnit(normalizeRewardUnit(chore.rewardUnit));
       setEditChoreDay(weeklyDays[0] || 'monday');
       setEditChoreDays(weeklyDays);
     }
@@ -488,7 +520,7 @@ export default function ChoresPage() {
           ...child,
           dailyChores: child.dailyChores.map((chore) =>
             chore.id === choreId
-              ? { ...chore, name: editChoreName.trim(), reward }
+              ? { ...chore, name: editChoreName.trim(), reward, rewardUnit: editChoreRewardUnit }
               : chore,
           ),
         };
@@ -502,6 +534,7 @@ export default function ChoresPage() {
                 ...chore,
                 name: editChoreName.trim(),
                 reward,
+                rewardUnit: editChoreRewardUnit,
                 day: editChoreDays[0] || editChoreDay,
                 days: [...editChoreDays],
               }
@@ -808,7 +841,7 @@ export default function ChoresPage() {
                           >
                             {chore.name}
                           </span>
-                          <span className="text-xs text-primary font-medium">{money(chore.reward)}</span>
+                          <span className="text-xs text-primary font-medium">{formatReward(chore.reward, chore.rewardUnit)}</span>
                           {chore.isCompleted && <CheckCircle2 className="w-4 h-4 text-primary" />}
                           <Button
                             variant="ghost"
@@ -854,7 +887,7 @@ export default function ChoresPage() {
                           >
                             {chore.name}
                           </span>
-                          <span className="text-xs text-primary font-medium">{money(chore.reward)}</span>
+                          <span className="text-xs text-primary font-medium">{formatReward(chore.reward, chore.rewardUnit)}</span>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -890,7 +923,7 @@ export default function ChoresPage() {
                               : 'bg-muted text-muted-foreground hover:bg-muted/80',
                           )}
                         >
-                          {normalizeWeeklyDays(chore).map((day) => dayLabels[day].slice(0, 3)).join(', ')}: {chore.name} ({money(chore.reward)})
+                          {normalizeWeeklyDays(chore).map((day) => dayLabels[day].slice(0, 3)).join(', ')}: {chore.name} ({formatReward(chore.reward, chore.rewardUnit)})
                         </button>
                       ))}
                     </div>
@@ -1037,15 +1070,32 @@ export default function ChoresPage() {
               </div>
             )}
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Reward amount ($ or points)</label>
-              <Input
-                type="number"
-                min={0}
-                step="0.25"
-                value={newChoreReward}
-                onChange={(e) => setNewChoreReward(e.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reward amount</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={newChoreRewardUnit === 'points' ? '1' : '0.25'}
+                  value={newChoreReward}
+                  onChange={(e) => setNewChoreReward(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reward type</label>
+                <Select
+                  value={newChoreRewardUnit}
+                  onValueChange={(value) => setNewChoreRewardUnit(value as RewardUnit)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="money">Money ($)</SelectItem>
+                    <SelectItem value="points">Points</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="flex gap-2 justify-end">
@@ -1072,15 +1122,32 @@ export default function ChoresPage() {
               value={editChoreName}
               onChange={(event) => setEditChoreName(event.target.value)}
             />
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Reward amount ($ or points)</label>
-              <Input
-                type="number"
-                min={0}
-                step="0.25"
-                value={editChoreReward}
-                onChange={(event) => setEditChoreReward(event.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reward amount</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={editChoreRewardUnit === 'points' ? '1' : '0.25'}
+                  value={editChoreReward}
+                  onChange={(event) => setEditChoreReward(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reward type</label>
+                <Select
+                  value={editChoreRewardUnit}
+                  onValueChange={(value) => setEditChoreRewardUnit(value as RewardUnit)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="money">Money ($)</SelectItem>
+                    <SelectItem value="points">Points</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {editingChoreTarget?.type === 'weekly' && (
               <div className="space-y-2">
