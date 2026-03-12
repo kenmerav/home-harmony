@@ -186,7 +186,7 @@ function isUsableDateTime(value: DateTime): boolean {
 }
 
 function normalizeIncludeModules(input: unknown): SmsReminderModule[] {
-  if (!Array.isArray(input)) return ["meals", "manual"];
+  if (!Array.isArray(input)) return [...SMS_REMINDER_MODULES];
   const allowed = new Set(SMS_REMINDER_MODULES);
   const cleaned = [...new Set(
     input
@@ -194,7 +194,7 @@ function normalizeIncludeModules(input: unknown): SmsReminderModule[] {
       .map((item) => item.trim().toLowerCase())
       .filter((item) => allowed.has(item as SmsReminderModule)),
   )] as SmsReminderModule[];
-  return cleaned.length ? cleaned : ["meals", "manual"];
+  return cleaned.length ? cleaned : [...SMS_REMINDER_MODULES];
 }
 
 function normalizeRecipientMap(input: unknown): Record<SmsReminderModule, string[]> {

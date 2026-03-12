@@ -54,7 +54,7 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: '18:00',
-  include_modules: ['meals', 'manual'],
+  include_modules: ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'],
   module_recipients: emptyModuleRecipients(),
   quiet_hours_start: null,
   quiet_hours_end: null,

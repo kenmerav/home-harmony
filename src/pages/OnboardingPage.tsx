@@ -23,6 +23,7 @@ import {
 } from '@/data/starterDinnerRecipes';
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
+import { getWeeklyAdZip, setPreferredGroceryStoreId, setWeeklyAdPrefs } from '@/lib/groceryPrefs';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -100,6 +101,19 @@ const GROCERY_STORE_OPTIONS = [
   'Costco',
   'Instacart',
 ] as const;
+
+const ONBOARDING_STORE_TO_PREF_ID: Record<(typeof GROCERY_STORE_OPTIONS)[number], string> = {
+  "Fry's": 'frys',
+  Safeway: 'safeway',
+  'Whole Foods': 'whole-foods',
+  Kroger: 'kroger',
+  Target: 'target',
+  Walmart: 'walmart',
+  Costco: 'costco',
+  Instacart: 'instacart',
+};
+
+const WEEKLY_AD_ALLOWED_STORE_IDS = new Set(['frys', 'safeway', 'whole-foods', 'kroger', 'target', 'walmart', 'aldi']);
 
 const GROCERY_MODE_OPTIONS = ['In-store', 'Pickup', 'Delivery', 'Mix'] as const;
 
@@ -1048,6 +1062,17 @@ export default function OnboardingPage() {
             : null,
         dayLocks: buildDayLocks(resolvedAnswers, availableRecipes),
       });
+
+      const mappedStoreIds = resolvedAnswers.groceryStorePreferences
+        .map((store) => ONBOARDING_STORE_TO_PREF_ID[store])
+        .filter((value): value is string => Boolean(value));
+      if (mappedStoreIds.length > 0) {
+        setPreferredGroceryStoreId(mappedStoreIds[0]);
+        const weeklyAdStoreIds = mappedStoreIds.filter((storeId) => WEEKLY_AD_ALLOWED_STORE_IDS.has(storeId));
+        if (weeklyAdStoreIds.length > 0) {
+          setWeeklyAdPrefs(getWeeklyAdZip(), weeklyAdStoreIds);
+        }
+      }
 
       if (
         resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning' &&

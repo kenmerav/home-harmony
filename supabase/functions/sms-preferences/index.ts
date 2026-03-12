@@ -24,7 +24,7 @@ const DEFAULT_PREFS = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: "18:00",
-  include_modules: ["meals", "manual"],
+  include_modules: ["meals", "manual", "tasks", "chores", "workouts", "reminders"],
   module_recipients: {
     meals: [],
     manual: [],
@@ -84,14 +84,14 @@ function normalizeOffsets(input: unknown): number[] {
 
 function normalizeModules(input: unknown): string[] {
   const allowed = new Set(SMS_REMINDER_MODULES);
-  if (!Array.isArray(input)) return ["meals", "manual"];
+  if (!Array.isArray(input)) return [...DEFAULT_PREFS.include_modules];
   const cleaned = [...new Set(
     input
       .filter((item) => typeof item === "string")
       .map((item) => item.trim().toLowerCase())
       .filter((item) => allowed.has(item)),
   )];
-  return cleaned.length ? cleaned : ["meals", "manual"];
+  return cleaned.length ? cleaned : [...DEFAULT_PREFS.include_modules];
 }
 
 function normalizeModuleRecipients(input: unknown): Record<SmsReminderModule, string[]> {
