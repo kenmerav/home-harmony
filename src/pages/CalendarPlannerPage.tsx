@@ -384,6 +384,18 @@ export default function CalendarPlannerPage() {
     smsPrefs.work_address,
   ]);
 
+  const addressAutocompleteOptions = useMemo(() => {
+    const unique = new Map<string, string>();
+    const addAddress = (value?: string | null) => {
+      const next = (value || '').trim();
+      const key = normalizeAddressKey(next);
+      if (key && !unique.has(key)) unique.set(key, next.replace(/\s+/g, ' '));
+    };
+    savedDepartureAddresses.forEach((address) => addAddress(address));
+    events.forEach((event) => addAddress(event.location));
+    return Array.from(unique.values());
+  }, [events, savedDepartureAddresses]);
+
   const addressForSource = useCallback(
     (source: DepartureSource): string => {
       if (source === 'work') return (smsPrefs.work_address || departureAddressProfile.workAddress || '').trim();
@@ -1670,6 +1682,7 @@ export default function CalendarPlannerPage() {
             <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Location (optional)</label>
               <Input
+                list="planner-address-suggestions"
                 value={draftLocation}
                 onChange={(e) => {
                   setDraftLocation(e.target.value);
@@ -1677,6 +1690,11 @@ export default function CalendarPlannerPage() {
                 }}
                 placeholder="Address or place"
               />
+              <datalist id="planner-address-suggestions">
+                {addressAutocompleteOptions.map((address) => (
+                  <option key={`planner-location-${address}`} value={address} />
+                ))}
+              </datalist>
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="space-y-1">
@@ -1701,6 +1719,7 @@ export default function CalendarPlannerPage() {
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Other address</label>
                   <Input
+                    list="planner-address-suggestions"
                     placeholder="Enter departure address"
                     value={draftHomeAddress}
                     onChange={(e) => {

@@ -851,6 +851,18 @@ export default function CalendarPage() {
     smsPrefs.work_address,
   ]);
 
+  const addressAutocompleteOptions = useMemo(() => {
+    const unique = new Map<string, string>();
+    const addAddress = (value?: string | null) => {
+      const next = (value || '').trim();
+      const key = normalizeAddressKey(next);
+      if (key && !unique.has(key)) unique.set(key, next.replace(/\s+/g, ' '));
+    };
+    savedDepartureAddresses.forEach((address) => addAddress(address));
+    events.forEach((event) => addAddress(event.location));
+    return Array.from(unique.values());
+  }, [events, savedDepartureAddresses]);
+
   const resetDraftTravelEstimate = useCallback(() => {
     setDraftTravelMinutes(null);
     setDraftTrafficMinutes(null);
@@ -2095,6 +2107,7 @@ export default function CalendarPage() {
             <div className="space-y-1">
               <label className="text-sm font-medium">Location</label>
               <Input
+                list="calendar-address-suggestions"
                 placeholder="123 Main St, Phoenix, AZ"
                 value={draftLocation}
                 onChange={(e) => {
@@ -2102,6 +2115,11 @@ export default function CalendarPage() {
                   resetDraftTravelEstimate();
                 }}
               />
+              <datalist id="calendar-address-suggestions">
+                {addressAutocompleteOptions.map((address) => (
+                  <option key={`calendar-location-${address}`} value={address} />
+                ))}
+              </datalist>
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">
               <div className="space-y-1">
@@ -2126,6 +2144,7 @@ export default function CalendarPage() {
                 <div className="space-y-1">
                   <label className="text-sm font-medium">Other address</label>
                   <Input
+                    list="calendar-address-suggestions"
                     placeholder="Enter departure address"
                     value={draftHomeAddress}
                     onChange={(e) => {
