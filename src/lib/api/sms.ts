@@ -16,6 +16,9 @@ export interface SmsPreferences {
   morning_digest_time: string;
   night_before_enabled: boolean;
   night_before_time: string;
+  grocery_reminder_enabled: boolean;
+  grocery_reminder_day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  grocery_reminder_time: string;
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
@@ -45,6 +48,9 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   morning_digest_time: '07:00',
   night_before_enabled: true,
   night_before_time: '20:00',
+  grocery_reminder_enabled: true,
+  grocery_reminder_day: 'saturday',
+  grocery_reminder_time: '20:00',
   event_reminders_enabled: true,
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: '18:00',
@@ -117,6 +123,19 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
     morning_digest_time: raw.morning_digest_time || DEFAULT_SMS_PREFERENCES.morning_digest_time,
     night_before_enabled: raw.night_before_enabled ?? DEFAULT_SMS_PREFERENCES.night_before_enabled,
     night_before_time: raw.night_before_time || DEFAULT_SMS_PREFERENCES.night_before_time,
+    grocery_reminder_enabled:
+      raw.grocery_reminder_enabled ?? DEFAULT_SMS_PREFERENCES.grocery_reminder_enabled,
+    grocery_reminder_day:
+      raw.grocery_reminder_day === 'monday'
+      || raw.grocery_reminder_day === 'tuesday'
+      || raw.grocery_reminder_day === 'wednesday'
+      || raw.grocery_reminder_day === 'thursday'
+      || raw.grocery_reminder_day === 'friday'
+      || raw.grocery_reminder_day === 'saturday'
+      || raw.grocery_reminder_day === 'sunday'
+        ? raw.grocery_reminder_day
+        : DEFAULT_SMS_PREFERENCES.grocery_reminder_day,
+    grocery_reminder_time: raw.grocery_reminder_time || DEFAULT_SMS_PREFERENCES.grocery_reminder_time,
     event_reminders_enabled: raw.event_reminders_enabled ?? DEFAULT_SMS_PREFERENCES.event_reminders_enabled,
     reminder_offsets_minutes:
       Array.isArray(raw.reminder_offsets_minutes) && raw.reminder_offsets_minutes.length > 0

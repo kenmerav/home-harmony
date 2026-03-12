@@ -18,6 +18,9 @@ const DEFAULT_PREFS = {
   morning_digest_time: "07:00",
   night_before_enabled: true,
   night_before_time: "20:00",
+  grocery_reminder_enabled: true,
+  grocery_reminder_day: "saturday",
+  grocery_reminder_time: "20:00",
   event_reminders_enabled: true,
   reminder_offsets_minutes: [60, 30],
   preferred_dinner_time: "18:00",
@@ -48,6 +51,23 @@ function validTz(value: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+function validWeekday(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "monday"
+    || normalized === "tuesday"
+    || normalized === "wednesday"
+    || normalized === "thursday"
+    || normalized === "friday"
+    || normalized === "saturday"
+    || normalized === "sunday"
+  ) {
+    return normalized;
+  }
+  return fallback;
 }
 
 function normalizeOffsets(input: unknown): number[] {
@@ -185,6 +205,15 @@ serve(async (req) => {
           morning_digest_time: String(data.morning_digest_time || DEFAULT_PREFS.morning_digest_time).slice(0, 5),
           night_before_enabled: !!data.night_before_enabled,
           night_before_time: String(data.night_before_time || DEFAULT_PREFS.night_before_time).slice(0, 5),
+          grocery_reminder_enabled:
+            data.grocery_reminder_enabled ?? DEFAULT_PREFS.grocery_reminder_enabled,
+          grocery_reminder_day: validWeekday(
+            data.grocery_reminder_day,
+            DEFAULT_PREFS.grocery_reminder_day,
+          ),
+          grocery_reminder_time: String(
+            data.grocery_reminder_time || DEFAULT_PREFS.grocery_reminder_time,
+          ).slice(0, 5),
           event_reminders_enabled: !!data.event_reminders_enabled,
           reminder_offsets_minutes: Array.isArray(data.reminder_offsets_minutes)
             ? data.reminder_offsets_minutes
@@ -221,6 +250,9 @@ serve(async (req) => {
         morning_digest_time: validTime(payload?.morning_digest_time, DEFAULT_PREFS.morning_digest_time),
         night_before_enabled: !!payload?.night_before_enabled,
         night_before_time: validTime(payload?.night_before_time, DEFAULT_PREFS.night_before_time),
+        grocery_reminder_enabled: payload?.grocery_reminder_enabled ?? DEFAULT_PREFS.grocery_reminder_enabled,
+        grocery_reminder_day: validWeekday(payload?.grocery_reminder_day, DEFAULT_PREFS.grocery_reminder_day),
+        grocery_reminder_time: validTime(payload?.grocery_reminder_time, DEFAULT_PREFS.grocery_reminder_time),
         event_reminders_enabled: !!payload?.event_reminders_enabled,
         reminder_offsets_minutes: normalizeOffsets(payload?.reminder_offsets_minutes),
         preferred_dinner_time: validTime(payload?.preferred_dinner_time, DEFAULT_PREFS.preferred_dinner_time),

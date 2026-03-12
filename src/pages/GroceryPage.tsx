@@ -7,6 +7,7 @@ import { GroceryCategory } from '@/types';
 import { Copy, ExternalLink, ShoppingCart, Check, Settings2, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { fetchMealsForWeek, DbPlannedMeal } from '@/lib/api/meals';
 import { getMealMultipliers } from '@/lib/mealPrefs';
 import {
@@ -36,6 +37,7 @@ import {
   setWeeklyGroceriesOrdered,
   WeeklyPlanningStatus,
 } from '@/lib/api/weeklyPlanningStatus';
+import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import {
   Dialog,
   DialogContent,
@@ -371,6 +373,7 @@ function buildGroceryList(
 }
 
 export default function GroceryPage() {
+  const { user } = useAuth();
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -388,11 +391,13 @@ export default function GroceryPage() {
   const [updatingNextWeekStatus, setUpdatingNextWeekStatus] = useState(false);
   const [excludePreppedMealPrep, setExcludePreppedMealPrep] = useState<boolean>(true);
   const { toast } = useToast();
+  const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
 
   useEffect(() => {
     setPreferredStoreIdState(getPreferredGroceryStoreId());
     setItemStoreOverrides(getItemStoreOverrides());
-    setOrderReminder(getOrderReminderSettings());
+    const localOrderReminder = getOrderReminderSettings();
+    setOrderReminder(localOrderReminder);
     setLastOrderCompletedAt(getLastOrderCompletedAt());
     setWeeklyAdZipState(getWeeklyAdZip());
     setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
@@ -400,7 +405,23 @@ export default function GroceryPage() {
     setExcludePreppedMealPrep(excludeMealPrep);
     void loadGroceryList(excludeMealPrep);
     void loadNextWeekStatus();
-  }, []);
+    if (canUseRemoteSms) {
+      void (async () => {
+        try {
+          const sms = await loadSmsPreferences();
+          const syncedReminder: GroceryOrderReminderSettings = {
+            enabled: sms.grocery_reminder_enabled,
+            day: sms.grocery_reminder_day,
+            time: sms.grocery_reminder_time,
+          };
+          setOrderReminder(syncedReminder);
+          setOrderReminderSettings(syncedReminder);
+        } catch (error) {
+          console.error('Could not sync grocery reminder schedule from SMS settings:', error);
+        }
+      })();
+    }
+  }, [canUseRemoteSms]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -479,9 +500,29 @@ export default function GroceryPage() {
     setItemStoreOverrides(getItemStoreOverrides());
   };
 
-  const saveGroceryPrefs = () => {
+  const saveGroceryPrefs = async () => {
     setPreferredGroceryStoreId(preferredStoreId);
     setOrderReminderSettings(orderReminder);
+    if (canUseRemoteSms) {
+      try {
+        const sms = await loadSmsPreferences();
+        await saveSmsPreferences({
+          ...sms,
+          grocery_reminder_enabled: orderReminder.enabled,
+          grocery_reminder_day: orderReminder.day,
+          grocery_reminder_time: orderReminder.time,
+        });
+      } catch (error) {
+        toast({
+          title: 'Saved locally',
+          description:
+            error instanceof Error
+              ? `Could not sync SMS schedule yet: ${error.message}`
+              : 'Could not sync SMS schedule yet.',
+          variant: 'destructive',
+        });
+      }
+    }
     setPrefsOpen(false);
     toast({ title: 'Grocery settings saved' });
   };

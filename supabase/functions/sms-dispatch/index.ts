@@ -35,6 +35,9 @@ type SmsPreferenceRow = {
   morning_digest_time: string;
   night_before_enabled: boolean;
   night_before_time: string;
+  grocery_reminder_enabled: boolean;
+  grocery_reminder_day: string;
+  grocery_reminder_time: string;
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
@@ -52,6 +55,16 @@ const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
   5: "friday",
   6: "saturday",
   7: "sunday",
+};
+
+const WEEKDAY_BY_NAME: Record<string, number> = {
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+  sunday: 7,
 };
 
 function parseTimeToMinutes(timeValue: string): number {
@@ -89,6 +102,19 @@ function isDueAt(
   const nowMinutes = localNow.hour * 60 + localNow.minute;
   const effectiveWindow = Math.max(windowMinutes, catchupMinutes);
   return nowMinutes >= targetMinutes && nowMinutes < targetMinutes + effectiveWindow;
+}
+
+function isDueOnWeekdayAt(
+  localNow: DateTime,
+  weekdayName: string,
+  hhmm: string,
+  windowMinutes: number,
+  catchupMinutes = windowMinutes,
+): boolean {
+  const weekday = WEEKDAY_BY_NAME[String(weekdayName || "").trim().toLowerCase()];
+  if (!weekday) return false;
+  if (localNow.weekday !== weekday) return false;
+  return isDueAt(localNow, hhmm, windowMinutes, catchupMinutes);
 }
 
 async function insertDedupeLog(
@@ -634,9 +660,16 @@ serve(async (req) => {
           }
         }
 
-        const shouldSendWeeklyPlanningNudge = isDueAt(
+        const groceryReminderDay = String(row.grocery_reminder_day || "saturday").trim().toLowerCase();
+        const groceryReminderTime = String(
+          row.grocery_reminder_time || row.night_before_time || "20:00",
+        ).slice(0, 5);
+        const groceryReminderEnabled = row.grocery_reminder_enabled ?? true;
+
+        const shouldSendWeeklyPlanningNudge = groceryReminderEnabled && isDueOnWeekdayAt(
           localNow,
-          String(row.night_before_time || "20:00"),
+          groceryReminderDay,
+          groceryReminderTime,
           windowMinutes,
           digestCatchupMinutes,
         );

@@ -870,6 +870,47 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              <div className="rounded-xl border border-border p-4 space-y-3">
+                <label className="w-full flex items-center justify-between">
+                  <span className="text-sm font-medium">Grocery planning reminder</span>
+                  <Switch
+                    checked={smsPrefs.grocery_reminder_enabled}
+                    onCheckedChange={(checked) => updateSmsPref('grocery_reminder_enabled', Boolean(checked))}
+                  />
+                </label>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Day</p>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={smsPrefs.grocery_reminder_day}
+                      onChange={(e) =>
+                        updateSmsPref('grocery_reminder_day', e.target.value as SmsPreferences['grocery_reminder_day'])
+                      }
+                    >
+                      <option value="monday">Monday</option>
+                      <option value="tuesday">Tuesday</option>
+                      <option value="wednesday">Wednesday</option>
+                      <option value="thursday">Thursday</option>
+                      <option value="friday">Friday</option>
+                      <option value="saturday">Saturday</option>
+                      <option value="sunday">Sunday</option>
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Time</p>
+                    <Input
+                      type="time"
+                      value={smsPrefs.grocery_reminder_time}
+                      onChange={(e) => updateSmsPref('grocery_reminder_time', e.target.value || '20:00')}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Separate from night-before digest. This checks if next week meals/grocery are still incomplete.
+                </p>
+              </div>
+
               <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
                 <span className="text-sm">Event reminder texts</span>
                 <Switch
