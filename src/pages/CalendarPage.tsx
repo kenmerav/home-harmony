@@ -1998,7 +1998,7 @@ export default function CalendarPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingEventSource ? 'Edit calendar event' : 'Add calendar event'}
@@ -2008,8 +2008,8 @@ export default function CalendarPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Title</label>
               <Input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder="Event title" />
             </div>
@@ -2039,7 +2039,7 @@ export default function CalendarPage() {
                 }}
               />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between rounded-lg border border-border p-3 md:col-span-2">
               <span className="text-sm">All-day event</span>
               <Switch checked={draftAllDay} onCheckedChange={setDraftAllDay} />
             </div>
@@ -2062,7 +2062,7 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
-            <div className="space-y-2 rounded-lg border border-border p-3">
+            <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Scheduled reminder</span>
                 <Switch checked={draftEventReminderEnabled} onCheckedChange={setDraftEventReminderEnabled} />
@@ -2103,7 +2103,7 @@ export default function CalendarPage() {
                 }}
               />
             </div>
-            <div className="space-y-2 rounded-lg border border-border p-3">
+            <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium">Leaving from</label>
                 <Select
@@ -2199,7 +2199,7 @@ export default function CalendarPage() {
                 )}
               </div>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Notes (optional)</label>
               <Input
                 value={draftDescription}

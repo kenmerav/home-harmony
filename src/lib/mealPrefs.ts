@@ -14,6 +14,8 @@ type MultiplierMap = Record<string, number>;
 export interface PlanRules {
   preferFavorites: boolean;
   preferKidFriendly: boolean;
+  favoritesOnly: boolean;
+  kidFriendlyOnly: boolean;
   maxCookMinutes: number | null;
   dayLocks: Partial<Record<DayOfWeek, string>>;
 }
@@ -33,6 +35,8 @@ export interface MenuRejuvenatePrefs {
 const defaultRules: PlanRules = {
   preferFavorites: true,
   preferKidFriendly: false,
+  favoritesOnly: false,
+  kidFriendlyOnly: false,
   maxCookMinutes: null,
   dayLocks: {},
 };
@@ -152,6 +156,8 @@ export function getPlanRules(): PlanRules {
   return {
     preferFavorites: raw.preferFavorites ?? defaultRules.preferFavorites,
     preferKidFriendly: raw.preferKidFriendly ?? defaultRules.preferKidFriendly,
+    favoritesOnly: !!raw.favoritesOnly,
+    kidFriendlyOnly: !!raw.kidFriendlyOnly,
     maxCookMinutes:
       typeof raw.maxCookMinutes === 'number' && raw.maxCookMinutes > 0
         ? Math.round(raw.maxCookMinutes)

@@ -26,6 +26,8 @@ const DAYS: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday
 export interface MealGenerationOptions {
   preferFavorites?: boolean;
   preferKidFriendly?: boolean;
+  favoritesOnly?: boolean;
+  kidFriendlyOnly?: boolean;
   maxCookMinutes?: number | null;
   dayLocks?: Partial<Record<DayOfWeek, string>>;
 }
@@ -211,12 +213,38 @@ export async function generateMeals(
   daysToRegenerate?: DayOfWeek[],
   options?: MealGenerationOptions,
 ): Promise<DbPlannedMeal[]> {
+  const favoriteIds = getFavoriteIds();
+  const kidOverrides = getKidFriendlyOverrides();
+  const preferKidFriendly = options?.preferKidFriendly ?? false;
+  const preferFavorites = options?.preferFavorites ?? true;
+  const favoritesOnly = options?.favoritesOnly ?? false;
+  const kidFriendlyOnly = options?.kidFriendlyOnly ?? false;
+  const maxCookMinutes = options?.maxCookMinutes ?? null;
+  const dayLocks = options?.dayLocks ?? {};
+
   if (isDemoModeEnabled()) {
     const weekOfDemo = getWeekOf(weekOffset);
     const targetDays = daysToRegenerate || DAYS;
-    const dayLocks = options?.dayLocks ?? {};
     const existing = getDemoMeals(weekOffset);
-    const recipes = getDemoRecipes();
+    const allDemoRecipes = getDemoRecipes();
+    const kidFriendlyIds = new Set(
+      allDemoRecipes
+        .filter((recipe) => kidOverrides[recipe.id] ?? inferKidFriendly(recipe))
+        .map((recipe) => recipe.id),
+    );
+    const recipes = allDemoRecipes.filter((recipe) => {
+      if (maxCookMinutes && maxCookMinutes > 0) {
+        const cookMinutes = estimateCookMinutes(recipe.instructions);
+        if (cookMinutes !== null && cookMinutes > maxCookMinutes) return false;
+      }
+      if (favoritesOnly && !favoriteIds.has(recipe.id)) return false;
+      if (kidFriendlyOnly && !kidFriendlyIds.has(recipe.id)) return false;
+      return true;
+    });
+    if (recipes.length === 0) {
+      throw new Error('No recipes match your regenerate filters.');
+    }
+
     const byDay = new Map(existing.map((m) => [m.day, m]));
     const used = new Set(existing.filter((m) => m.is_locked).map((m) => m.recipe_id));
     const mutable = existing.filter((m) => !targetDays.includes(m.day as DayOfWeek) || m.is_locked).map(({ recipes: _, ...rest }) => rest);
@@ -245,7 +273,24 @@ export async function generateMeals(
           : anyAlternatives.length > 0
           ? anyAlternatives
           : recipes;
-      const candidate = pool[Math.floor(Math.random() * pool.length)];
+      let candidate = weightedPick(
+        pool,
+        used,
+        favoriteIds,
+        kidFriendlyIds,
+        preferFavorites,
+        preferKidFriendly,
+      );
+      if (!candidate) {
+        candidate = weightedPick(
+          recipes,
+          new Set<string>(),
+          favoriteIds,
+          kidFriendlyIds,
+          preferFavorites,
+          preferKidFriendly,
+        );
+      }
       if (!candidate) continue;
       used.add(candidate.id);
       mutable.push({
@@ -264,12 +309,6 @@ export async function generateMeals(
 
   const weekOf = getWeekOf(weekOffset);
   const targetDays = daysToRegenerate || DAYS;
-  const favoriteIds = getFavoriteIds();
-  const kidOverrides = getKidFriendlyOverrides();
-  const preferKidFriendly = options?.preferKidFriendly ?? false;
-  const preferFavorites = options?.preferFavorites ?? true;
-  const maxCookMinutes = options?.maxCookMinutes ?? null;
-  const dayLocks = options?.dayLocks ?? {};
 
   // Fetch all recipes
   const { data: allRecipes, error: recipeErr } = await supabase
@@ -282,13 +321,19 @@ export async function generateMeals(
       .filter((r) => kidOverrides[r.id] ?? inferKidFriendly(r))
       .map((r) => r.id),
   );
-  const allRecipesFiltered = maxCookMinutes && maxCookMinutes > 0
+  let allRecipesFiltered = maxCookMinutes && maxCookMinutes > 0
     ? allRecipes.filter((r) => {
         const cookMinutes = estimateCookMinutes(r.instructions);
         return cookMinutes === null || cookMinutes <= maxCookMinutes;
       })
     : allRecipes;
-  if (allRecipesFiltered.length === 0) throw new Error('No recipes match your max-time filter');
+  if (favoritesOnly) {
+    allRecipesFiltered = allRecipesFiltered.filter((recipe) => favoriteIds.has(recipe.id));
+  }
+  if (kidFriendlyOnly) {
+    allRecipesFiltered = allRecipesFiltered.filter((recipe) => kidFriendlyIds.has(recipe.id));
+  }
+  if (allRecipesFiltered.length === 0) throw new Error('No recipes match your regenerate filters.');
 
   // Fetch existing meals for this week (to preserve locked ones)
   const { data: existing } = await supabase
@@ -330,7 +375,7 @@ export async function generateMeals(
 
   // Apply recurring day locks first (example: tacos every Tuesday).
   for (const day of daysNeedingMeals.slice()) {
-    const forcedRecipe = resolveDayLockRecipe(allRecipes, dayLocks[day]);
+    const forcedRecipe = resolveDayLockRecipe(allRecipesFiltered, dayLocks[day]);
     if (!forcedRecipe) continue;
 
     newMeals.push({ recipe_id: forcedRecipe.id, day, week_of: weekOf });

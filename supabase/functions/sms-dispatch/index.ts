@@ -515,8 +515,7 @@ serve(async (req) => {
     const { data: prefs, error } = await supabase
       .from("sms_preferences")
       .select("*")
-      .eq("enabled", true)
-      .not("phone_e164", "is", null);
+      .eq("enabled", true);
     if (error) return json({ error: error.message }, 500);
 
     let usersProcessed = 0;
@@ -528,10 +527,12 @@ serve(async (req) => {
       try {
         usersProcessed += 1;
         const timezone = row.timezone || "America/New_York";
-        const phone = row.phone_e164 || "";
+        const phone = String(row.phone_e164 || "").trim();
         const includeModules = normalizeIncludeModules(row.include_modules);
         const moduleRecipients = normalizeRecipientMap(row.module_recipients);
-        const digestRecipients = recipientListForModules(includeModules, moduleRecipients, phone || null);
+        const digestRecipients = recipientListForModules(includeModules, moduleRecipients, phone || null).map((item) =>
+          String(item || "").trim(),
+        ).filter((item) => item.length > 0);
         if (digestRecipients.length === 0) continue;
 
         const localNow = nowUtc.setZone(timezone);
@@ -618,9 +619,11 @@ serve(async (req) => {
           }
         }
 
-        const shouldSendWeeklyPlanningNudge =
-          localNow.weekday >= 5 &&
-          isDueAt(localNow, String(row.night_before_time || "20:00"), windowMinutes);
+        const shouldSendWeeklyPlanningNudge = isDueAt(
+          localNow,
+          String(row.night_before_time || "20:00"),
+          windowMinutes,
+        );
 
         if (shouldSendWeeklyPlanningNudge) {
           const nextWeekLocal = localNow.plus({ weeks: 1 }).startOf("week");

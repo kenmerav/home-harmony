@@ -1037,6 +1037,8 @@ export default function OnboardingPage() {
         preferFavorites: resolvedAnswers.planningStyle !== 'I mostly build my own plan',
         preferKidFriendly:
           resolvedAnswers.kidsCount > 0 || resolvedAnswers.mealStylePreferences.includes('Kid-friendly'),
+        favoritesOnly: false,
+        kidFriendlyOnly: false,
         maxCookMinutes:
           resolvedAnswers.mealStylePreferences.includes('Quick meals') ||
           resolvedAnswers.mealStylePreferences.includes('Healthy and easy') ||

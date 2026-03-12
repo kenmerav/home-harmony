@@ -176,6 +176,8 @@ export default function MealsPage() {
   const [planRules, setPlanRulesState] = useState<MealGenerationOptions>({
     preferFavorites: true,
     preferKidFriendly: false,
+    favoritesOnly: false,
+    kidFriendlyOnly: false,
     maxCookMinutes: null,
     dayLocks: {},
   });
@@ -393,6 +395,8 @@ export default function MealsPage() {
     const next = {
       preferFavorites: !!planRules.preferFavorites,
       preferKidFriendly: !!planRules.preferKidFriendly,
+      favoritesOnly: !!planRules.favoritesOnly,
+      kidFriendlyOnly: !!planRules.kidFriendlyOnly,
       maxCookMinutes,
       dayLocks,
     };
@@ -422,6 +426,8 @@ export default function MealsPage() {
           days: daysToRegen || days,
           preferFavorites: !!planRules.preferFavorites,
           preferKidFriendly: !!planRules.preferKidFriendly,
+          favoritesOnly: !!planRules.favoritesOnly,
+          kidFriendlyOnly: !!planRules.kidFriendlyOnly,
           maxCookMinutes: planRules.maxCookMinutes || null,
         },
       );
@@ -607,6 +613,43 @@ export default function MealsPage() {
       if (!recipeId) setPlannerRecipeQuery('');
       return;
     }
+
+    // Quick-add from meal grid should save immediately and count in projections.
+    if (gridQuickAddContext) {
+      addPlannedFoodEntry(
+        {
+          date: plannerForm.date,
+          mealType: plannerForm.mealType,
+          name: recipe.name,
+          servings: 1,
+          calories: Math.max(0, Math.round(recipe.calories || 0)),
+          protein_g: Math.max(0, Math.round(recipe.protein_g || 0)),
+          carbs_g: Math.max(0, Math.round(recipe.carbs_g || 0)),
+          fat_g: Math.max(0, Math.round(recipe.fat_g || 0)),
+          sourceRecipeId: recipe.id,
+        },
+        user?.id,
+      );
+      refreshPlannerEntries();
+      setGridQuickAddContext(null);
+      setPlannerRecipeQuery('');
+      setPlannerForm((prev) => ({
+        ...prev,
+        recipeId: '',
+        name: '',
+        servings: '1',
+        calories: '',
+        protein_g: '',
+        carbs_g: '',
+        fat_g: '',
+      }));
+      toast({
+        title: `${plannedMealTypeLabel[plannerForm.mealType]} added`,
+        description: `${recipe.name} was added to your macro planner.`,
+      });
+      return;
+    }
+
     setPlannerForm((prev) => ({
       ...prev,
       recipeId: recipe.id,
@@ -916,10 +959,16 @@ export default function MealsPage() {
       return recipe.meal_type === mealType;
     });
 
-    if (candidatePool.length === 0) {
+    const filteredCandidatePool = candidatePool.filter((recipe) => {
+      if (planRules.favoritesOnly && !favoriteIds.has(recipe.id)) return false;
+      if (planRules.kidFriendlyOnly && !isKidFriendlyRecipe(recipe)) return false;
+      return true;
+    });
+
+    if (filteredCandidatePool.length === 0) {
       toast({
         title: `No ${plannedMealTypeLabel[mealType].toLowerCase()} recipes found`,
-        description: `Import recipes tagged for ${plannedMealTypeLabel[mealType].toLowerCase()} first.`,
+        description: `Try loosening favorites/kid-friendly filters or import more ${plannedMealTypeLabel[mealType].toLowerCase()} recipes.`,
         variant: 'destructive',
       });
       return;
@@ -942,7 +991,7 @@ export default function MealsPage() {
         deletePlannedFoodEntriesByDateAndMealType(rowDate.date, mealType, user?.id);
       }
 
-      const pickedRecipe = pickSuggestedRecipeForMealType(candidatePool, usedRecipeIds);
+      const pickedRecipe = pickSuggestedRecipeForMealType(filteredCandidatePool, usedRecipeIds);
       if (!pickedRecipe) continue;
       usedRecipeIds.add(pickedRecipe.id);
 
@@ -2086,10 +2135,24 @@ export default function MealsPage() {
             </label>
             <label className="flex items-center gap-3">
               <Checkbox
+                checked={!!planRules.favoritesOnly}
+                onCheckedChange={(v) => setPlanRulesState((p) => ({ ...p, favoritesOnly: !!v }))}
+              />
+              <span className="text-sm">Favorites only when regenerating</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <Checkbox
                 checked={!!planRules.preferKidFriendly}
                 onCheckedChange={(v) => setPlanRulesState((p) => ({ ...p, preferKidFriendly: !!v }))}
               />
               <span className="text-sm">Prefer kid-friendly recipes when generating</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <Checkbox
+                checked={!!planRules.kidFriendlyOnly}
+                onCheckedChange={(v) => setPlanRulesState((p) => ({ ...p, kidFriendlyOnly: !!v }))}
+              />
+              <span className="text-sm">Kid-friendly only when regenerating</span>
             </label>
             <div>
               <p className="text-sm mb-1">Choose meals under this time (minutes)</p>

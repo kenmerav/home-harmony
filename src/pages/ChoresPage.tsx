@@ -93,6 +93,15 @@ interface ChildEconomy {
 interface ChoresState {
   children: ChildEconomy[];
   availableExtraChores: ExtraChoreOpportunity[];
+  lastDailyResetDate: string;
+}
+
+function todayDateKey(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 const money = (amount: number) => `$${amount.toFixed(2)}`;
@@ -115,7 +124,7 @@ function choresStateKey(userId?: string | null): string {
 }
 
 function defaultState(): ChoresState {
-  return { children: [], availableExtraChores: [] };
+  return { children: [], availableExtraChores: [], lastDailyResetDate: todayDateKey() };
 }
 
 function loadState(userId?: string | null): ChoresState {
@@ -127,7 +136,7 @@ function loadState(userId?: string | null): ChoresState {
 
     if (Array.isArray(parsed)) {
       // legacy: old format stored only children
-      return { children: parsed, availableExtraChores: [] };
+      return { children: parsed, availableExtraChores: [], lastDailyResetDate: todayDateKey() };
     }
 
     const children = Array.isArray(parsed.children) ? parsed.children : [];
@@ -153,6 +162,10 @@ function loadState(userId?: string | null): ChoresState {
       availableExtraChores: Array.isArray(parsed.availableExtraChores)
         ? parsed.availableExtraChores
         : [],
+      lastDailyResetDate:
+        typeof parsed.lastDailyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDailyResetDate)
+          ? parsed.lastDailyResetDate
+          : todayDateKey(),
     };
   } catch {
     return defaultState();
@@ -263,6 +276,29 @@ export default function ChoresPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (loadedForKey !== activeKey) return;
+
+    const applyResetIfNeeded = () => {
+      const today = todayDateKey();
+      setState((prev) => {
+        if (prev.lastDailyResetDate === today) return prev;
+        return {
+          ...prev,
+          lastDailyResetDate: today,
+          children: prev.children.map((child) => ({
+            ...child,
+            dailyChores: child.dailyChores.map((chore) => ({ ...chore, isCompleted: false })),
+          })),
+        };
+      });
+    };
+
+    applyResetIfNeeded();
+    const timer = window.setInterval(applyResetIfNeeded, 60_000);
+    return () => window.clearInterval(timer);
+  }, [activeKey, loadedForKey]);
+
   const updateChild = (childId: string, updater: (child: ChildEconomy) => ChildEconomy) => {
     setState((prev) => ({
       ...prev,
@@ -310,8 +346,10 @@ export default function ChoresPage() {
   };
 
   const resetDaily = () => {
+    const today = todayDateKey();
     setState((prev) => ({
       ...prev,
+      lastDailyResetDate: today,
       children: prev.children.map((child) => ({
         ...child,
         dailyChores: child.dailyChores.map((chore) => ({ ...chore, isCompleted: false })),

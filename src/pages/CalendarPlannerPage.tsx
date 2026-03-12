@@ -1529,7 +1529,7 @@ export default function CalendarPlannerPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingEventSource ? 'Edit planner event' : 'Add planner event'}
@@ -1538,8 +1538,8 @@ export default function CalendarPlannerPage() {
               {editingEventSource ? 'Update this calendar item.' : 'Create a manual event for this calendar.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Title</label>
               <Input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} placeholder="Event title" />
             </div>
@@ -1569,7 +1569,7 @@ export default function CalendarPlannerPage() {
                 }}
               />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between rounded-lg border border-border p-3 md:col-span-2">
               <span className="text-sm">All-day event</span>
               <Switch checked={draftAllDay} onCheckedChange={setDraftAllDay} />
             </div>
@@ -1592,7 +1592,7 @@ export default function CalendarPlannerPage() {
                 </div>
               </div>
             )}
-            <div className="space-y-2 rounded-lg border border-border p-3">
+            <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Scheduled reminder</span>
                 <Switch checked={draftEventReminderEnabled} onCheckedChange={setDraftEventReminderEnabled} />
@@ -1622,7 +1622,7 @@ export default function CalendarPlannerPage() {
                 Sends before event start time.
               </p>
             </div>
-            <div className="space-y-2 rounded-lg border border-border p-3">
+            <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Recurring event</span>
                 <Switch
@@ -1659,7 +1659,7 @@ export default function CalendarPlannerPage() {
                 <p className="text-xs text-muted-foreground">This event will be created once.</p>
               )}
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Notes (optional)</label>
               <Input
                 value={draftDescription}
@@ -1667,7 +1667,7 @@ export default function CalendarPlannerPage() {
                 placeholder="Add a short note"
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2">
               <label className="text-sm font-medium">Location (optional)</label>
               <Input
                 value={draftLocation}
