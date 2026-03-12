@@ -132,6 +132,26 @@ function writeJson<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function localNoonIsoForDateToken(dateToken: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateToken)) return null;
+  const localNoon = new Date(`${dateToken}T12:00:00`);
+  if (!Number.isFinite(localNoon.getTime())) return null;
+  return localNoon.toISOString();
+}
+
+function normalizeAllDayStartsAt(startsAt: string, allDay: boolean): string {
+  if (!allDay || typeof startsAt !== 'string') return startsAt;
+  const trimmed = startsAt.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return localNoonIsoForDateToken(trimmed) || startsAt;
+  }
+  const utcMidnight = /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/i.exec(trimmed);
+  if (utcMidnight?.[1]) {
+    return localNoonIsoForDateToken(utcMidnight[1]) || startsAt;
+  }
+  return startsAt;
+}
+
 function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<StoredManualEvent>;
@@ -201,7 +221,7 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
       typeof input.leaveReminderLeadMinutes === 'number' && Number.isFinite(input.leaveReminderLeadMinutes)
         ? Math.max(5, Math.min(120, Math.round(input.leaveReminderLeadMinutes)))
         : 10,
-    startsAt: input.startsAt,
+    startsAt: normalizeAllDayStartsAt(input.startsAt, !!input.allDay),
     endsAt: input.endsAt,
     allDay: !!input.allDay,
     createdAt: input.createdAt || new Date().toISOString(),

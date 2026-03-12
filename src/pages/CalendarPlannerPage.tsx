@@ -157,6 +157,12 @@ function eventTimeLabel(event: CalendarEvent): string {
   return `${format(start, 'h:mm a')} - ${format(parseISO(event.endsAt), 'h:mm a')}`;
 }
 
+function allDayDraftDateFromStartsAt(startsAt: string): string {
+  const utcMidnight = /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/i.exec((startsAt || '').trim());
+  if (utcMidnight?.[1]) return utcMidnight[1];
+  return format(parseISO(startsAt), 'yyyy-MM-dd');
+}
+
 function isoDayKey(date: Date): string {
   return format(date, 'yyyy-MM-dd');
 }
@@ -648,7 +654,7 @@ export default function CalendarPlannerPage() {
     setDraftTitle(event.title);
     setDraftDescription(event.description || '');
     setDraftLocation(event.location || '');
-    setDraftDate(format(start, 'yyyy-MM-dd'));
+    setDraftDate(event.allDay ? allDayDraftDateFromStartsAt(event.startsAt) : format(start, 'yyyy-MM-dd'));
     setDraftAllDay(!!event.allDay);
     setDraftTime(event.allDay ? '18:00' : format(start, 'HH:mm'));
     setDraftEndTime(event.allDay || !end ? '' : format(end, 'HH:mm'));
@@ -736,12 +742,7 @@ export default function CalendarPlannerPage() {
       toast({ title: 'Choose a filter first', variant: 'destructive' });
       return;
     }
-    const startsAt = draftAllDay ? `${draftDate}T00:00:00.000Z` : `${draftDate}T${draftTime || '18:00'}:00`;
-    const endsAt = draftAllDay
-      ? undefined
-      : draftEndTime
-      ? `${draftDate}T${draftEndTime}:00`
-      : undefined;
+    const day = parseISO(`${draftDate}T00:00:00`);
     const selectedTravelFromAddress = (
       draftDepartureSource === 'other'
         ? draftHomeAddress.trim()
@@ -761,12 +762,12 @@ export default function CalendarPlannerPage() {
       Math.min(120, Number.parseInt(draftLeaveReminderLeadMinutes || '10', 10) || 10),
     );
 
-    const baseStartDate = new Date(startsAt);
-    if (!Number.isFinite(baseStartDate.getTime())) {
-      toast({ title: 'Invalid start date/time', variant: 'destructive' });
+    const baseStartDate = draftAllDay ? withTime(day, '12:00') : withTime(day, draftTime || '18:00');
+    const baseEndDate = !draftAllDay && draftEndTime ? withTime(day, draftEndTime) : null;
+    if (!draftAllDay && baseEndDate && baseEndDate.getTime() <= baseStartDate.getTime()) {
+      toast({ title: 'End time must be after start time', variant: 'destructive' });
       return;
     }
-    const baseEndDate = endsAt ? new Date(endsAt) : null;
     const endOffsetMs =
       baseEndDate && Number.isFinite(baseEndDate.getTime()) && baseEndDate.getTime() > baseStartDate.getTime()
         ? baseEndDate.getTime() - baseStartDate.getTime()

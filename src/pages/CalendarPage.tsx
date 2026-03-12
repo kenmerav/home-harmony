@@ -234,6 +234,12 @@ function withTime(baseDate: Date, hhmm: string): Date {
   return date;
 }
 
+function allDayDraftDateFromStartsAt(startsAt: string): string {
+  const utcMidnight = /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/i.exec((startsAt || '').trim());
+  if (utcMidnight?.[1]) return utcMidnight[1];
+  return format(parseISO(startsAt), 'yyyy-MM-dd');
+}
+
 function toGoogleDateToken(input: Date): string {
   return input.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
@@ -970,7 +976,7 @@ export default function CalendarPage() {
     setDraftTitle(event.title);
     setDraftDescription(event.description || '');
     setDraftLocation(event.location || '');
-    setDraftDate(format(start, 'yyyy-MM-dd'));
+    setDraftDate(event.allDay ? allDayDraftDateFromStartsAt(event.startsAt) : format(start, 'yyyy-MM-dd'));
     setDraftAllDay(!!event.allDay);
     setDraftTime(event.allDay ? '18:00' : format(start, 'HH:mm'));
     setDraftEndTime(event.allDay || !end ? '' : format(end, 'HH:mm'));
@@ -1055,9 +1061,9 @@ export default function CalendarPage() {
       return;
     }
     const day = parseISO(`${draftDate}T00:00:00`);
-    const startsAt = draftAllDay ? day.toISOString() : withTime(day, draftTime || '18:00').toISOString();
+    const startsAt = draftAllDay ? withTime(day, '12:00').toISOString() : withTime(day, draftTime || '18:00').toISOString();
     const endsAt = draftAllDay
-      ? addDays(day, 1).toISOString()
+      ? undefined
       : draftEndTime
       ? withTime(day, draftEndTime).toISOString()
       : undefined;
