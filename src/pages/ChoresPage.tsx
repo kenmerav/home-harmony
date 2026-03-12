@@ -136,7 +136,8 @@ function loadState(userId?: string | null): ChoresState {
 
     if (Array.isArray(parsed)) {
       // legacy: old format stored only children
-      return { children: parsed, availableExtraChores: [], lastDailyResetDate: todayDateKey() };
+      // Force one daily reset pass after migrating from legacy format.
+      return { children: parsed, availableExtraChores: [], lastDailyResetDate: '' };
     }
 
     const children = Array.isArray(parsed.children) ? parsed.children : [];
@@ -165,7 +166,7 @@ function loadState(userId?: string | null): ChoresState {
       lastDailyResetDate:
         typeof parsed.lastDailyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDailyResetDate)
           ? parsed.lastDailyResetDate
-          : todayDateKey(),
+          : '',
     };
   } catch {
     return defaultState();
@@ -296,7 +297,17 @@ export default function ChoresPage() {
 
     applyResetIfNeeded();
     const timer = window.setInterval(applyResetIfNeeded, 60_000);
-    return () => window.clearInterval(timer);
+    const onFocus = () => applyResetIfNeeded();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') applyResetIfNeeded();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [activeKey, loadedForKey]);
 
   const updateChild = (childId: string, updater: (child: ChildEconomy) => ChildEconomy) => {
