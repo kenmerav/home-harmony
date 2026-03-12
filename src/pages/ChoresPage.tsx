@@ -46,6 +46,8 @@ const dayLabels: Record<DayOfWeek, string> = {
 const allDays: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 type RewardUnit = 'money' | 'points';
+type ChoreFrequency = 'daily' | 'weekly' | 'other';
+type NonDailyChoreFrequency = Exclude<ChoreFrequency, 'daily'>;
 
 interface RewardChore {
   id: string;
@@ -58,6 +60,7 @@ interface RewardChore {
 interface RewardWeeklyChore extends RewardChore {
   day?: DayOfWeek;
   days?: DayOfWeek[];
+  scheduleType?: NonDailyChoreFrequency;
 }
 
 interface ClaimedExtraChore {
@@ -124,6 +127,14 @@ function formatReward(amount: number, unit: RewardUnit): string {
   return unit === 'points' ? formatPoints(amount) : money(amount);
 }
 
+function normalizeNonDailyFrequency(chore: Partial<RewardWeeklyChore>): NonDailyChoreFrequency {
+  if (chore.scheduleType === 'weekly' || chore.scheduleType === 'other') return chore.scheduleType;
+  const days = Array.isArray(chore.days)
+    ? chore.days.filter((day): day is DayOfWeek => allDays.includes(day))
+    : [];
+  return days.length > 1 ? 'other' : 'weekly';
+}
+
 function normalizeWeeklyDays(chore: RewardWeeklyChore): DayOfWeek[] {
   const fromDays = Array.isArray(chore.days)
     ? chore.days.filter((day): day is DayOfWeek => allDays.includes(day))
@@ -176,6 +187,7 @@ function loadState(userId?: string | null): ChoresState {
                 ...chore,
                 day: weeklyDays[0],
                 days: weeklyDays,
+                scheduleType: normalizeNonDailyFrequency(chore as Partial<RewardWeeklyChore>),
                 rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
               };
             })
@@ -243,7 +255,7 @@ export default function ChoresPage() {
   const [addChoreOpen, setAddChoreOpen] = useState(false);
   const [choreChildId, setChoreChildId] = useState<string | null>(null);
   const [newChoreName, setNewChoreName] = useState('');
-  const [newChoreType, setNewChoreType] = useState<'daily' | 'weekly'>('daily');
+  const [newChoreType, setNewChoreType] = useState<ChoreFrequency>('daily');
   const [newChoreDay, setNewChoreDay] = useState<DayOfWeek>('monday');
   const [newChoreDays, setNewChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [newChoreReward, setNewChoreReward] = useState('1');
@@ -257,6 +269,7 @@ export default function ChoresPage() {
   const [editChoreName, setEditChoreName] = useState('');
   const [editChoreReward, setEditChoreReward] = useState('1');
   const [editChoreRewardUnit, setEditChoreRewardUnit] = useState<RewardUnit>('money');
+  const [editChoreFrequency, setEditChoreFrequency] = useState<NonDailyChoreFrequency>('weekly');
   const [editChoreDay, setEditChoreDay] = useState<DayOfWeek>('monday');
   const [editChoreDays, setEditChoreDays] = useState<DayOfWeek[]>(['monday']);
   const [addExtraOpen, setAddExtraOpen] = useState(false);
@@ -465,11 +478,18 @@ export default function ChoresPage() {
         };
         return { ...child, dailyChores: [...child.dailyChores, newChore] };
       }
+      const selectedDays =
+        newChoreType === 'weekly'
+          ? [newChoreDay]
+          : newChoreDays.length > 0
+            ? [...newChoreDays]
+            : [newChoreDay];
       const newChore: RewardWeeklyChore = {
         id: `weekly-${Date.now()}`,
         name: newChoreName.trim(),
-        day: newChoreDays[0] || newChoreDay,
-        days: [...newChoreDays],
+        day: selectedDays[0] || newChoreDay,
+        days: selectedDays,
+        scheduleType: newChoreType === 'other' ? 'other' : 'weekly',
         isCompleted: false,
         reward,
         rewardUnit: newChoreRewardUnit,
@@ -493,6 +513,7 @@ export default function ChoresPage() {
       setEditChoreName(chore.name);
       setEditChoreReward(String(chore.reward));
       setEditChoreRewardUnit(normalizeRewardUnit(chore.rewardUnit));
+      setEditChoreFrequency('weekly');
       setEditChoreDay('monday');
       setEditChoreDays(['monday']);
     } else {
@@ -502,6 +523,7 @@ export default function ChoresPage() {
       setEditChoreName(chore.name);
       setEditChoreReward(String(chore.reward));
       setEditChoreRewardUnit(normalizeRewardUnit(chore.rewardUnit));
+      setEditChoreFrequency(normalizeNonDailyFrequency(chore));
       setEditChoreDay(weeklyDays[0] || 'monday');
       setEditChoreDays(weeklyDays);
     }
@@ -528,18 +550,24 @@ export default function ChoresPage() {
 
       return {
         ...child,
-        weeklyChores: child.weeklyChores.map((chore) =>
-          chore.id === choreId
-            ? {
-                ...chore,
-                name: editChoreName.trim(),
-                reward,
-                rewardUnit: editChoreRewardUnit,
-                day: editChoreDays[0] || editChoreDay,
-                days: [...editChoreDays],
-              }
-            : chore,
-        ),
+        weeklyChores: child.weeklyChores.map((chore) => {
+          if (chore.id !== choreId) return chore;
+          const selectedDays =
+            editChoreFrequency === 'weekly'
+              ? [editChoreDay]
+              : editChoreDays.length > 0
+                ? [...editChoreDays]
+                : [editChoreDay];
+          return {
+            ...chore,
+            name: editChoreName.trim(),
+            reward,
+            rewardUnit: editChoreRewardUnit,
+            day: selectedDays[0] || editChoreDay,
+            days: selectedDays,
+            scheduleType: editChoreFrequency,
+          };
+        }),
       };
     });
 
@@ -864,7 +892,7 @@ export default function ChoresPage() {
 
                 {todaysWeekly.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Today's Weekly Chores</h4>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Scheduled for Today</h4>
                     <div className="space-y-2">
                       {todaysWeekly.map((chore) => (
                         <label
@@ -909,7 +937,7 @@ export default function ChoresPage() {
 
                 {child.weeklyChores.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Weekly Schedule</h4>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Scheduled Chores</h4>
                     <div className="flex flex-wrap gap-2">
                       {child.weeklyChores.map((chore) => (
                         <button
@@ -1036,19 +1064,45 @@ export default function ChoresPage() {
             <Input placeholder="Chore name" value={newChoreName} onChange={(e) => setNewChoreName(e.target.value)} />
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Type</label>
-              <Select value={newChoreType} onValueChange={(value) => setNewChoreType(value as 'daily' | 'weekly')}>
+              <label className="text-sm font-medium">Frequency</label>
+              <Select
+                value={newChoreType}
+                onValueChange={(value) => {
+                  const next = value as ChoreFrequency;
+                  setNewChoreType(next);
+                  if (next === 'weekly') setNewChoreDays([newChoreDay]);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="weekly">Weekly (one day)</SelectItem>
+                  <SelectItem value="other">Other (specific days)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {newChoreType === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Day of week</label>
+                <Select value={newChoreDay} onValueChange={(value) => setNewChoreDay(value as DayOfWeek)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allDays.map((day) => (
+                      <SelectItem key={`new-weekly-day-${day}`} value={day}>
+                        {dayLabels[day]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {newChoreType === 'other' && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Days of week</label>
                 <div className="flex flex-wrap gap-2">
@@ -1150,25 +1204,60 @@ export default function ChoresPage() {
               </div>
             </div>
             {editingChoreTarget?.type === 'weekly' && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Days of week</label>
-                <div className="flex flex-wrap gap-2">
-                  {allDays.map((day) => {
-                    const active = editChoreDays.includes(day);
-                    return (
-                      <Button
-                        key={`edit-chore-day-${day}`}
-                        type="button"
-                        size="sm"
-                        variant={active ? 'default' : 'outline'}
-                        onClick={() => toggleEditChoreDay(day)}
-                      >
-                        {dayLabels[day].slice(0, 3)}
-                      </Button>
-                    );
-                  })}
+              <>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Frequency</label>
+                  <Select
+                    value={editChoreFrequency}
+                    onValueChange={(value) => setEditChoreFrequency(value as NonDailyChoreFrequency)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Weekly (one day)</SelectItem>
+                      <SelectItem value="other">Other (specific days)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
+                {editChoreFrequency === 'weekly' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Day of week</label>
+                    <Select value={editChoreDay} onValueChange={(value) => setEditChoreDay(value as DayOfWeek)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allDays.map((day) => (
+                          <SelectItem key={`edit-weekly-day-${day}`} value={day}>
+                            {dayLabels[day]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Days of week</label>
+                    <div className="flex flex-wrap gap-2">
+                      {allDays.map((day) => {
+                        const active = editChoreDays.includes(day);
+                        return (
+                          <Button
+                            key={`edit-chore-day-${day}`}
+                            type="button"
+                            size="sm"
+                            variant={active ? 'default' : 'outline'}
+                            onClick={() => toggleEditChoreDay(day)}
+                          >
+                            {dayLabels[day].slice(0, 3)}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="destructive" onClick={deleteChore}>
