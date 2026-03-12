@@ -79,10 +79,16 @@ function inQuietHours(nowMinutes: number, start: string | null, end: string | nu
   return nowMinutes >= startMinutes || nowMinutes < endMinutes;
 }
 
-function isDueAt(localNow: DateTime, hhmm: string, windowMinutes: number): boolean {
+function isDueAt(
+  localNow: DateTime,
+  hhmm: string,
+  windowMinutes: number,
+  catchupMinutes = windowMinutes,
+): boolean {
   const targetMinutes = parseTimeToMinutes(hhmm);
   const nowMinutes = localNow.hour * 60 + localNow.minute;
-  return nowMinutes >= targetMinutes && nowMinutes < targetMinutes + windowMinutes;
+  const effectiveWindow = Math.max(windowMinutes, catchupMinutes);
+  return nowMinutes >= targetMinutes && nowMinutes < targetMinutes + effectiveWindow;
 }
 
 async function insertDedupeLog(
@@ -508,8 +514,10 @@ serve(async (req) => {
     if (!supabaseUrl || !serviceRole) return json({ error: "Missing Supabase env vars." }, 500);
     const supabase = createClient(supabaseUrl, serviceRole);
 
-    const windowMinutes = Number.parseInt(Deno.env.get("SMS_DISPATCH_WINDOW_MINUTES") || "5", 10) || 5;
-    const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "10", 10) || 10;
+    const windowMinutes = Number.parseInt(Deno.env.get("SMS_DISPATCH_WINDOW_MINUTES") || "10", 10) || 10;
+    const digestCatchupMinutes =
+      Number.parseInt(Deno.env.get("SMS_DIGEST_CATCHUP_MINUTES") || "180", 10) || 180;
+    const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "45", 10) || 45;
     const nowUtc = DateTime.utc();
     const trafficLookupCache = new Map<string, { trafficMinutes: number | null; baseMinutes: number | null }>();
 
@@ -562,7 +570,10 @@ serve(async (req) => {
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
 
-        if (row.morning_digest_enabled && isDueAt(localNow, String(row.morning_digest_time || "07:00"), windowMinutes)) {
+        if (
+          row.morning_digest_enabled &&
+          isDueAt(localNow, String(row.morning_digest_time || "07:00"), windowMinutes, digestCatchupMinutes)
+        ) {
           for (const recipient of digestRecipients) {
             const dedupeKey = `morning:${row.user_id}:${todayLocal.toISODate()}:${recipient}`;
             const logId = await insertDedupeLog(
@@ -591,7 +602,10 @@ serve(async (req) => {
           }
         }
 
-        if (row.night_before_enabled && isDueAt(localNow, String(row.night_before_time || "20:00"), windowMinutes)) {
+        if (
+          row.night_before_enabled &&
+          isDueAt(localNow, String(row.night_before_time || "20:00"), windowMinutes, digestCatchupMinutes)
+        ) {
           for (const recipient of digestRecipients) {
             const dedupeKey = `night:${row.user_id}:${tomorrowLocal.toISODate()}:${recipient}`;
             const logId = await insertDedupeLog(
@@ -624,6 +638,7 @@ serve(async (req) => {
           localNow,
           String(row.night_before_time || "20:00"),
           windowMinutes,
+          digestCatchupMinutes,
         );
 
         if (shouldSendWeeklyPlanningNudge) {
@@ -726,6 +741,7 @@ serve(async (req) => {
           localNow,
           String(row.night_before_time || "20:00"),
           windowMinutes,
+          digestCatchupMinutes,
         );
 
         if (shouldSendWellnessNudge) {
@@ -1033,6 +1049,9 @@ serve(async (req) => {
       messagesSent,
       errors,
       nowUtc: nowUtc.toISO(),
+      dispatchWindowMinutes: windowMinutes,
+      digestCatchupMinutes,
+      reminderLateGraceMinutes: lateGraceMinutes,
     });
   } catch (error) {
     console.error("sms-dispatch error:", error);
