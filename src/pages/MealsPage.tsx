@@ -219,6 +219,7 @@ export default function MealsPage() {
   const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('dinner-list');
   const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [plannerExpandedByDate, setPlannerExpandedByDate] = useState<Record<string, boolean>>({});
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
@@ -1978,7 +1979,9 @@ export default function MealsPage() {
             const shouldShowDinnerBase =
               Boolean(dinnerBase) &&
               (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
-            const showDetailedMetrics = plannerViewMode === 'daily-all';
+            const isExpanded = plannerExpandedByDate[row.date] ?? (plannerViewMode === 'daily-all');
+            const showDetailedMetrics = plannerViewMode === 'daily-all' && isExpanded;
+            const plannedCount = filteredEntries.length + (shouldShowDinnerBase ? 1 : 0);
             const calorieProgress = metricProgress(projected.calories, macroTarget.calories);
             const proteinProgress = metricProgress(projected.protein_g, macroTarget.protein_g);
             const carbsProgress = metricProgress(projected.carbs_g, macroTarget.carbs_g);
@@ -1999,101 +2002,127 @@ export default function MealsPage() {
                   <p className="font-medium">
                     {format(new Date(`${row.date}T00:00:00`), 'EEE, MMM d')}
                   </p>
-                  <p className={cn('text-xs', calorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                    {calorieStatus}
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
-                  {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
-                </p>
-                {showDetailedMetrics ? (
-                  <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
-                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                      <div className="space-y-2">
-                        {[
-                          { label: 'Calories', current: projected.calories, target: macroTarget.calories, progress: calorieProgress, color: 'bg-primary' },
-                          { label: 'Protein', current: projected.protein_g, target: macroTarget.protein_g, progress: proteinProgress, color: 'bg-emerald-500' },
-                          { label: 'Carbs', current: projected.carbs_g, target: macroTarget.carbs_g, progress: carbsProgress, color: 'bg-amber-500' },
-                          { label: 'Fat', current: projected.fat_g, target: macroTarget.fat_g, progress: fatProgress, color: 'bg-rose-500' },
-                        ].map((metric) => (
-                          <div key={metric.label}>
-                            <div className="mb-1 flex items-center justify-between text-xs">
-                              <span>{metric.label}</span>
-                              <span className="text-muted-foreground">
-                                {Math.round(metric.current)}/{Math.round(metric.target)}
-                              </span>
-                            </div>
-                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={cn('h-2 rounded-full transition-all', metric.color)}
-                                style={{ width: `${Math.min(metric.progress, 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex flex-col items-center justify-center">
-                        <div
-                          className="relative h-20 w-20 rounded-full border border-border"
-                          style={{ background: macroPie }}
-                          aria-label="Macro split chart"
-                        >
-                          <div className="absolute inset-3 rounded-full bg-background" />
-                          <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
-                            {macroCalTotal > 0 ? 'Split' : 'No data'}
-                          </div>
-                        </div>
-                        <div className="mt-2 text-[10px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
-                          <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
-                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <p className={cn('text-xs', calorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                      {calorieStatus}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() =>
+                        setPlannerExpandedByDate((prev) => {
+                          const current = prev[row.date] ?? (plannerViewMode === 'daily-all');
+                          return {
+                            ...prev,
+                            [row.date]: !current,
+                          };
+                        })
+                      }
+                    >
+                      {isExpanded ? 'Collapse' : 'Expand'}
+                    </Button>
                   </div>
-                ) : null}
-
-                <div className="mt-3 space-y-2">
-                  {shouldShowDinnerBase && dinnerBase && (
-                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                      <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {dinnerBase.calories} cal • {dinnerBase.protein_g}P • {dinnerBase.carbs_g}C • {dinnerBase.fat_g}F
-                      </p>
-                    </div>
-                  )}
-                  {filteredEntries.map((entry) => (
-                    <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">
-                          {plannedMealTypeLabel[entry.mealType]}: {entry.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {entry.servings}x • {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => {
-                          deletePlannedFoodEntry(entry.id, user?.id);
-                          refreshPlannerEntries();
-                        }}
-                        title="Remove planned item"
-                      >
-                        <Trash2 className="w-4 h-4 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  ))}
-                  {!shouldShowDinnerBase && filteredEntries.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No items planned for this view.</p>
-                  )}
-                  {shouldShowDinnerBase && filteredEntries.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No extra planned items yet.</p>
-                  )}
                 </div>
+                {isExpanded ? (
+                  <>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
+                      {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
+                    </p>
+                    {showDetailedMetrics ? (
+                      <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                          <div className="space-y-2">
+                            {[
+                              { label: 'Calories', current: projected.calories, target: macroTarget.calories, progress: calorieProgress, color: 'bg-primary' },
+                              { label: 'Protein', current: projected.protein_g, target: macroTarget.protein_g, progress: proteinProgress, color: 'bg-emerald-500' },
+                              { label: 'Carbs', current: projected.carbs_g, target: macroTarget.carbs_g, progress: carbsProgress, color: 'bg-amber-500' },
+                              { label: 'Fat', current: projected.fat_g, target: macroTarget.fat_g, progress: fatProgress, color: 'bg-rose-500' },
+                            ].map((metric) => (
+                              <div key={metric.label}>
+                                <div className="mb-1 flex items-center justify-between text-xs">
+                                  <span>{metric.label}</span>
+                                  <span className="text-muted-foreground">
+                                    {Math.round(metric.current)}/{Math.round(metric.target)}
+                                  </span>
+                                </div>
+                                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={cn('h-2 rounded-full transition-all', metric.color)}
+                                    style={{ width: `${Math.min(metric.progress, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex flex-col items-center justify-center">
+                            <div
+                              className="relative h-20 w-20 rounded-full border border-border"
+                              style={{ background: macroPie }}
+                              aria-label="Macro split chart"
+                            >
+                              <div className="absolute inset-3 rounded-full bg-background" />
+                              <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
+                                {macroCalTotal > 0 ? 'Split' : 'No data'}
+                              </div>
+                            </div>
+                            <div className="mt-2 text-[10px] text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
+                              <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
+                              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 space-y-2">
+                      {shouldShowDinnerBase && dinnerBase && (
+                        <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                          <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {dinnerBase.calories} cal • {dinnerBase.protein_g}P • {dinnerBase.carbs_g}C • {dinnerBase.fat_g}F
+                          </p>
+                        </div>
+                      )}
+                      {filteredEntries.map((entry) => (
+                        <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">
+                              {plannedMealTypeLabel[entry.mealType]}: {entry.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {entry.servings}x • {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              deletePlannedFoodEntry(entry.id, user?.id);
+                              refreshPlannerEntries();
+                            }}
+                            title="Remove planned item"
+                          >
+                            <Trash2 className="w-4 h-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ))}
+                      {!shouldShowDinnerBase && filteredEntries.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No items planned for this view.</p>
+                      )}
+                      {shouldShowDinnerBase && filteredEntries.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No extra planned items yet.</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {plannedCount} planned {plannedCount === 1 ? 'item' : 'items'}. Expand for details.
+                  </p>
+                )}
               </div>
             );
           })
