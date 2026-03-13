@@ -542,8 +542,11 @@ serve(async (req) => {
 
     const windowMinutes = Number.parseInt(Deno.env.get("SMS_DISPATCH_WINDOW_MINUTES") || "10", 10) || 10;
     const digestCatchupMinutes =
-      Number.parseInt(Deno.env.get("SMS_DIGEST_CATCHUP_MINUTES") || "180", 10) || 180;
-    const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "45", 10) || 45;
+      Number.parseInt(Deno.env.get("SMS_DIGEST_CATCHUP_MINUTES") || String(windowMinutes), 10) || windowMinutes;
+    const weeklyCatchupMinutes =
+      Number.parseInt(Deno.env.get("SMS_WEEKLY_NUDGE_CATCHUP_MINUTES") || String(windowMinutes), 10) || windowMinutes;
+    const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "10", 10) || 10;
+    const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "false").toLowerCase() === "true";
     const nowUtc = DateTime.utc();
     const trafficLookupCache = new Map<string, { trafficMinutes: number | null; baseMinutes: number | null }>();
 
@@ -671,7 +674,7 @@ serve(async (req) => {
           groceryReminderDay,
           groceryReminderTime,
           windowMinutes,
-          digestCatchupMinutes,
+          weeklyCatchupMinutes,
         );
 
         if (shouldSendWeeklyPlanningNudge) {
@@ -770,9 +773,9 @@ serve(async (req) => {
           }
         }
 
-        const shouldSendWellnessNudge = isDueAt(
+        const shouldSendWellnessNudge = wellnessNudgeEnabled && isDueAt(
           localNow,
-          String(row.night_before_time || "20:00"),
+          String(row.morning_digest_time || "07:00"),
           windowMinutes,
           digestCatchupMinutes,
         );
@@ -1084,7 +1087,9 @@ serve(async (req) => {
       nowUtc: nowUtc.toISO(),
       dispatchWindowMinutes: windowMinutes,
       digestCatchupMinutes,
+      weeklyCatchupMinutes,
       reminderLateGraceMinutes: lateGraceMinutes,
+      wellnessNudgeEnabled,
     });
   } catch (error) {
     console.error("sms-dispatch error:", error);
