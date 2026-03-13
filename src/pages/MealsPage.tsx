@@ -1524,33 +1524,36 @@ export default function MealsPage() {
         </div>
       </div>
 
-      <div className="mt-8 rounded-xl border border-border bg-card p-4 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-display text-xl">Macro Budget Planner</h2>
-            <p className="text-sm text-muted-foreground">
-              Keep the planner clean: pick a view, quick add items, and expand AI suggestions only when needed.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">Target profile</span>
-            <select
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={plannerDashboardId}
-              onChange={(event) => setPlannerDashboardId(event.target.value)}
-            >
-              {dashboardProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
-              <Calculator className="w-4 h-4 mr-1.5" />
-              Macro Calculator
-            </Button>
-          </div>
-        </div>
+      <Accordion type="single" collapsible defaultValue="macro-budget-planner" className="mt-8 rounded-xl border border-border bg-card px-4">
+        <AccordionItem value="macro-budget-planner" className="border-0">
+          <AccordionTrigger className="py-4 hover:no-underline">
+            <div className="text-left">
+              <h2 className="font-display text-xl">Macro Budget Planner</h2>
+              <p className="text-sm text-muted-foreground">
+                Keep the planner clean: pick a view, quick add items, and expand AI suggestions only when needed.
+              </p>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-xs text-muted-foreground">Target profile</span>
+                <select
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={plannerDashboardId}
+                  onChange={(event) => setPlannerDashboardId(event.target.value)}
+                >
+                  {dashboardProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+                <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
+                  <Calculator className="w-4 h-4 mr-1.5" />
+                  Macro Calculator
+                </Button>
+              </div>
 
         <div className="grid gap-2 md:grid-cols-[220px_220px_1fr]">
           <div>
@@ -2127,8 +2130,11 @@ export default function MealsPage() {
             );
           })
           )}
+          </div>
         </div>
-      </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {/* Selective Regenerate Dialog */}
       <Dialog open={selectiveDialogOpen} onOpenChange={setSelectiveDialogOpen}>
