@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
 import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2, Calculator, Sparkles } from 'lucide-react';
@@ -136,6 +137,14 @@ interface PantryMatch {
 
 type PlannerViewMode = 'weekly-breakfasts' | 'weekly-dinners' | 'weekly-lunches' | 'daily-all' | 'weekly-meal-grid';
 type TopMealsViewMode = 'dinner-list' | 'breakfast-list' | 'lunch-list' | 'weekly-meal-grid';
+
+const plannerViewModeLabel: Record<PlannerViewMode, string> = {
+  'daily-all': 'Daily - All Meals',
+  'weekly-breakfasts': 'Weekly - Breakfasts',
+  'weekly-lunches': 'Weekly - Lunches',
+  'weekly-dinners': 'Weekly - Dinners',
+  'weekly-meal-grid': 'Weekly - Meal Grid',
+};
 
 type MealGridRowKey = 'breakfast' | 'snack-1' | 'lunch' | 'snack-2' | 'dinner';
 
@@ -1023,6 +1032,14 @@ export default function MealsPage() {
     plannerViewMode === 'daily-all'
       ? weekDateRows.filter((row) => row.date === plannerDay)
       : weekDateRows;
+  const focusedProjected = projectedByDate[plannerDay] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  const focusedCalorieDelta = focusedProjected.calories - macroTarget.calories;
+  const focusedCalorieStatus =
+    focusedCalorieDelta > 0
+      ? `${focusedCalorieDelta} over target`
+      : focusedCalorieDelta < 0
+      ? `${Math.abs(focusedCalorieDelta)} under target`
+      : 'On target';
 
   const getEntriesForGridCell = (entries: PlannedFoodEntry[], row: MealGridRow): PlannedFoodEntry[] => {
     if (row.key === 'snack-1') return entries.filter((entry) => entry.mealType === 'snack').slice(0, 1);
@@ -1507,14 +1524,14 @@ export default function MealsPage() {
       </div>
 
       <div className="mt-8 rounded-xl border border-border bg-card p-4 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-display text-xl">Macro Budget Planner</h2>
             <p className="text-sm text-muted-foreground">
-              Plan breakfast, lunch, snacks, desserts, and alcohol. Project calories/macros against your target.
+              Keep the planner clean: pick a view, quick add items, and expand AI suggestions only when needed.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Target profile</span>
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1534,44 +1551,23 @@ export default function MealsPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'daily-all' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('daily-all')}
-          >
-            Daily - All Meals
-          </Button>
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'weekly-breakfasts' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('weekly-breakfasts')}
-          >
-            Weekly - Breakfasts
-          </Button>
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'weekly-lunches' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('weekly-lunches')}
-          >
-            Weekly - Lunches
-          </Button>
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'weekly-dinners' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('weekly-dinners')}
-          >
-            Weekly - Dinners
-          </Button>
-          <Button
-            size="sm"
-            variant={plannerViewMode === 'weekly-meal-grid' ? 'default' : 'outline'}
-            onClick={() => setPlannerViewMode('weekly-meal-grid')}
-            className="hidden md:inline-flex"
-          >
-            Weekly - Meal Grid
-          </Button>
-          {plannerViewMode === 'daily-all' && (
+        <div className="grid gap-2 md:grid-cols-[220px_220px_1fr]">
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">View mode</p>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={plannerViewMode}
+              onChange={(event) => setPlannerViewMode(event.target.value as PlannerViewMode)}
+            >
+              {Object.entries(plannerViewModeLabel).map(([mode, label]) => (
+                <option key={mode} value={mode}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Focus date</p>
             <Input
               type="date"
               value={plannerDay}
@@ -1580,233 +1576,268 @@ export default function MealsPage() {
                 setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
                 setSuggestionDate(event.target.value);
               }}
-              className="w-[180px]"
             />
-          )}
+          </div>
+          <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+            <p className="text-xs text-muted-foreground">Focused day status</p>
+            <p className="text-sm font-medium">
+              {focusedProjected.calories} / {macroTarget.calories} cal • {focusedProjected.protein_g}P • {focusedProjected.carbs_g}C •{' '}
+              {focusedProjected.fat_g}F
+            </p>
+            <p className={cn('text-xs', focusedCalorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+              {focusedCalorieStatus}
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-lg border border-border p-3 space-y-3">
-          <p className="text-sm font-medium">Add planned meal/item</p>
-          <div className="grid gap-2 md:grid-cols-2">
-            <Input
-              type="date"
-              value={plannerForm.date}
-              onChange={(event) => {
-                setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
-                setSuggestionDate(event.target.value);
-              }}
-            />
-            <select
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={plannerForm.mealType}
-              onChange={(event) => {
-                const nextMealType = event.target.value as PlannedMealType;
-                setPlannerForm((prev) => ({
-                  ...prev,
-                  mealType: nextMealType,
-                  recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
-                }));
-              }}
-            >
-              {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
-                <option key={mealType} value={mealType}>
-                  {plannedMealTypeLabel[mealType]}
-                </option>
-              ))}
-            </select>
-          </div>
-          {plannerForm.mealType === 'alcohol' ? (
-            <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                Common alcohol drinks (auto-fills calories/macros)
-              </p>
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input
-                  placeholder="Search beer, wine, cocktails, shots..."
-                  value={alcoholPresetQuery}
-                  onChange={(event) => setAlcoholPresetQuery(event.target.value)}
-                />
-                <select
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (!event.target.value) return;
-                    applyAlcoholPreset(event.target.value);
-                    event.currentTarget.value = '';
-                  }}
-                >
-                  <option value="">Choose common drink...</option>
-                  {alcoholPresetOptions.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name} ({preset.serving}) - {preset.calories} cal
-                    </option>
-                  ))}
-                </select>
+        <Accordion type="multiple" defaultValue={['planner-quick-add']} className="rounded-lg border border-border px-3">
+          <AccordionItem value="planner-quick-add" className="border-b border-border">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="text-left">
+                <p className="text-sm font-medium">Quick add planned meal/item</p>
+                <p className="text-xs text-muted-foreground">Choose a recipe or type a food, then add it to your plan.</p>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Includes beer, wine, spirits, cocktails, hard seltzers, and popular premade drinks.
-              </p>
-            </div>
-          ) : null}
-          <div className="grid gap-2 md:grid-cols-2">
-            <Input
-              placeholder="Search recipes for planner..."
-              value={plannerRecipeQuery}
-              onChange={(event) => setPlannerRecipeQuery(event.target.value)}
-            />
-            {plannerRecipeTypeahead.length > 0 ? (
-              <div className="md:col-span-2 rounded-md border border-border bg-background p-1">
-                {plannerRecipeTypeahead.map((recipe) => (
-                  <button
-                    key={`planner-typeahead-${recipe.id}`}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                    onClick={() => selectRecipeForPlanner(recipe.id)}
+            </AccordionTrigger>
+            <AccordionContent className="pb-4">
+              <div className="space-y-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    type="date"
+                    value={plannerForm.date}
+                    onChange={(event) => {
+                      setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+                      setSuggestionDate(event.target.value);
+                    }}
+                  />
+                  <select
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={plannerForm.mealType}
+                    onChange={(event) => {
+                      const nextMealType = event.target.value as PlannedMealType;
+                      setPlannerForm((prev) => ({
+                        ...prev,
+                        mealType: nextMealType,
+                        recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
+                      }));
+                    }}
                   >
-                    <span className="truncate">{recipe.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <select
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={plannerForm.recipeId}
-              disabled={recipesLoading}
-              onChange={(event) => selectRecipeForPlanner(event.target.value)}
-            >
-              <option value="">Optional: choose from recipes</option>
-              {plannerRecipeOptions.map((recipe) => (
-                <option key={recipe.id} value={recipe.id}>
-                  {recipe.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground md:col-span-2">
-              {recipesLoading
-                ? 'Loading recipes...'
-                : `Showing ${plannerRecipeOptions.length} recipe${plannerRecipeOptions.length !== 1 ? 's' : ''}.`}
-            </p>
-            <Input
-              placeholder="Item name (ex: 3 eggs and toast)"
-              value={plannerForm.name}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
-            />
-          </div>
-          <div className="grid gap-2 md:grid-cols-5">
-            <Input
-              type="number"
-              step="0.25"
-              min="0.1"
-              placeholder="Servings"
-              value={plannerForm.servings}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: event.target.value }))}
-            />
-            <Input
-              type="number"
-              min="0"
-              placeholder="Calories"
-              value={plannerForm.calories}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: event.target.value }))}
-            />
-            <Input
-              type="number"
-              min="0"
-              placeholder="Protein"
-              value={plannerForm.protein_g}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: event.target.value }))}
-            />
-            <Input
-              type="number"
-              min="0"
-              placeholder="Carbs"
-              value={plannerForm.carbs_g}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: event.target.value }))}
-            />
-            <Input
-              type="number"
-              min="0"
-              placeholder="Fat"
-              value={plannerForm.fat_g}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: event.target.value }))}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={addPlannerItem}>Add to plan</Button>
-            {commonPlannedFoods.map((food) => (
-              <Button
-                key={food}
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setPlannerForm((prev) => ({
-                    ...prev,
-                    name: food,
-                  }))
-                }
-              >
-                {food}
-              </Button>
-            ))}
-          </div>
+                    {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
+                      <option key={mealType} value={mealType}>
+                        {plannedMealTypeLabel[mealType]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          <div className="border-t border-border pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">AI meal suggestions for remaining macros</p>
-                <p className="text-xs text-muted-foreground">
-                  Uses your current daily target and what is already planned.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  type="date"
-                  value={suggestionDate}
-                  onChange={(event) => setSuggestionDate(event.target.value)}
-                  className="w-[170px]"
-                />
-                <Button variant="outline" onClick={() => void runMacroSuggestions()} disabled={suggestionLoading}>
-                  <Sparkles className={cn('mr-1.5 h-4 w-4', suggestionLoading && 'animate-pulse')} />
-                  {suggestionLoading ? 'Thinking...' : 'Suggest meals'}
-                </Button>
-              </div>
-            </div>
-
-            {suggestionRemaining ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Remaining for {format(new Date(`${suggestionDate}T00:00:00`), 'EEE, MMM d')}: {suggestionRemaining.calories} cal •{' '}
-                {suggestionRemaining.protein_g}P • {suggestionRemaining.carbs_g}C • {suggestionRemaining.fat_g}F
-              </p>
-            ) : null}
-
-            {macroSuggestions.length > 0 ? (
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {macroSuggestions.map((suggestion) => (
-                  <div key={`macro-suggestion-${suggestion.recipeId}`} className="rounded-md border border-border p-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium leading-tight">{suggestion.name}</p>
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                        {suggestion.score}% fit
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {suggestion.calories} cal • {suggestion.protein_g}P • {suggestion.carbs_g}C • {suggestion.fat_g}F
+                {plannerForm.mealType === 'alcohol' ? (
+                  <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Common alcohol drinks (auto-fills calories/macros)
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">{suggestion.reason}</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Input
+                        placeholder="Search beer, wine, cocktails, shots..."
+                        value={alcoholPresetQuery}
+                        onChange={(event) => setAlcoholPresetQuery(event.target.value)}
+                      />
+                      <select
+                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        defaultValue=""
+                        onChange={(event) => {
+                          if (!event.target.value) return;
+                          applyAlcoholPreset(event.target.value);
+                          event.currentTarget.value = '';
+                        }}
+                      >
+                        <option value="">Choose common drink...</option>
+                        {alcoholPresetOptions.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.name} ({preset.serving}) - {preset.calories} cal
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Search recipes for planner..."
+                    value={plannerRecipeQuery}
+                    onChange={(event) => setPlannerRecipeQuery(event.target.value)}
+                  />
+                  <select
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={plannerForm.recipeId}
+                    disabled={recipesLoading}
+                    onChange={(event) => selectRecipeForPlanner(event.target.value)}
+                  >
+                    <option value="">Optional: choose from recipes</option>
+                    {plannerRecipeOptions.map((recipe) => (
+                      <option key={recipe.id} value={recipe.id}>
+                        {recipe.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {plannerRecipeTypeahead.length > 0 ? (
+                  <div className="rounded-md border border-border bg-background p-1">
+                    {plannerRecipeTypeahead.map((recipe) => (
+                      <button
+                        key={`planner-typeahead-${recipe.id}`}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        onClick={() => selectRecipeForPlanner(recipe.id)}
+                      >
+                        <span className="truncate">{recipe.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="grid gap-2 md:grid-cols-[1fr_140px]">
+                  <Input
+                    placeholder="Item name (ex: 3 eggs and toast)"
+                    value={plannerForm.name}
+                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                  <Input
+                    type="number"
+                    step="0.25"
+                    min="0.1"
+                    placeholder="Servings"
+                    value={plannerForm.servings}
+                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: event.target.value }))}
+                  />
+                </div>
+
+                <details className="rounded-md border border-border bg-muted/10 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                    Manual macros (optional)
+                  </summary>
+                  <div className="mt-2 grid gap-2 md:grid-cols-4">
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Calories"
+                      value={plannerForm.calories}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: event.target.value }))}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Protein"
+                      value={plannerForm.protein_g}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: event.target.value }))}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Carbs"
+                      value={plannerForm.carbs_g}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: event.target.value }))}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Fat"
+                      value={plannerForm.fat_g}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: event.target.value }))}
+                    />
+                  </div>
+                </details>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={addPlannerItem}>Add to plan</Button>
+                  {commonPlannedFoods.slice(0, 6).map((food) => (
                     <Button
+                      key={food}
                       size="sm"
                       variant="outline"
-                      className="mt-2 h-7 text-xs"
-                      onClick={() => applyMacroSuggestionToPlanner(suggestion)}
+                      onClick={() =>
+                        setPlannerForm((prev) => ({
+                          ...prev,
+                          name: food,
+                        }))
+                      }
                     >
-                      Use in planner
+                      {food}
                     </Button>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {recipesLoading
+                    ? 'Loading recipes...'
+                    : `Showing ${plannerRecipeOptions.length} recipe${plannerRecipeOptions.length !== 1 ? 's' : ''}.`}
+                </p>
               </div>
-            ) : null}
-          </div>
-        </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="planner-ai" className="border-0">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="text-left">
+                <p className="text-sm font-medium">AI meal suggestions for remaining macros</p>
+                <p className="text-xs text-muted-foreground">
+                  Uses your target and already planned meals to suggest better fits.
+                </p>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="date"
+                    value={suggestionDate}
+                    onChange={(event) => setSuggestionDate(event.target.value)}
+                    className="w-[170px]"
+                  />
+                  <Button variant="outline" onClick={() => void runMacroSuggestions()} disabled={suggestionLoading}>
+                    <Sparkles className={cn('mr-1.5 h-4 w-4', suggestionLoading && 'animate-pulse')} />
+                    {suggestionLoading ? 'Thinking...' : 'Suggest meals'}
+                  </Button>
+                </div>
+
+                {suggestionRemaining ? (
+                  <p className="text-xs text-muted-foreground">
+                    Remaining for {format(new Date(`${suggestionDate}T00:00:00`), 'EEE, MMM d')}: {suggestionRemaining.calories}{' '}
+                    cal • {suggestionRemaining.protein_g}P • {suggestionRemaining.carbs_g}C • {suggestionRemaining.fat_g}F
+                  </p>
+                ) : null}
+
+                {macroSuggestions.length > 0 ? (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {macroSuggestions.map((suggestion) => (
+                      <div key={`macro-suggestion-${suggestion.recipeId}`} className="rounded-md border border-border p-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium leading-tight">{suggestion.name}</p>
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                            {suggestion.score}% fit
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {suggestion.calories} cal • {suggestion.protein_g}P • {suggestion.carbs_g}C • {suggestion.fat_g}F
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">{suggestion.reason}</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="mt-2 h-7 text-xs"
+                          onClick={() => applyMacroSuggestionToPlanner(suggestion)}
+                        >
+                          Use in planner
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
           <div className="grid gap-3">
           {plannerViewMode === 'weekly-meal-grid' ? (
@@ -1947,6 +1978,7 @@ export default function MealsPage() {
             const shouldShowDinnerBase =
               Boolean(dinnerBase) &&
               (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
+            const showDetailedMetrics = plannerViewMode === 'daily-all';
             const calorieProgress = metricProgress(projected.calories, macroTarget.calories);
             const proteinProgress = metricProgress(projected.protein_g, macroTarget.protein_g);
             const carbsProgress = metricProgress(projected.carbs_g, macroTarget.carbs_g);
@@ -1975,50 +2007,52 @@ export default function MealsPage() {
                   Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
                   {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
                 </p>
-                <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                    <div className="space-y-2">
-                      {[
-                        { label: 'Calories', current: projected.calories, target: macroTarget.calories, progress: calorieProgress, color: 'bg-primary' },
-                        { label: 'Protein', current: projected.protein_g, target: macroTarget.protein_g, progress: proteinProgress, color: 'bg-emerald-500' },
-                        { label: 'Carbs', current: projected.carbs_g, target: macroTarget.carbs_g, progress: carbsProgress, color: 'bg-amber-500' },
-                        { label: 'Fat', current: projected.fat_g, target: macroTarget.fat_g, progress: fatProgress, color: 'bg-rose-500' },
-                      ].map((metric) => (
-                        <div key={metric.label}>
-                          <div className="mb-1 flex items-center justify-between text-xs">
-                            <span>{metric.label}</span>
-                            <span className="text-muted-foreground">
-                              {Math.round(metric.current)}/{Math.round(metric.target)}
-                            </span>
+                {showDetailedMetrics ? (
+                  <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                      <div className="space-y-2">
+                        {[
+                          { label: 'Calories', current: projected.calories, target: macroTarget.calories, progress: calorieProgress, color: 'bg-primary' },
+                          { label: 'Protein', current: projected.protein_g, target: macroTarget.protein_g, progress: proteinProgress, color: 'bg-emerald-500' },
+                          { label: 'Carbs', current: projected.carbs_g, target: macroTarget.carbs_g, progress: carbsProgress, color: 'bg-amber-500' },
+                          { label: 'Fat', current: projected.fat_g, target: macroTarget.fat_g, progress: fatProgress, color: 'bg-rose-500' },
+                        ].map((metric) => (
+                          <div key={metric.label}>
+                            <div className="mb-1 flex items-center justify-between text-xs">
+                              <span>{metric.label}</span>
+                              <span className="text-muted-foreground">
+                                {Math.round(metric.current)}/{Math.round(metric.target)}
+                              </span>
+                            </div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn('h-2 rounded-full transition-all', metric.color)}
+                                style={{ width: `${Math.min(metric.progress, 100)}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={cn('h-2 rounded-full transition-all', metric.color)}
-                              style={{ width: `${Math.min(metric.progress, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex flex-col items-center justify-center">
-                      <div
-                        className="relative h-20 w-20 rounded-full border border-border"
-                        style={{ background: macroPie }}
-                        aria-label="Macro split chart"
-                      >
-                        <div className="absolute inset-3 rounded-full bg-background" />
-                        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
-                          {macroCalTotal > 0 ? 'Split' : 'No data'}
-                        </div>
+                        ))}
                       </div>
-                      <div className="mt-2 text-[10px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
-                        <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
-                        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
+                      <div className="flex flex-col items-center justify-center">
+                        <div
+                          className="relative h-20 w-20 rounded-full border border-border"
+                          style={{ background: macroPie }}
+                          aria-label="Macro split chart"
+                        >
+                          <div className="absolute inset-3 rounded-full bg-background" />
+                          <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
+                            {macroCalTotal > 0 ? 'Split' : 'No data'}
+                          </div>
+                        </div>
+                        <div className="mt-2 text-[10px] text-muted-foreground">
+                          <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
+                          <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
+                          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div className="mt-3 space-y-2">
                   {shouldShowDinnerBase && dinnerBase && (
