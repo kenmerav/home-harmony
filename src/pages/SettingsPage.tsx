@@ -922,7 +922,7 @@ export default function SettingsPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Reminder offsets</p>
                 <div className="flex flex-wrap gap-2">
-                  {[60, 30].map((offset) => {
+                  {[0, 60, 30].map((offset) => {
                     const active = smsPrefs.reminder_offsets_minutes.includes(offset);
                     return (
                       <Button
@@ -932,7 +932,7 @@ export default function SettingsPage() {
                         size="sm"
                         onClick={() => toggleSmsOffset(offset)}
                       >
-                        {offset} min before
+                        {offset === 0 ? 'At event time' : `${offset} min before`}
                       </Button>
                     );
                   })}

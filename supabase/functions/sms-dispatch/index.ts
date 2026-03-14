@@ -78,7 +78,7 @@ function parseTimeToMinutes(timeValue: string): number {
 function normalizeLeadMinutes(value: unknown, fallback = 10): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(5, Math.min(120, Math.round(parsed)));
+  return Math.max(0, Math.min(120, Math.round(parsed)));
 }
 
 function inQuietHours(nowMinutes: number, start: string | null, end: string | null): boolean {
@@ -100,7 +100,7 @@ function isDueAt(
 ): boolean {
   const targetMinutes = parseTimeToMinutes(hhmm);
   const nowMinutes = localNow.hour * 60 + localNow.minute;
-  const effectiveWindow = Math.max(windowMinutes, catchupMinutes);
+  const effectiveWindow = Math.max(1, Math.min(windowMinutes, catchupMinutes));
   return nowMinutes >= targetMinutes && nowMinutes < targetMinutes + effectiveWindow;
 }
 
@@ -454,7 +454,7 @@ async function fetchDailyEvents(
         module: eventModule,
         locationText: typeof row.location_text === "string" ? row.location_text : null,
         eventReminderEnabled: !!row.event_reminder_enabled,
-        eventReminderLeadMinutes: normalizeLeadMinutes(row.event_reminder_lead_minutes, 30),
+        eventReminderLeadMinutes: normalizeLeadMinutes(row.event_reminder_lead_minutes, 0),
         travelFromAddress: typeof row.travel_from_address === "string" ? row.travel_from_address : null,
         travelDurationMinutes:
           Number.isFinite(Number(row.travel_duration_minutes)) ? Number(row.travel_duration_minutes) : null,
@@ -540,13 +540,12 @@ serve(async (req) => {
     if (!supabaseUrl || !serviceRole) return json({ error: "Missing Supabase env vars." }, 500);
     const supabase = createClient(supabaseUrl, serviceRole);
 
-    const windowMinutes = Number.parseInt(Deno.env.get("SMS_DISPATCH_WINDOW_MINUTES") || "10", 10) || 10;
-    const digestCatchupMinutes =
-      Number.parseInt(Deno.env.get("SMS_DIGEST_CATCHUP_MINUTES") || String(windowMinutes), 10) || windowMinutes;
-    const weeklyCatchupMinutes =
-      Number.parseInt(Deno.env.get("SMS_WEEKLY_NUDGE_CATCHUP_MINUTES") || String(windowMinutes), 10) || windowMinutes;
-    const lateGraceMinutes = Number.parseInt(Deno.env.get("SMS_REMINDER_LATE_GRACE_MINUTES") || "10", 10) || 10;
-    const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "false").toLowerCase() === "true";
+    const windowMinutes = 1;
+    const digestCatchupMinutes = 1;
+    const weeklyCatchupMinutes = 1;
+    const lateGraceMinutes = 0;
+    const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "true").toLowerCase() === "true";
+    const wellnessNudgeTime = String(Deno.env.get("SMS_WELLNESS_NUDGE_TIME") || "12:00").slice(0, 5);
     const nowUtc = DateTime.utc();
     const trafficLookupCache = new Map<string, { trafficMinutes: number | null; baseMinutes: number | null }>();
 
@@ -775,7 +774,7 @@ serve(async (req) => {
 
         const shouldSendWellnessNudge = wellnessNudgeEnabled && isDueAt(
           localNow,
-          String(row.morning_digest_time || "07:00"),
+          wellnessNudgeTime,
           windowMinutes,
           digestCatchupMinutes,
         );
@@ -836,7 +835,7 @@ serve(async (req) => {
         }
 
         if (row.event_reminders_enabled) {
-          const offsets = Array.isArray(row.reminder_offsets_minutes) ? row.reminder_offsets_minutes : [60, 30];
+          const offsets = [0];
           const events = [...todayEvents, ...tomorrowEvents];
           for (const event of events) {
             if (!isUsableDateTime(event.startsAtLocal) || !isUsableDateTime(event.startsAtUtc)) continue;
@@ -847,7 +846,7 @@ serve(async (req) => {
             if (shouldUseGlobalOffsets) {
               for (const offset of offsets) {
                 const leadMinutes = Number(offset);
-                if (!Number.isFinite(leadMinutes) || leadMinutes < 5) continue;
+                if (!Number.isFinite(leadMinutes) || leadMinutes < 0) continue;
                 const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
                 if (!isUsableDateTime(sendAt)) continue;
 
@@ -878,7 +877,10 @@ serve(async (req) => {
 
                   try {
                     const eventTime = event.startsAtLocal.toFormat("h:mm a");
-                    const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                    const body =
+                      leadMinutes <= 0
+                        ? `Home Harmony reminder: ${event.title} starts now (${eventTime}).`
+                        : `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
                     const result = await sendTwilioSms(recipient, body);
                     messagesSent += 1;
                     await markLogStatus(supabase, logId, "sent", result.sid, {
@@ -896,7 +898,7 @@ serve(async (req) => {
             }
 
             if (event.module === "manual" && manualUsesStartReminder) {
-              const leadMinutes = normalizeLeadMinutes(event.eventReminderLeadMinutes, 30);
+              const leadMinutes = 0;
               const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
               if (!isUsableDateTime(sendAt)) continue;
               const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
@@ -929,7 +931,7 @@ serve(async (req) => {
 
                 try {
                   const eventTime = event.startsAtLocal.toFormat("h:mm a");
-                  const body = `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                  const body = `Home Harmony reminder: ${event.title} starts now (${eventTime}).`;
                   const result = await sendTwilioSms(recipient, body);
                   messagesSent += 1;
                   await markLogStatus(supabase, logId, "sent", result.sid, {
@@ -1090,6 +1092,7 @@ serve(async (req) => {
       weeklyCatchupMinutes,
       reminderLateGraceMinutes: lateGraceMinutes,
       wellnessNudgeEnabled,
+      wellnessNudgeTime,
     });
   } catch (error) {
     console.error("sms-dispatch error:", error);

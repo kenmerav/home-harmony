@@ -293,7 +293,7 @@ export default function CalendarPlannerPage() {
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
   const [draftEventReminderEnabled, setDraftEventReminderEnabled] = useState(false);
-  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('30');
+  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('0');
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
   const [draftLeaveReminderLeadMinutes, setDraftLeaveReminderLeadMinutes] = useState('10');
   const [draftTravelLoading, setDraftTravelLoading] = useState(false);
@@ -640,7 +640,7 @@ export default function CalendarPlannerPage() {
     applyDepartureSource(defaultDepartureSource, false);
     setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
     setDraftEventReminderEnabled(false);
-    setDraftEventReminderLeadMinutes('30');
+    setDraftEventReminderLeadMinutes('0');
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');
     setAddDialogOpen(true);
@@ -682,7 +682,7 @@ export default function CalendarPlannerPage() {
     setDraftTrafficMinutes(event.trafficDurationMinutes ?? null);
     setDraftLeaveByIso(event.recommendedLeaveAt || null);
     setDraftEventReminderEnabled(!!event.eventReminderEnabled);
-    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes || 30));
+    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes ?? 0));
     setDraftLeaveReminderEnabled(!!event.leaveReminderEnabled);
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
@@ -754,8 +754,8 @@ export default function CalendarPlannerPage() {
         : defaultLayerForModule(draftModule),
     );
     const eventReminderLeadMinutes = Math.max(
-      5,
-      Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '30', 10) || 30),
+      0,
+      Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '0', 10) || 0),
     );
     const leaveReminderLeadMinutes = Math.max(
       5,
@@ -1618,6 +1618,7 @@ export default function CalendarPlannerPage() {
                       <SelectValue placeholder="Choose minutes" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="0">At event time</SelectItem>
                       <SelectItem value="10">10 minutes before</SelectItem>
                       <SelectItem value="15">15 minutes before</SelectItem>
                       <SelectItem value="30">30 minutes before</SelectItem>
@@ -1632,7 +1633,7 @@ export default function CalendarPlannerPage() {
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Sends before event start time.
+                Sends at event start time by default, or earlier if you choose.
               </p>
             </div>
             <div className="space-y-2 rounded-lg border border-border p-3 md:col-span-2">

@@ -1096,7 +1096,7 @@ export default function OnboardingPage() {
             phone_e164: normalizedPhone,
             morning_digest_enabled: true,
             event_reminders_enabled: reminderOffsets.length > 0,
-            reminder_offsets_minutes: reminderOffsets.length > 0 ? reminderOffsets : [60, 30],
+            reminder_offsets_minutes: reminderOffsets.length > 0 ? reminderOffsets : [0],
           });
         } catch (smsError) {
           console.error('Failed saving onboarding SMS preferences:', smsError);

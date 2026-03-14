@@ -22,7 +22,7 @@ const DEFAULT_PREFS = {
   grocery_reminder_day: "saturday",
   grocery_reminder_time: "20:00",
   event_reminders_enabled: true,
-  reminder_offsets_minutes: [60, 30],
+  reminder_offsets_minutes: [0],
   preferred_dinner_time: "18:00",
   include_modules: ["meals", "manual", "tasks", "chores", "workouts", "reminders"],
   module_recipients: {
@@ -71,15 +71,15 @@ function validWeekday(value: unknown, fallback: string): string {
 }
 
 function normalizeOffsets(input: unknown): number[] {
-  if (!Array.isArray(input)) return [60, 30];
+  if (!Array.isArray(input)) return [0];
   const cleaned = [...new Set(
     input
       .map((item) => Number(item))
       .filter((item) => Number.isFinite(item))
       .map((item) => Math.round(item))
-      .filter((item) => item >= 5 && item <= 720),
+      .filter((item) => item >= 0 && item <= 720),
   )].sort((a, b) => b - a);
-  return cleaned.length ? cleaned : [60, 30];
+  return cleaned.length ? cleaned : [0];
 }
 
 function normalizeModules(input: unknown): string[] {

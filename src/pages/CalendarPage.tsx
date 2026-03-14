@@ -439,7 +439,7 @@ export default function CalendarPage() {
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
   const [draftEventReminderEnabled, setDraftEventReminderEnabled] = useState(false);
-  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('30');
+  const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('0');
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
   const [draftLeaveReminderLeadMinutes, setDraftLeaveReminderLeadMinutes] = useState('10');
   const [draftTravelLoading, setDraftTravelLoading] = useState(false);
@@ -962,7 +962,7 @@ export default function CalendarPage() {
     applyDepartureSource(defaultDepartureSource, false);
     setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
     setDraftEventReminderEnabled(false);
-    setDraftEventReminderLeadMinutes('30');
+    setDraftEventReminderLeadMinutes('0');
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');
     setAddDialogOpen(true);
@@ -999,7 +999,7 @@ export default function CalendarPage() {
     setDraftTrafficMinutes(event.trafficDurationMinutes ?? null);
     setDraftLeaveByIso(event.recommendedLeaveAt || null);
     setDraftEventReminderEnabled(!!event.eventReminderEnabled);
-    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes || 30));
+    setDraftEventReminderLeadMinutes(String(event.eventReminderLeadMinutes ?? 0));
     setDraftLeaveReminderEnabled(!!event.leaveReminderEnabled);
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
@@ -1084,8 +1084,8 @@ export default function CalendarPage() {
       location: draftLocation.trim() || undefined,
       eventReminderEnabled: draftEventReminderEnabled,
       eventReminderLeadMinutes: Math.max(
-        5,
-        Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '30', 10) || 30),
+        0,
+        Math.min(240, Number.parseInt(draftEventReminderLeadMinutes || '0', 10) || 0),
       ),
       travelFromAddress:
         (
@@ -1598,7 +1598,7 @@ export default function CalendarPage() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-2">Reminder offsets</p>
                   <div className="flex flex-wrap gap-2">
-                    {[60, 30].map((offset) => {
+                    {[0, 60, 30].map((offset) => {
                       const active = smsPrefs.reminder_offsets_minutes.includes(offset);
                       return (
                         <Button
@@ -1616,7 +1616,7 @@ export default function CalendarPage() {
                             );
                           }}
                         >
-                          {offset} min before
+                          {offset === 0 ? 'At event time' : `${offset} min before`}
                         </Button>
                       );
                     })}
@@ -2093,6 +2093,7 @@ export default function CalendarPage() {
                       <SelectValue placeholder="Choose minutes" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="0">At event time</SelectItem>
                       <SelectItem value="10">10 minutes before</SelectItem>
                       <SelectItem value="15">15 minutes before</SelectItem>
                       <SelectItem value="30">30 minutes before</SelectItem>
@@ -2107,7 +2108,7 @@ export default function CalendarPage() {
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Sends before event start time.
+                Sends at event start time by default, or earlier if you choose.
               </p>
             </div>
             <div className="space-y-1">

@@ -2,7 +2,7 @@ name: SMS Dispatch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "* * * * *"
   workflow_dispatch:
 
 jobs:

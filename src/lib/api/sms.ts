@@ -52,7 +52,7 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   grocery_reminder_day: 'saturday',
   grocery_reminder_time: '20:00',
   event_reminders_enabled: true,
-  reminder_offsets_minutes: [60, 30],
+  reminder_offsets_minutes: [0],
   preferred_dinner_time: '18:00',
   include_modules: ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'],
   module_recipients: emptyModuleRecipients(),
