@@ -541,8 +541,14 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceRole);
 
     const windowMinutes = 1;
-    const digestCatchupMinutes = 1;
-    const weeklyCatchupMinutes = 1;
+    const digestCatchupMinutes = Math.max(
+      1,
+      Number.parseInt(Deno.env.get("SMS_DIGEST_CATCHUP_MINUTES") || "120", 10) || 120,
+    );
+    const weeklyCatchupMinutes = Math.max(
+      1,
+      Number.parseInt(Deno.env.get("SMS_WEEKLY_NUDGE_CATCHUP_MINUTES") || "120", 10) || 120,
+    );
     const lateGraceMinutes = 0;
     const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "true").toLowerCase() === "true";
     const wellnessNudgeTime = String(Deno.env.get("SMS_WELLNESS_NUDGE_TIME") || "12:00").slice(0, 5);
