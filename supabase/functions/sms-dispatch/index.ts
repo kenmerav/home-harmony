@@ -551,7 +551,7 @@ serve(async (req) => {
     const lateGraceMinutes = 0;
     const eventCatchupMinutes = Math.max(
       1,
-      Number.parseInt(Deno.env.get("SMS_EVENT_CATCHUP_MINUTES") || "120", 10) || 120,
+      Number.parseInt(Deno.env.get("SMS_EVENT_CATCHUP_MINUTES") || "5", 10) || 5,
     );
     const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "true").toLowerCase() === "true";
     const wellnessNudgeTime = String(Deno.env.get("SMS_WELLNESS_NUDGE_TIME") || "12:00").slice(0, 5);
@@ -1110,6 +1110,7 @@ serve(async (req) => {
       digestCatchupMinutes,
       weeklyCatchupMinutes,
       reminderLateGraceMinutes: lateGraceMinutes,
+      eventCatchupMinutes,
       wellnessNudgeEnabled,
       wellnessNudgeTime,
     });
