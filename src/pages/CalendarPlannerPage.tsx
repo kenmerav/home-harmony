@@ -639,7 +639,7 @@ export default function CalendarPlannerPage() {
         : 'home';
     applyDepartureSource(defaultDepartureSource, false);
     setDraftHomeAddress(defaultDepartureSource === 'other' ? '' : addressForSource(defaultDepartureSource));
-    setDraftEventReminderEnabled(false);
+    setDraftEventReminderEnabled(true);
     setDraftEventReminderLeadMinutes('0');
     setDraftLeaveReminderEnabled(false);
     setDraftLeaveReminderLeadMinutes('10');

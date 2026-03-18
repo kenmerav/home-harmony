@@ -232,7 +232,7 @@ function recipientListForModules(
       recipients.add(phone);
     }
   }
-  if (recipients.size === 0 && fallbackPhone) recipients.add(fallbackPhone);
+  if (fallbackPhone) recipients.add(fallbackPhone);
   return Array.from(recipients);
 }
 
@@ -242,8 +242,7 @@ function recipientListForModule(
   fallbackRecipients: string[],
 ): string[] {
   const moduleSpecific = moduleRecipients[moduleName] || [];
-  if (moduleSpecific.length > 0) return moduleSpecific;
-  return fallbackRecipients;
+  return Array.from(new Set([...moduleSpecific, ...fallbackRecipients]));
 }
 
 type OnboardingHealthSnapshot = {
