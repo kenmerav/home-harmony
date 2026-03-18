@@ -107,6 +107,7 @@ const supabaseCalendarSync = supabase as unknown as SupabaseCalendarSyncClient;
 
 const MANUAL_EVENTS_KEY = 'homehub.calendar.manualEvents.v1';
 const GOOGLE_PREFS_KEY = 'homehub.calendar.googlePrefs.v1';
+const MANUAL_EVENT_BACKFILL_DONE = new Set<string>();
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -463,6 +464,49 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
   const rows = readJson<unknown[]>(scopedKey(MANUAL_EVENTS_KEY, userId), [])
     .map((row) => normalizeManualEvent(row))
     .filter((row): row is StoredManualEvent => Boolean(row));
+
+  if (userId && rows.length > 0 && !MANUAL_EVENT_BACKFILL_DONE.has(userId)) {
+    MANUAL_EVENT_BACKFILL_DONE.add(userId);
+    const timezoneName = guessUserTimeZone();
+    for (const row of rows) {
+      const remoteId = remoteIdFromLocalId(row.id);
+      if (!remoteId) continue;
+      void supabaseCalendarSync
+        .from('calendar_events')
+        .upsert({
+          id: remoteId,
+          owner_id: userId,
+          title: row.title,
+          description: row.description || null,
+          location_text: row.location || null,
+          event_reminder_enabled: !!row.eventReminderEnabled,
+          event_reminder_lead_minutes: row.eventReminderLeadMinutes ?? 0,
+          travel_from_address: row.travelFromAddress || null,
+          travel_mode: row.travelMode || 'driving',
+          travel_duration_minutes: row.travelDurationMinutes,
+          traffic_duration_minutes: row.trafficDurationMinutes,
+          leave_by: row.recommendedLeaveAt || null,
+          leave_reminder_enabled: !!row.leaveReminderEnabled,
+          leave_reminder_lead_minutes: row.leaveReminderLeadMinutes || 10,
+          starts_at: row.startsAt,
+          ends_at: row.endsAt || null,
+          all_day: row.allDay,
+          module: row.module,
+          source: 'manual',
+          calendar_layer: row.calendarLayer || 'family',
+          timezone_name: timezoneName,
+          recurrence_rule: null,
+          is_deleted: false,
+          deleted_at: null,
+        }, { onConflict: 'id' })
+        .then(({ error }: { error?: { message?: string } | null }) => {
+          if (error) console.error('Failed to backfill manual event to Supabase:', error.message || error);
+        })
+        .catch((error: unknown) => {
+          console.error('Failed to backfill manual event to Supabase:', error);
+        });
+    }
+  }
 
   return rows.map((row) => ({
     id: row.id,
