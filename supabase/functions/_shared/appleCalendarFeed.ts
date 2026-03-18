@@ -160,6 +160,8 @@ export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): 
     'PRODID:-//Home Harmony//Apple Calendar Feed//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
+    'REFRESH-INTERVAL;VALUE=DURATION:PT5M',
+    'X-PUBLISHED-TTL:PT5M',
     `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
   ];
 
