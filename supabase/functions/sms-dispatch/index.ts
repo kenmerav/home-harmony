@@ -550,6 +550,10 @@ serve(async (req) => {
       Number.parseInt(Deno.env.get("SMS_WEEKLY_NUDGE_CATCHUP_MINUTES") || "120", 10) || 120,
     );
     const lateGraceMinutes = 0;
+    const eventCatchupMinutes = Math.max(
+      1,
+      Number.parseInt(Deno.env.get("SMS_EVENT_CATCHUP_MINUTES") || "120", 10) || 120,
+    );
     const wellnessNudgeEnabled = String(Deno.env.get("SMS_WELLNESS_NUDGE_ENABLED") || "true").toLowerCase() === "true";
     const wellnessNudgeTime = String(Deno.env.get("SMS_WELLNESS_NUDGE_TIME") || "12:00").slice(0, 5);
     const nowUtc = DateTime.utc();
@@ -841,7 +845,14 @@ serve(async (req) => {
         }
 
         if (row.event_reminders_enabled) {
-          const offsets = [0];
+          const offsets = [...new Set(
+            Array.isArray(row.reminder_offsets_minutes)
+              ? row.reminder_offsets_minutes
+                  .map((value) => Number(value))
+                  .filter((value) => Number.isFinite(value) && value >= 0 && value <= 720)
+              : [],
+          )].sort((a, b) => b - a);
+          const normalizedOffsets = offsets.length > 0 ? offsets : [0];
           const events = [...todayEvents, ...tomorrowEvents];
           for (const event of events) {
             if (!isUsableDateTime(event.startsAtLocal) || !isUsableDateTime(event.startsAtUtc)) continue;
@@ -850,13 +861,13 @@ serve(async (req) => {
             const shouldUseGlobalOffsets = !(event.module === "manual" && (manualUsesStartReminder || manualUsesLeaveReminder));
 
             if (shouldUseGlobalOffsets) {
-              for (const offset of offsets) {
+              for (const offset of normalizedOffsets) {
                 const leadMinutes = Number(offset);
                 if (!Number.isFinite(leadMinutes) || leadMinutes < 0) continue;
                 const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
                 if (!isUsableDateTime(sendAt)) continue;
 
-                const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+                const closeAt = sendAt.plus({ minutes: Math.max(windowMinutes + lateGraceMinutes, eventCatchupMinutes) });
                 if (!isUsableDateTime(closeAt)) continue;
                 if (localNow < sendAt || localNow >= closeAt) continue;
 
@@ -904,10 +915,10 @@ serve(async (req) => {
             }
 
             if (event.module === "manual" && manualUsesStartReminder) {
-              const leadMinutes = 0;
+              const leadMinutes = normalizeLeadMinutes(event.eventReminderLeadMinutes, 0);
               const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
               if (!isUsableDateTime(sendAt)) continue;
-              const closeAt = sendAt.plus({ minutes: windowMinutes + lateGraceMinutes });
+              const closeAt = sendAt.plus({ minutes: Math.max(windowMinutes + lateGraceMinutes, eventCatchupMinutes) });
               if (!isUsableDateTime(closeAt)) continue;
               if (localNow < sendAt || localNow >= closeAt) continue;
 
@@ -937,7 +948,10 @@ serve(async (req) => {
 
                 try {
                   const eventTime = event.startsAtLocal.toFormat("h:mm a");
-                  const body = `Home Harmony reminder: ${event.title} starts now (${eventTime}).`;
+                  const body =
+                    leadMinutes <= 0
+                      ? `Home Harmony reminder: ${event.title} starts now (${eventTime}).`
+                      : `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
                   const result = await sendTwilioSms(recipient, body);
                   messagesSent += 1;
                   await markLogStatus(supabase, logId, "sent", result.sid, {
