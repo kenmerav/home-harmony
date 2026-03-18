@@ -655,7 +655,9 @@ export function updateManualCalendarEvent(
     const timezoneName = guessUserTimeZone();
     void supabaseCalendarSync
       .from('calendar_events')
-      .update({
+      .upsert({
+        id: remoteId,
+        owner_id: userId,
         title: updated.title,
         description: updated.description || null,
         location_text: updated.location || null,
@@ -675,8 +677,9 @@ export function updateManualCalendarEvent(
         source: 'manual',
         calendar_layer: updated.calendarLayer || 'family',
         timezone_name: timezoneName,
-      })
-      .eq('id', remoteId)
+        is_deleted: false,
+        deleted_at: null,
+      }, { onConflict: 'id' })
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to update manual event in Supabase:', error.message || error);
       })
