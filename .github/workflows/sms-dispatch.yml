@@ -1,8 +1,6 @@
 name: SMS Dispatch
 
 on:
-  schedule:
-    - cron: "* * * * *"
   workflow_dispatch:
 
 jobs:

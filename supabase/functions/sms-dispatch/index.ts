@@ -529,9 +529,14 @@ serve(async (req) => {
 
   try {
     const dispatchKey = Deno.env.get("SMS_DISPATCH_API_KEY");
-    if (dispatchKey) {
-      const provided = req.headers.get("x-sms-dispatch-key");
-      if (provided !== dispatchKey) return json({ error: "Unauthorized." }, 401);
+    const providedDispatchKey = req.headers.get("x-sms-dispatch-key");
+    const authorization = req.headers.get("authorization") || req.headers.get("Authorization");
+    const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    const isServiceRoleCaller = !!bearerToken && !!serviceRoleKey && bearerToken === serviceRoleKey;
+    const isDispatchKeyCaller = !!dispatchKey && !!providedDispatchKey && providedDispatchKey === dispatchKey;
+    if (dispatchKey && !isDispatchKeyCaller && !isServiceRoleCaller) {
+      return json({ error: "Unauthorized." }, 401);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
