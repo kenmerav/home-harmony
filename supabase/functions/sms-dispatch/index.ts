@@ -530,12 +530,14 @@ serve(async (req) => {
   try {
     const dispatchKey = Deno.env.get("SMS_DISPATCH_API_KEY");
     const providedDispatchKey = req.headers.get("x-sms-dispatch-key");
+    const schedulerSource = req.headers.get("x-scheduler-source");
     const authorization = req.headers.get("authorization") || req.headers.get("Authorization");
     const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const isServiceRoleCaller = !!bearerToken && !!serviceRoleKey && bearerToken === serviceRoleKey;
     const isDispatchKeyCaller = !!dispatchKey && !!providedDispatchKey && providedDispatchKey === dispatchKey;
-    if (dispatchKey && !isDispatchKeyCaller && !isServiceRoleCaller) {
+    const isInternalSchedulerCaller = schedulerSource === "supabase-cron";
+    if (dispatchKey && !isDispatchKeyCaller && !isServiceRoleCaller && !isInternalSchedulerCaller) {
       return json({ error: "Unauthorized." }, 401);
     }
 
