@@ -14,6 +14,19 @@ npm install
 npm run dev
 ```
 
+## New Mac Quick Setup
+
+From a fresh Mac terminal:
+
+```sh
+cd ~/Documents
+git clone https://github.com/kenmerav/home-harmony.git "New project"
+cd "New project"
+./scripts/bootstrap-new-mac.sh
+```
+
+The script installs toolchain (`brew`, `gh`, `nvm`, `node`, `supabase`, `vercel`), installs dependencies, and prints the few manual steps left (env vars + service logins).
+
 Landing page:
 - `http://127.0.0.1:4173/`
 
