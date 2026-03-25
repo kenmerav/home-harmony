@@ -119,6 +119,16 @@ const paceAdjustments: Record<GoalPace, number> = {
   aggressive: 700,
 };
 
+const KID_DAILY_PROGRESS_POINTS = 40;
+const KID_DAILY_PERFECT_BONUS = 10;
+const KID_WEEKLY_CHORE_POINTS = 20;
+const KID_EXTRA_CHORE_POINTS = 25;
+const KID_EXTRA_CHORE_MISS_PENALTY = 15;
+const KID_EXTRA_CHORE_DAILY_CAP = 25;
+const KID_EXTRA_CHORE_WEEKLY_CAP = 75;
+const KID_EXTRA_CHORE_MISS_DAILY_CAP = 15;
+const KID_EXTRA_CHORE_MISS_WEEKLY_CAP = 45;
+
 const defaultQuestionnaire = (id: AdultId, name?: string): MacroQuestionnaire => {
   const normalizedName = (name || '').toLowerCase();
   const femaleHint = id === 'wife' || normalizedName.includes('wife') || normalizedName.includes('mom');
@@ -714,7 +724,64 @@ export function getWeekPoints(personId: AdultId, date = new Date()): number {
   return points;
 }
 
-function getKidEntries(userId?: string | null): LeaderboardEntry[] {
+function isDateKey(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+function uniqueDateKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(isDateKey).map((item) => item.trim()))];
+}
+
+function timestampToDateKey(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const trimmed = value.trim();
+  if (isDateKey(trimmed)) return trimmed;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return format(parsed, 'yyyy-MM-dd');
+}
+
+function getKidDailyPoints(completed: number, total: number): number {
+  if (total <= 0) return 0;
+  const safeCompleted = Math.max(0, Math.min(completed, total));
+  const progressPoints = Math.round((safeCompleted / total) * KID_DAILY_PROGRESS_POINTS);
+  const perfectBonus = safeCompleted === total ? KID_DAILY_PERFECT_BONUS : 0;
+  return progressPoints + perfectBonus;
+}
+
+function choreWasCompletedOnDate(
+  chore: { isCompleted?: boolean; completionDates?: unknown },
+  dateKey: string,
+  fallbackDateKey: string,
+): boolean {
+  const completionDates = uniqueDateKeys(chore.completionDates);
+  if (completionDates.length > 0) {
+    return completionDates.includes(dateKey);
+  }
+  return Boolean(chore.isCompleted) && fallbackDateKey === dateKey;
+}
+
+function extraMatchesDate(
+  extra: { isCompleted?: boolean; isFailed?: boolean; completedAt?: unknown; failedAt?: unknown },
+  kind: 'completed' | 'failed',
+  dateKey: string,
+  fallbackDateKey: string,
+): boolean {
+  const resolvedDate =
+    kind === 'completed'
+      ? timestampToDateKey(extra.completedAt)
+      : timestampToDateKey(extra.failedAt);
+  if (resolvedDate) {
+    return resolvedDate === dateKey;
+  }
+  if (kind === 'completed') {
+    return Boolean(extra.isCompleted) && fallbackDateKey === dateKey;
+  }
+  return Boolean(extra.isFailed) && fallbackDateKey === dateKey;
+}
+
+function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEntry[] {
   if (!canUseStorage()) return [];
   try {
     const raw = window.localStorage.getItem(choresStateKey(userId));
@@ -723,53 +790,76 @@ function getKidEntries(userId?: string | null): LeaderboardEntry[] {
       children?: Array<{
         id: string;
         name: string;
-        dailyChores?: Array<{ isCompleted?: boolean }>;
-        extraChores?: Array<{ isCompleted?: boolean }>;
-        lifetimeEarned?: number;
-        lifetimePenalties?: number;
-        piggyBank?: number;
+        dailyChores?: Array<{ isCompleted?: boolean; completionDates?: unknown }>;
+        weeklyChores?: Array<{ isCompleted?: boolean; completionDates?: unknown }>;
+        extraChores?: Array<{
+          isCompleted?: boolean;
+          isFailed?: boolean;
+          completedAt?: unknown;
+          failedAt?: unknown;
+        }>;
       }>;
     };
+    const todayKey = format(date, 'yyyy-MM-dd');
+    const weekKeys = Array.from({ length: 7 }, (_, index) => format(subDays(date, index), 'yyyy-MM-dd'));
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children.map((child) => {
-      const completedDaily = (child.dailyChores || []).filter((chore) => !!chore.isCompleted).length;
-      const totalDaily = (child.dailyChores || []).length;
-      const completedWeekly = (child.weeklyChores || []).filter((chore) => !!chore.isCompleted).length;
-      const totalWeekly = (child.weeklyChores || []).length;
-      const completedExtras = (child.extraChores || []).filter((chore) => !!chore.isCompleted).length;
-      const failedExtras = (child.extraChores || []).filter((chore) => !!chore.isFailed).length;
-
-      const dailyRatio = totalDaily > 0 ? completedDaily / totalDaily : 0;
-      const weeklyRatio = totalWeekly > 0 ? completedWeekly / totalWeekly : 0;
-
-      // Keep kid scoring anchored to current completion quality so it stays fair
-      // versus adult daily/weekly goal scores.
+      const dailyChores = Array.isArray(child.dailyChores) ? child.dailyChores : [];
+      const weeklyChores = Array.isArray(child.weeklyChores) ? child.weeklyChores : [];
+      const extraChores = Array.isArray(child.extraChores) ? child.extraChores : [];
+      const totalDaily = dailyChores.length;
+      const completedDailyToday = dailyChores.filter((chore) => choreWasCompletedOnDate(chore, todayKey, todayKey)).length;
+      const weekDailyPoints = weekKeys.reduce((sum, dateKey) => {
+        const completedForDay = dailyChores.filter((chore) => choreWasCompletedOnDate(chore, dateKey, todayKey)).length;
+        return sum + getKidDailyPoints(completedForDay, totalDaily);
+      }, 0);
+      const completedWeeklyToday = weeklyChores.filter((chore) => choreWasCompletedOnDate(chore, todayKey, todayKey)).length;
+      const completedWeeklyWeek = weeklyChores.filter((chore) =>
+        weekKeys.some((dateKey) => choreWasCompletedOnDate(chore, dateKey, todayKey)),
+      ).length;
+      const completedExtrasToday = extraChores.filter((extra) =>
+        extraMatchesDate(extra, 'completed', todayKey, todayKey),
+      ).length;
+      const completedExtrasWeek = extraChores.filter((extra) =>
+        weekKeys.some((dateKey) => extraMatchesDate(extra, 'completed', dateKey, todayKey)),
+      ).length;
+      const failedExtrasToday = extraChores.filter((extra) =>
+        extraMatchesDate(extra, 'failed', todayKey, todayKey),
+      ).length;
+      const failedExtrasWeek = extraChores.filter((extra) =>
+        weekKeys.some((dateKey) => extraMatchesDate(extra, 'failed', dateKey, todayKey)),
+      ).length;
       const todayPoints = Math.max(
         0,
-        Math.round(
-          dailyRatio * 50 +
-            weeklyRatio * 25 +
-            Math.min(25, completedExtras * 10) -
-            failedExtras * 10,
-        ),
+        getKidDailyPoints(completedDailyToday, totalDaily) +
+          completedWeeklyToday * KID_WEEKLY_CHORE_POINTS +
+          Math.min(KID_EXTRA_CHORE_DAILY_CAP, completedExtrasToday * KID_EXTRA_CHORE_POINTS) -
+          Math.min(KID_EXTRA_CHORE_MISS_DAILY_CAP, failedExtrasToday * KID_EXTRA_CHORE_MISS_PENALTY),
       );
       const weekPoints = Math.max(
         0,
-        Math.round(
-          dailyRatio * 280 +
-            weeklyRatio * 140 +
-            Math.min(90, completedExtras * 30) -
-            failedExtras * 20,
-        ),
+        weekDailyPoints +
+          completedWeeklyWeek * KID_WEEKLY_CHORE_POINTS +
+          Math.min(KID_EXTRA_CHORE_WEEKLY_CAP, completedExtrasWeek * KID_EXTRA_CHORE_POINTS) -
+          Math.min(KID_EXTRA_CHORE_MISS_WEEKLY_CAP, failedExtrasWeek * KID_EXTRA_CHORE_MISS_PENALTY),
       );
+      let streak = 0;
+      for (let index = 0; index < 60; index += 1) {
+        const streakDateKey = format(subDays(date, index), 'yyyy-MM-dd');
+        const completedForDay = dailyChores.filter((chore) =>
+          choreWasCompletedOnDate(chore, streakDateKey, todayKey),
+        ).length;
+        if (totalDaily === 0 || completedForDay !== totalDaily) break;
+        streak += 1;
+      }
       return {
         id: child.id,
         name: child.name,
         type: 'kid' as const,
         todayPoints,
         weekPoints,
-        streak: dailyRatio >= 1 && totalDaily > 0 ? 1 : 0,
-        headline: `${completedDaily}/${totalDaily || 0} daily • ${completedWeekly}/${totalWeekly || 0} weekly chores`,
+        streak,
+        headline: `${completedDailyToday}/${totalDaily || 0} daily today • ${completedWeeklyWeek} weekly • ${completedExtrasWeek} extras`,
       };
     });
   } catch {
@@ -798,5 +888,5 @@ export function getFamilyLeaderboard(date = new Date(), userId?: string | null):
     };
   });
 
-  return [...adults, ...getKidEntries(userId)].sort((a, b) => b.weekPoints - a.weekPoints);
+  return [...adults, ...getKidEntries(date, userId)].sort((a, b) => b.weekPoints - a.weekPoints);
 }

@@ -7,6 +7,8 @@ interface RewardChore {
   name: string;
   isCompleted: boolean;
   reward: number;
+  rewardUnit?: 'money' | 'points';
+  completionDates?: string[];
 }
 
 interface RewardWeeklyChore extends RewardChore {
@@ -23,6 +25,8 @@ interface ClaimedExtraChore {
   isCompleted: boolean;
   isFailed: boolean;
   createdAt: string;
+  completedAt?: string;
+  failedAt?: string;
 }
 
 interface ChildEconomy {
@@ -33,7 +37,9 @@ interface ChildEconomy {
   weeklyChores: RewardWeeklyChore[];
   extraChores: ClaimedExtraChore[];
   piggyBank: number;
+  pointsBank: number;
   lifetimeEarned: number;
+  lifetimePointsEarned: number;
   lifetimePenalties: number;
   cashedOut: number;
 }
@@ -41,6 +47,8 @@ interface ChildEconomy {
 interface ChoresState {
   children: ChildEconomy[];
   availableExtraChores: unknown[];
+  lastDailyResetDate?: string;
+  lastWeeklyResetDate?: string;
 }
 
 export interface KidChoreSeedInput {
@@ -54,6 +62,20 @@ function canUseStorage() {
 
 function choresStateKey(userId?: string | null): string {
   return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+}
+
+function dateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function weekResetDateKey(date = new Date()): string {
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return dateKey(weekStart);
 }
 
 function sanitizeAge(age: number | null): number | null {
@@ -130,6 +152,8 @@ export function seedChoresForKidsIfEmpty(kids: KidChoreSeedInput[], userId?: str
         name,
         isCompleted: false,
         reward: 1,
+        rewardUnit: 'money',
+        completionDates: [],
       })),
       weeklyChores: template.weekly.map((weekly, choreIndex) => ({
         id: `weekly-seeded-${index}-${choreIndex}`,
@@ -137,10 +161,14 @@ export function seedChoresForKidsIfEmpty(kids: KidChoreSeedInput[], userId?: str
         day: weekly.day,
         isCompleted: false,
         reward: 2,
+        rewardUnit: 'money',
+        completionDates: [],
       })),
       extraChores: [],
       piggyBank: 0,
+      pointsBank: 0,
       lifetimeEarned: 0,
+      lifetimePointsEarned: 0,
       lifetimePenalties: 0,
       cashedOut: 0,
     };
@@ -151,6 +179,8 @@ export function seedChoresForKidsIfEmpty(kids: KidChoreSeedInput[], userId?: str
     JSON.stringify({
       children: seededChildren,
       availableExtraChores: existing.availableExtraChores,
+      lastDailyResetDate: dateKey(),
+      lastWeeklyResetDate: weekResetDateKey(),
     }),
   );
   window.dispatchEvent(new CustomEvent('homehub:chores-state-updated'));

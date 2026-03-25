@@ -36,6 +36,7 @@ export default function FamilyPage() {
   const [acceptingInvite, setAcceptingInvite] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const inviteSectionRef = useRef<HTMLElement | null>(null);
   const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -61,11 +62,21 @@ export default function FamilyPage() {
     }
   }, [inviteRolePrefill]);
 
+  useEffect(() => {
+    const refresh = () => setRefreshTick((prev) => prev + 1);
+    window.addEventListener('homehub:macro-state-updated', refresh);
+    window.addEventListener('homehub:chores-state-updated', refresh);
+    return () => {
+      window.removeEventListener('homehub:macro-state-updated', refresh);
+      window.removeEventListener('homehub:chores-state-updated', refresh);
+    };
+  }, []);
+
   const canInvite = useMemo(
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),
     [dashboard.members],
   );
-  const familyLeaderboard = getFamilyLeaderboard(new Date(), user?.id);
+  const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
 
   const onCreateHousehold = async () => {
     setCreatingHousehold(true);

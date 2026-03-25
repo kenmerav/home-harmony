@@ -185,10 +185,12 @@ export default function TodayPage() {
   useEffect(() => {
     const triggerRefresh = () => setRefreshTick((prev) => prev + 1);
     window.addEventListener('homehub:calendar-events-updated', triggerRefresh);
+    window.addEventListener('homehub:chores-state-updated', triggerRefresh);
     window.addEventListener('homehub:task-state-updated', triggerRefresh);
     window.addEventListener('homehub:meals-updated', triggerRefresh);
     return () => {
       window.removeEventListener('homehub:calendar-events-updated', triggerRefresh);
+      window.removeEventListener('homehub:chores-state-updated', triggerRefresh);
       window.removeEventListener('homehub:task-state-updated', triggerRefresh);
       window.removeEventListener('homehub:meals-updated', triggerRefresh);
     };

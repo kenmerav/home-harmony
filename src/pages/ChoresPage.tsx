@@ -55,6 +55,7 @@ interface RewardChore {
   isCompleted: boolean;
   reward: number;
   rewardUnit: RewardUnit;
+  completionDates?: string[];
 }
 
 interface RewardWeeklyChore extends RewardChore {
@@ -73,6 +74,8 @@ interface ClaimedExtraChore {
   isCompleted: boolean;
   isFailed: boolean;
   createdAt: string;
+  completedAt?: string;
+  failedAt?: string;
 }
 
 interface ExtraChoreOpportunity {
@@ -91,7 +94,9 @@ interface ChildEconomy {
   weeklyChores: RewardWeeklyChore[];
   extraChores: ClaimedExtraChore[];
   piggyBank: number;
+  pointsBank: number;
   lifetimeEarned: number;
+  lifetimePointsEarned: number;
   lifetimePenalties: number;
   cashedOut: number;
 }
@@ -100,14 +105,25 @@ interface ChoresState {
   children: ChildEconomy[];
   availableExtraChores: ExtraChoreOpportunity[];
   lastDailyResetDate: string;
+  lastWeeklyResetDate: string;
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function todayDateKey(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return formatDateKey(new Date());
+}
+
+function weekResetDateKey(date = new Date()): string {
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return formatDateKey(weekStart);
 }
 
 const money = (amount: number) => `$${amount.toFixed(2)}`;
@@ -127,6 +143,12 @@ function formatReward(amount: number, unit: RewardUnit): string {
   return unit === 'points' ? formatPoints(amount) : money(amount);
 }
 
+function normalizeNonNegativeNumber(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''));
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, numeric);
+}
+
 function normalizeNonDailyFrequency(chore: Partial<RewardWeeklyChore>): NonDailyChoreFrequency {
   if (chore.scheduleType === 'weekly' || chore.scheduleType === 'other') return chore.scheduleType;
   const days = Array.isArray(chore.days)
@@ -144,8 +166,25 @@ function normalizeWeeklyDays(chore: RewardWeeklyChore): DayOfWeek[] {
   return ['monday'];
 }
 
+function normalizeCompletionDates(value: unknown, fallbackDate?: string): string[] {
+  const normalized = Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item))
+        .map((item) => item.trim())
+    : [];
+  const unique = [...new Set(normalized)];
+  if (unique.length > 0) return unique;
+  return fallbackDate ? [fallbackDate] : [];
+}
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function dispatchChoresStateUpdated() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:chores-state-updated'));
+  }
 }
 
 function choresStateKey(userId?: string | null): string {
@@ -153,7 +192,71 @@ function choresStateKey(userId?: string | null): string {
 }
 
 function defaultState(): ChoresState {
-  return { children: [], availableExtraChores: [], lastDailyResetDate: todayDateKey() };
+  return {
+    children: [],
+    availableExtraChores: [],
+    lastDailyResetDate: todayDateKey(),
+    lastWeeklyResetDate: weekResetDateKey(),
+  };
+}
+
+function normalizeChildEconomy(
+  child: ChildEconomy,
+  fallbackDates: { daily?: string; weekly?: string; extras?: string } = {},
+): ChildEconomy {
+  const item = child as ChildEconomy;
+  return {
+    ...item,
+    piggyBank: normalizeNonNegativeNumber(item.piggyBank),
+    pointsBank: normalizeNonNegativeNumber(item.pointsBank),
+    lifetimeEarned: normalizeNonNegativeNumber(item.lifetimeEarned),
+    lifetimePointsEarned: normalizeNonNegativeNumber(item.lifetimePointsEarned),
+    lifetimePenalties: normalizeNonNegativeNumber(item.lifetimePenalties),
+    cashedOut: normalizeNonNegativeNumber(item.cashedOut),
+    dailyChores: Array.isArray(item.dailyChores)
+      ? item.dailyChores.map((chore) => ({
+          ...chore,
+          rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
+          completionDates: normalizeCompletionDates(
+            (chore as Partial<RewardChore>).completionDates,
+            chore.isCompleted ? fallbackDates.daily : undefined,
+          ),
+        }))
+      : [],
+    weeklyChores: Array.isArray(item.weeklyChores)
+      ? item.weeklyChores.map((chore) => {
+          const weeklyDays = normalizeWeeklyDays(chore as RewardWeeklyChore);
+          return {
+            ...chore,
+            day: weeklyDays[0],
+            days: weeklyDays,
+            scheduleType: normalizeNonDailyFrequency(chore as Partial<RewardWeeklyChore>),
+            rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
+            completionDates: normalizeCompletionDates(
+              (chore as Partial<RewardChore>).completionDates,
+              chore.isCompleted ? fallbackDates.weekly : undefined,
+            ),
+          };
+        })
+      : [],
+    extraChores: Array.isArray(item.extraChores)
+      ? item.extraChores.map((extra) => ({
+          ...extra,
+          completedAt:
+            typeof extra.completedAt === 'string' && extra.completedAt.trim()
+              ? extra.completedAt
+              : extra.isCompleted
+                ? extra.createdAt || (fallbackDates.extras ? new Date().toISOString() : undefined)
+                : undefined,
+          failedAt:
+            typeof extra.failedAt === 'string' && extra.failedAt.trim()
+              ? extra.failedAt
+              : extra.isFailed
+                ? extra.dueAt || (fallbackDates.extras ? new Date().toISOString() : undefined)
+                : undefined,
+        }))
+      : [],
+  };
 }
 
 function loadState(userId?: string | null): ChoresState {
@@ -162,38 +265,31 @@ function loadState(userId?: string | null): ChoresState {
     const raw = window.localStorage.getItem(choresStateKey(userId));
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw) as Partial<ChoresState> | ChildEconomy[];
+    const todayKey = todayDateKey();
 
     if (Array.isArray(parsed)) {
       // legacy: old format stored only children
       // Force one daily reset pass after migrating from legacy format.
-      return { children: parsed, availableExtraChores: [], lastDailyResetDate: '' };
+      return {
+        children: parsed.map((child) => normalizeChildEconomy(child)),
+        availableExtraChores: [],
+        lastDailyResetDate: '',
+        lastWeeklyResetDate: '',
+      };
     }
 
     const children = Array.isArray(parsed.children) ? parsed.children : [];
-    const normalizedChildren = children.map((child) => {
-      const item = child as ChildEconomy;
-      return {
-        ...item,
-        dailyChores: Array.isArray(item.dailyChores)
-          ? item.dailyChores.map((chore) => ({
-              ...chore,
-              rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
-            }))
-          : [],
-        weeklyChores: Array.isArray(item.weeklyChores)
-          ? item.weeklyChores.map((chore) => {
-              const weeklyDays = normalizeWeeklyDays(chore as RewardWeeklyChore);
-              return {
-                ...chore,
-                day: weeklyDays[0],
-                days: weeklyDays,
-                scheduleType: normalizeNonDailyFrequency(chore as Partial<RewardWeeklyChore>),
-                rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
-              };
-            })
-          : [],
-      };
-    });
+    const hasDailyResetDate =
+      typeof parsed.lastDailyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDailyResetDate);
+    const hasWeeklyResetDate =
+      typeof parsed.lastWeeklyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastWeeklyResetDate);
+    const normalizedChildren = children.map((child) =>
+      normalizeChildEconomy(child as ChildEconomy, {
+        daily: hasDailyResetDate ? todayKey : undefined,
+        weekly: hasWeeklyResetDate ? todayKey : undefined,
+        extras: todayKey,
+      }),
+    );
 
     return {
       children: normalizedChildren,
@@ -201,9 +297,9 @@ function loadState(userId?: string | null): ChoresState {
         ? parsed.availableExtraChores
         : [],
       lastDailyResetDate:
-        typeof parsed.lastDailyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDailyResetDate)
-          ? parsed.lastDailyResetDate
-          : '',
+        hasDailyResetDate ? parsed.lastDailyResetDate : '',
+      lastWeeklyResetDate:
+        hasWeeklyResetDate ? parsed.lastWeeklyResetDate : '',
     };
   } catch {
     return defaultState();
@@ -213,6 +309,7 @@ function loadState(userId?: string | null): ChoresState {
 function saveState(state: ChoresState, userId?: string | null) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(choresStateKey(userId), JSON.stringify(state));
+  dispatchChoresStateUpdated();
 }
 
 function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[]; changed: boolean } {
@@ -225,7 +322,7 @@ function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[];
       if (new Date(extra.dueAt) > now) return extra;
       childChanged = true;
       changed = true;
-      return { ...extra, isFailed: true };
+      return { ...extra, isFailed: true, failedAt: new Date().toISOString() };
     });
 
     if (!childChanged) return child;
@@ -301,21 +398,21 @@ export default function ChoresPage() {
   }, [state, user?.id, loadedForKey, activeKey]);
 
   useEffect(() => {
-    const firstPass = markOverdueExtras(children);
-    if (firstPass.changed) {
-      setState((prev) => ({ ...prev, children: firstPass.updated }));
-    }
+    if (loadedForKey !== activeKey) return;
 
-    const timer = window.setInterval(() => {
+    const applyOverdueCheck = () => {
       setState((prev) => {
         const next = markOverdueExtras(prev.children);
         return next.changed ? { ...prev, children: next.updated } : prev;
       });
+    };
+
+    applyOverdueCheck();
+    const timer = window.setInterval(() => {
+      applyOverdueCheck();
     }, 60_000);
     return () => window.clearInterval(timer);
-    // intentionally run once on mount for stale overdue chores
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeKey, loadedForKey]);
 
   useEffect(() => {
     if (loadedForKey !== activeKey) return;
@@ -350,6 +447,39 @@ export default function ChoresPage() {
     };
   }, [activeKey, loadedForKey]);
 
+  useEffect(() => {
+    if (loadedForKey !== activeKey) return;
+
+    const applyWeeklyResetIfNeeded = () => {
+      const thisWeek = weekResetDateKey();
+      setState((prev) => {
+        if (prev.lastWeeklyResetDate === thisWeek) return prev;
+        return {
+          ...prev,
+          lastWeeklyResetDate: thisWeek,
+          children: prev.children.map((child) => ({
+            ...child,
+            weeklyChores: child.weeklyChores.map((chore) => ({ ...chore, isCompleted: false })),
+          })),
+        };
+      });
+    };
+
+    applyWeeklyResetIfNeeded();
+    const timer = window.setInterval(applyWeeklyResetIfNeeded, 60_000);
+    const onFocus = () => applyWeeklyResetIfNeeded();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') applyWeeklyResetIfNeeded();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [activeKey, loadedForKey]);
+
   const updateChild = (childId: string, updater: (child: ChildEconomy) => ChildEconomy) => {
     setState((prev) => ({
       ...prev,
@@ -362,36 +492,60 @@ export default function ChoresPage() {
 
   const toggleDailyChore = (childId: string, choreId: string) => {
     updateChild(childId, (child) => {
-      let delta = 0;
+      const today = todayDateKey();
+      let moneyDelta = 0;
+      let pointsDelta = 0;
       const dailyChores = child.dailyChores.map((chore) => {
         if (chore.id !== choreId) return chore;
         const nextCompleted = !chore.isCompleted;
-        delta = chore.rewardUnit === 'money' ? (nextCompleted ? chore.reward : -chore.reward) : 0;
-        return { ...chore, isCompleted: nextCompleted };
+        if (chore.rewardUnit === 'points') {
+          pointsDelta = nextCompleted ? chore.reward : -chore.reward;
+        } else {
+          moneyDelta = nextCompleted ? chore.reward : -chore.reward;
+        }
+        const completionDates = nextCompleted
+          ? [...new Set([...normalizeCompletionDates(chore.completionDates), today])]
+          : normalizeCompletionDates(chore.completionDates).filter((date) => date !== today);
+        return { ...chore, isCompleted: nextCompleted, completionDates };
       });
       return {
         ...child,
         dailyChores,
-        piggyBank: Math.max(0, child.piggyBank + delta),
-        lifetimeEarned: delta > 0 ? child.lifetimeEarned + delta : child.lifetimeEarned,
+        piggyBank: Math.max(0, child.piggyBank + moneyDelta),
+        pointsBank: Math.max(0, child.pointsBank + pointsDelta),
+        lifetimeEarned: moneyDelta > 0 ? child.lifetimeEarned + moneyDelta : child.lifetimeEarned,
+        lifetimePointsEarned:
+          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
       };
     });
   };
 
   const toggleWeeklyChore = (childId: string, choreId: string) => {
     updateChild(childId, (child) => {
-      let delta = 0;
+      const today = todayDateKey();
+      let moneyDelta = 0;
+      let pointsDelta = 0;
       const weeklyChores = child.weeklyChores.map((chore) => {
         if (chore.id !== choreId) return chore;
         const nextCompleted = !chore.isCompleted;
-        delta = chore.rewardUnit === 'money' ? (nextCompleted ? chore.reward : -chore.reward) : 0;
-        return { ...chore, isCompleted: nextCompleted };
+        if (chore.rewardUnit === 'points') {
+          pointsDelta = nextCompleted ? chore.reward : -chore.reward;
+        } else {
+          moneyDelta = nextCompleted ? chore.reward : -chore.reward;
+        }
+        const completionDates = nextCompleted
+          ? [...new Set([...normalizeCompletionDates(chore.completionDates), today])]
+          : normalizeCompletionDates(chore.completionDates).filter((date) => date !== today);
+        return { ...chore, isCompleted: nextCompleted, completionDates };
       });
       return {
         ...child,
         weeklyChores,
-        piggyBank: Math.max(0, child.piggyBank + delta),
-        lifetimeEarned: delta > 0 ? child.lifetimeEarned + delta : child.lifetimeEarned,
+        piggyBank: Math.max(0, child.piggyBank + moneyDelta),
+        pointsBank: Math.max(0, child.pointsBank + pointsDelta),
+        lifetimeEarned: moneyDelta > 0 ? child.lifetimeEarned + moneyDelta : child.lifetimeEarned,
+        lifetimePointsEarned:
+          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
       };
     });
   };
@@ -422,7 +576,9 @@ export default function ChoresPage() {
       weeklyChores: [],
       extraChores: [],
       piggyBank: 0,
+      pointsBank: 0,
       lifetimeEarned: 0,
+      lifetimePointsEarned: 0,
       lifetimePenalties: 0,
       cashedOut: 0,
     };
@@ -475,6 +631,7 @@ export default function ChoresPage() {
           isCompleted: false,
           reward,
           rewardUnit: newChoreRewardUnit,
+          completionDates: [],
         };
         return { ...child, dailyChores: [...child.dailyChores, newChore] };
       }
@@ -493,6 +650,7 @@ export default function ChoresPage() {
         isCompleted: false,
         reward,
         rewardUnit: newChoreRewardUnit,
+        completionDates: [],
       };
       return { ...child, weeklyChores: [...child.weeklyChores, newChore] };
     });
@@ -687,7 +845,7 @@ export default function ChoresPage() {
         if (extra.id !== extraId) return extra;
         if (extra.isCompleted || extra.isFailed) return extra;
         earned = extra.reward;
-        return { ...extra, isCompleted: true };
+        return { ...extra, isCompleted: true, completedAt: new Date().toISOString() };
       });
       return {
         ...child,
@@ -821,7 +979,7 @@ export default function ChoresPage() {
               }
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                       <PiggyBank className="w-3.5 h-3.5" /> Piggy Bank
@@ -829,8 +987,16 @@ export default function ChoresPage() {
                     <p className="font-semibold">{money(child.piggyBank)}</p>
                   </div>
                   <div className="rounded-md border border-border p-2">
+                    <p className="text-xs text-muted-foreground">Points Bank</p>
+                    <p className="font-semibold">{formatPoints(child.pointsBank)}</p>
+                  </div>
+                  <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground">Earned</p>
                     <p className="font-semibold text-primary">{money(child.lifetimeEarned)}</p>
+                  </div>
+                  <div className="rounded-md border border-border p-2">
+                    <p className="text-xs text-muted-foreground">Points Earned</p>
+                    <p className="font-semibold text-primary">{formatPoints(child.lifetimePointsEarned)}</p>
                   </div>
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground">Penalties</p>
