@@ -614,6 +614,10 @@ export default function MealsPage() {
   const plannerRecipeTypeahead = plannerRecipeQuery.trim() ? plannerRecipeOptions.slice(0, 8) : [];
   const chooseRecipeTypeahead = chooseRecipeQuery.trim() ? chooseRecipeOptions.slice(0, 8) : [];
   const manualRecipeTypeahead = manualRecipeQuery.trim() ? manualRecipeOptions.slice(0, 8) : [];
+  const manualSelectedRecipe = recipeOptions.find((recipe) => recipe.id === manualRecipeId) || null;
+  const manualHasExactSelection =
+    !!manualSelectedRecipe &&
+    normalizeText(manualSelectedRecipe.name) === normalizeText(manualRecipeQuery.trim());
   const alcoholPresetOptions = filterAlcoholPresets(alcoholPresetQuery).slice(0, 40);
 
   const selectRecipeForPlanner = (recipeId: string) => {
@@ -2644,13 +2648,34 @@ export default function MealsPage() {
                 const exact = recipeOptions.find((recipe) => recipe.name.toLowerCase() === value.trim().toLowerCase());
                 if (exact) {
                   setManualRecipeId(exact.id);
-                } else if (!value.trim()) {
+                } else {
                   setManualRecipeId('');
                 }
               }}
               placeholder="Search recipes..."
             />
-            {manualRecipeTypeahead.length > 0 ? (
+            {manualSelectedRecipe ? (
+              <div className="rounded-md border border-border bg-muted/10 px-3 py-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">{manualSelectedRecipe.name}</p>
+                    <p className="text-xs text-muted-foreground">{Math.round(manualSelectedRecipe.calories || 0)} cal</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setManualRecipeId('');
+                      setManualRecipeQuery('');
+                    }}
+                  >
+                    Change
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {!manualHasExactSelection && manualRecipeTypeahead.length > 0 ? (
               <div className="rounded-md border border-border bg-background p-1">
                 {manualRecipeTypeahead.map((recipe) => (
                   <button
@@ -2665,23 +2690,16 @@ export default function MealsPage() {
                 ))}
               </div>
             ) : null}
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={manualRecipeId}
-              onChange={(event) => selectRecipeForManual(event.target.value)}
-              disabled={recipesLoading}
-            >
-              <option value="">Select recipe...</option>
-              {manualRecipeOptions.map((recipe) => (
-                <option key={recipe.id} value={recipe.id}>
-                  {recipe.name}
-                </option>
-              ))}
-            </select>
             <p className="text-xs text-muted-foreground">
               {recipesLoading
                 ? 'Loading recipes...'
-                : `Showing ${manualRecipeOptions.length} recipe${manualRecipeOptions.length !== 1 ? 's' : ''}.`}
+                : manualSelectedRecipe
+                  ? 'Recipe selected.'
+                  : manualRecipeQuery.trim()
+                    ? manualRecipeOptions.length > 0
+                      ? `Showing ${manualRecipeOptions.length} recipe${manualRecipeOptions.length !== 1 ? 's' : ''}.`
+                      : 'No matching recipes.'
+                    : 'Start typing to find a recipe.'}
             </p>
           </div>
           <div className="flex justify-end gap-2">
