@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { format, startOfWeek } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GroceryCategory } from '@/types';
-import { Copy, ExternalLink, ShoppingCart, Check, Settings2, Bell } from 'lucide-react';
+import { Copy, ExternalLink, ShoppingCart, Check, Settings2, Bell, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentDate } from '@/hooks/useCurrentDate';
+import { useAccountGroceryListState } from '@/hooks/useAccountGroceryListState';
 import { fetchMealsForWeek, DbPlannedMeal } from '@/lib/api/meals';
 import { getMealMultipliers } from '@/lib/mealPrefs';
 import {
@@ -32,6 +35,10 @@ import {
   toIngredientKey,
 } from '@/lib/groceryPrefs';
 import {
+  defaultGroceryWeekState,
+  GroceryListManualItem,
+} from '@/lib/groceryListStateStore';
+import {
   getNextWeekOf,
   loadWeeklyPlanningStatus,
   setWeeklyGroceriesOrdered,
@@ -50,11 +57,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 
 interface GroceryItem {
   id: string;
+  key: string;
   name: string;
   quantity: string;
   category: GroceryCategory;
   isChecked: boolean;
   sourceRecipes: string[];
+  manualItemIds: string[];
+  recurringItemIds: string[];
 }
 
 interface ParsedIngredient {
@@ -316,10 +326,55 @@ function formatQuantity(qtyByUnit: Map<string, number>, countNoQty: number): str
 function buildGroceryList(
   meals: DbPlannedMeal[],
   multipliers: Record<string, number>,
-  options?: { excludeMealPrep?: boolean },
+  options?: {
+    excludeMealPrep?: boolean;
+    checkedKeys?: Set<string>;
+    manualItems?: GroceryListManualItem[];
+    recurringItems?: GroceryListManualItem[];
+  },
 ): GroceryItem[] {
-  const itemMap = new Map<string, GroceryItem & { qtyByUnit: Map<string, number>; countNoQty: number }>();
+  const itemMap = new Map<
+    string,
+    GroceryItem & {
+      qtyByUnit: Map<string, number>;
+      countNoQty: number;
+      customQuantities: string[];
+    }
+  >();
   const excludeMealPrep = options?.excludeMealPrep ?? true;
+  const checkedKeys = options?.checkedKeys || new Set<string>();
+
+  const getOrCreateItem = (key: string, name: string, category: GroceryCategory) => {
+    const existing = itemMap.get(key);
+    if (existing) return existing;
+
+    const created: GroceryItem & {
+      qtyByUnit: Map<string, number>;
+      countNoQty: number;
+      customQuantities: string[];
+    } = {
+      id: key,
+      key,
+      name,
+      quantity: '',
+      category,
+      isChecked: checkedKeys.has(key),
+      sourceRecipes: [],
+      manualItemIds: [],
+      recurringItemIds: [],
+      qtyByUnit: new Map(),
+      countNoQty: 0,
+      customQuantities: [],
+    };
+    itemMap.set(key, created);
+    return created;
+  };
+
+  const appendSource = (item: GroceryItem, label: string) => {
+    if (!item.sourceRecipes.includes(label)) {
+      item.sourceRecipes.push(label);
+    }
+  };
   
   for (const meal of meals) {
     if (meal.is_skipped) continue;
@@ -336,47 +391,74 @@ function buildGroceryList(
         const key = normalizeIngredientName(cleanedName);
         if (!key || key.length < 2) continue;
         
-        if (itemMap.has(key)) {
-          const existing = itemMap.get(key)!;
-          if (!existing.sourceRecipes.includes(recipe.name)) {
-            existing.sourceRecipes.push(mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name);
-          }
-          if (parsed.quantity !== null && parsed.unit) {
-            existing.qtyByUnit.set(parsed.unit, (existing.qtyByUnit.get(parsed.unit) || 0) + (parsed.quantity * mealMultiplier));
-          } else {
-            existing.countNoQty += mealMultiplier;
-          }
+        const existing = getOrCreateItem(key, cleanedName, categorizeIngredient(cleanedName));
+        if (existing.category === 'other') {
+          existing.category = categorizeIngredient(cleanedName);
+        }
+        appendSource(existing, mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name);
+        if (parsed.quantity !== null && parsed.unit) {
+          existing.qtyByUnit.set(parsed.unit, (existing.qtyByUnit.get(parsed.unit) || 0) + (parsed.quantity * mealMultiplier));
         } else {
-          itemMap.set(key, {
-            id: `grocery-${itemMap.size}`,
-            name: cleanedName,
-            quantity: '',
-            category: categorizeIngredient(cleanedName),
-            isChecked: false,
-            sourceRecipes: [mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name],
-            qtyByUnit: new Map(parsed.quantity !== null && parsed.unit ? [[parsed.unit, parsed.quantity * mealMultiplier]] : []),
-            countNoQty: parsed.quantity !== null && parsed.unit ? 0 : mealMultiplier,
-          });
+          existing.countNoQty += mealMultiplier;
         }
       }
     }
   }
+
+  const mergeCustomItems = (customItems: GroceryListManualItem[], kind: 'manual' | 'recurring') => {
+    customItems.forEach((customItem) => {
+      const key = toIngredientKey(customItem.name);
+      if (!key) return;
+      const existing = getOrCreateItem(key, customItem.name, customItem.category);
+      existing.name = existing.name || customItem.name;
+      if (existing.category === 'other' && customItem.category !== 'other') {
+        existing.category = customItem.category;
+      }
+      if (customItem.quantity && !existing.customQuantities.includes(customItem.quantity)) {
+        existing.customQuantities.push(customItem.quantity);
+      }
+      appendSource(existing, kind === 'recurring' ? 'Weekly staple' : 'Manual item');
+      if (kind === 'recurring') {
+        if (!existing.recurringItemIds.includes(customItem.id)) {
+          existing.recurringItemIds.push(customItem.id);
+        }
+      } else if (!existing.manualItemIds.includes(customItem.id)) {
+        existing.manualItemIds.push(customItem.id);
+      }
+    });
+  };
+
+  mergeCustomItems(options?.manualItems || [], 'manual');
+  mergeCustomItems(options?.recurringItems || [], 'recurring');
   
   return Array.from(itemMap.values()).map((item) => ({
     id: item.id,
+    key: item.key,
     name: item.name,
-    quantity: formatQuantity(item.qtyByUnit, item.countNoQty),
+    quantity: [
+      item.qtyByUnit.size > 0 || item.countNoQty > 0 ? formatQuantity(item.qtyByUnit, item.countNoQty) : '',
+      ...item.customQuantities,
+    ]
+      .map((part) => part.trim())
+      .filter((part, index, list) => !!part && list.findIndex((candidate) => candidate.toLowerCase() === part.toLowerCase()) === index)
+      .join(' + ') || '1x',
     category: item.category,
-    isChecked: item.isChecked,
+    isChecked: checkedKeys.has(item.key),
     sourceRecipes: item.sourceRecipes,
+    manualItemIds: item.manualItemIds,
+    recurringItemIds: item.recurringItemIds,
   }));
 }
 
 export default function GroceryPage() {
   const { user } = useAuth();
-  const [items, setItems] = useState<GroceryItem[]>([]);
+  const currentDate = useCurrentDate();
+  const currentWeekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const { groceryListState, setGroceryListState } = useAccountGroceryListState(user?.id);
+  const [plannedMeals, setPlannedMeals] = useState<DbPlannedMeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [addItemOpen, setAddItemOpen] = useState(false);
   const [preferredStoreId, setPreferredStoreIdState] = useState('walmart');
   const [itemStoreOverrides, setItemStoreOverrides] = useState<Record<string, string>>({});
   const [orderReminder, setOrderReminder] = useState<GroceryOrderReminderSettings>({
@@ -390,8 +472,16 @@ export default function GroceryPage() {
   const [nextWeekStatus, setNextWeekStatus] = useState<WeeklyPlanningStatus | null>(null);
   const [updatingNextWeekStatus, setUpdatingNextWeekStatus] = useState(false);
   const [excludePreppedMealPrep, setExcludePreppedMealPrep] = useState<boolean>(true);
+  const [manualItemName, setManualItemName] = useState('');
+  const [manualItemQuantity, setManualItemQuantity] = useState('');
+  const [manualItemCategory, setManualItemCategory] = useState<GroceryCategory>('other');
+  const [manualItemRepeatsWeekly, setManualItemRepeatsWeekly] = useState(false);
   const { toast } = useToast();
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
+  const currentWeekState = useMemo(
+    () => groceryListState.weekStates[currentWeekOf] || defaultGroceryWeekState(),
+    [currentWeekOf, groceryListState.weekStates],
+  );
 
   useEffect(() => {
     setPreferredStoreIdState(getPreferredGroceryStoreId());
@@ -403,7 +493,6 @@ export default function GroceryPage() {
     setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
     const excludeMealPrep = loadExcludePreppedMealPrepPreference();
     setExcludePreppedMealPrep(excludeMealPrep);
-    void loadGroceryList(excludeMealPrep);
     void loadNextWeekStatus();
     if (canUseRemoteSms) {
       void (async () => {
@@ -421,7 +510,7 @@ export default function GroceryPage() {
         }
       })();
     }
-  }, [canUseRemoteSms]);
+  }, [canUseRemoteSms, user?.id]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -430,13 +519,14 @@ export default function GroceryPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const loadGroceryList = async (excludeMealPrep = excludePreppedMealPrep) => {
+  const loadGroceryList = async () => {
     try {
       setLoading(true);
       const meals = await fetchMealsForWeek(0);
-      setItems(buildGroceryList(meals, getMealMultipliers(), { excludeMealPrep }));
+      setPlannedMeals(meals);
     } catch (err) {
       console.error('Failed to load grocery list:', err);
+      setPlannedMeals([]);
     } finally {
       setLoading(false);
     }
@@ -444,8 +534,25 @@ export default function GroceryPage() {
 
   useEffect(() => {
     saveExcludePreppedMealPrepPreference(excludePreppedMealPrep);
-    void loadGroceryList(excludePreppedMealPrep);
-  }, [excludePreppedMealPrep]);
+    void loadGroceryList();
+  }, [excludePreppedMealPrep, user?.id]);
+
+  const items = useMemo(
+    () =>
+      buildGroceryList(plannedMeals, getMealMultipliers(), {
+        excludeMealPrep: excludePreppedMealPrep,
+        checkedKeys: new Set(currentWeekState.checkedKeys),
+        manualItems: currentWeekState.manualItems,
+        recurringItems: groceryListState.recurringItems,
+      }),
+    [
+      currentWeekState.checkedKeys,
+      currentWeekState.manualItems,
+      excludePreppedMealPrep,
+      groceryListState.recurringItems,
+      plannedMeals,
+    ],
+  );
 
   const loadNextWeekStatus = async () => {
     try {
@@ -456,14 +563,151 @@ export default function GroceryPage() {
     }
   };
 
-  const toggleItem = (itemId: string) => {
-    setItems(prev => prev.map(item =>
-      item.id === itemId ? { ...item, isChecked: !item.isChecked } : item
-    ));
+  const updateCurrentWeekState = (
+    updater: (weekState: ReturnType<typeof defaultGroceryWeekState>) => ReturnType<typeof defaultGroceryWeekState>,
+  ) => {
+    setGroceryListState((previous) => {
+      const current = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      const nextWeekState = updater(current);
+      const nextWeekStates = { ...previous.weekStates };
+      if (nextWeekState.checkedKeys.length === 0 && nextWeekState.manualItems.length === 0) {
+        delete nextWeekStates[currentWeekOf];
+      } else {
+        nextWeekStates[currentWeekOf] = nextWeekState;
+      }
+      return {
+        ...previous,
+        weekStates: nextWeekStates,
+      };
+    });
+  };
+
+  const toggleItem = (itemKey: string) => {
+    updateCurrentWeekState((weekState) => {
+      const checkedKeys = new Set(weekState.checkedKeys);
+      if (checkedKeys.has(itemKey)) {
+        checkedKeys.delete(itemKey);
+      } else {
+        checkedKeys.add(itemKey);
+      }
+      return {
+        ...weekState,
+        checkedKeys: Array.from(checkedKeys),
+      };
+    });
   };
 
   const checkAllItems = () => {
-    setItems((prev) => prev.map((item) => (item.isChecked ? item : { ...item, isChecked: true })));
+    updateCurrentWeekState((weekState) => ({
+      ...weekState,
+      checkedKeys: Array.from(new Set(items.map((item) => item.key))),
+    }));
+  };
+
+  const resetAddItemDialog = () => {
+    setManualItemName('');
+    setManualItemQuantity('');
+    setManualItemCategory('other');
+    setManualItemRepeatsWeekly(false);
+  };
+
+  const addManualItem = () => {
+    const name = manualItemName.trim().replace(/\s+/g, ' ');
+    if (!name) {
+      toast({ title: 'Add an item name first', variant: 'destructive' });
+      return;
+    }
+
+    const nextItem: GroceryListManualItem = {
+      id: crypto.randomUUID(),
+      name,
+      quantity: manualItemQuantity.trim().replace(/\s+/g, ' ') || '1x',
+      category: manualItemCategory === 'other' ? categorizeIngredient(name) : manualItemCategory,
+      createdAt: new Date().toISOString(),
+    };
+    const duplicateMatches = (item: GroceryListManualItem) =>
+      toIngredientKey(item.name) === toIngredientKey(nextItem.name)
+      && item.quantity.trim().toLowerCase() === nextItem.quantity.trim().toLowerCase()
+      && item.category === nextItem.category;
+
+    if (manualItemRepeatsWeekly && groceryListState.recurringItems.some(duplicateMatches)) {
+      toast({ title: 'That weekly staple is already on your list' });
+      return;
+    }
+
+    if (!manualItemRepeatsWeekly && currentWeekState.manualItems.some(duplicateMatches)) {
+      toast({ title: 'That manual grocery item is already on this week’s list' });
+      return;
+    }
+
+    setGroceryListState((previous) => {
+      if (manualItemRepeatsWeekly) {
+        return {
+          ...previous,
+          recurringItems: [...previous.recurringItems, nextItem],
+        };
+      }
+
+      const weekState = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      return {
+        ...previous,
+        weekStates: {
+          ...previous.weekStates,
+          [currentWeekOf]: {
+            ...weekState,
+            manualItems: [...weekState.manualItems, nextItem],
+          },
+        },
+      };
+    });
+
+    setAddItemOpen(false);
+    resetAddItemDialog();
+    toast({
+      title: manualItemRepeatsWeekly ? 'Weekly grocery staple added' : 'Grocery item added',
+      description: manualItemRepeatsWeekly
+        ? `${name} will appear every week.`
+        : `${name} is now on this week’s list.`,
+    });
+  };
+
+  const removeCustomItemAttachments = (item: GroceryItem) => {
+    if (item.manualItemIds.length === 0 && item.recurringItemIds.length === 0) return;
+
+    setGroceryListState((previous) => {
+      const weekState = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      const nextManualItems = weekState.manualItems.filter(
+        (manualItem) => !item.manualItemIds.includes(manualItem.id),
+      );
+      const nextRecurringItems = previous.recurringItems.filter(
+        (recurringItem) => !item.recurringItemIds.includes(recurringItem.id),
+      );
+      const nextCheckedKeys = weekState.checkedKeys.filter((key) => key !== item.key);
+      const nextWeekStates = { ...previous.weekStates };
+
+      if (nextManualItems.length === 0 && nextCheckedKeys.length === 0) {
+        delete nextWeekStates[currentWeekOf];
+      } else {
+        nextWeekStates[currentWeekOf] = {
+          ...weekState,
+          manualItems: nextManualItems,
+          checkedKeys: nextCheckedKeys,
+        };
+      }
+
+      return {
+        ...previous,
+        recurringItems: nextRecurringItems,
+        weekStates: nextWeekStates,
+      };
+    });
+
+    toast({
+      title: 'Added grocery item removed',
+      description: item.recurringItemIds.length > 0
+        ? 'Weekly staple removed from future lists.'
+        : 'Manual item removed from this week.',
+    });
   };
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
@@ -598,6 +842,10 @@ export default function GroceryPage() {
         subtitle={loading ? 'Loading...' : `${checkedCount} of ${totalCount} items checked`}
         action={
           <div className="flex gap-2">
+            <Button onClick={() => setAddItemOpen(true)} size="sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Item
+            </Button>
             <Button onClick={() => setPrefsOpen(true)} variant="outline" size="sm">
               <Settings2 className="w-4 h-4 mr-2" />
               Preferences
@@ -625,6 +873,13 @@ export default function GroceryPage() {
       {excludePreppedMealPrep && (
         <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
           Meal prep recipes marked as already prepped are excluded from this grocery rollup.
+        </div>
+      )}
+
+      {groceryListState.recurringItems.length > 0 && (
+        <div className="mb-4 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+          {groceryListState.recurringItems.length} weekly staple
+          {groceryListState.recurringItems.length === 1 ? '' : 's'} will be added automatically each week.
         </div>
       )}
 
@@ -775,7 +1030,7 @@ export default function GroceryPage() {
                   >
                     <Checkbox 
                       checked={item.isChecked}
-                      onCheckedChange={() => toggleItem(item.id)}
+                      onCheckedChange={() => toggleItem(item.key)}
                     />
                     <div className="flex-1 min-w-0">
                       <p className={cn(
@@ -788,6 +1043,21 @@ export default function GroceryPage() {
                         {item.sourceRecipes.join(', ')}
                       </p>
                     </div>
+                    {(item.manualItemIds.length > 0 || item.recurringItemIds.length > 0) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 flex-shrink-0"
+                        onClick={() => removeCustomItemAttachments(item)}
+                        title={
+                          item.recurringItemIds.length > 0
+                            ? 'Remove weekly staple'
+                            : 'Remove manual item'
+                        }
+                      >
+                        <Trash2 className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                    )}
                     <select
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs"
                       value={
@@ -838,6 +1108,77 @@ export default function GroceryPage() {
           <p className="text-muted-foreground">Your shopping is complete</p>
         </div>
       )}
+
+      <Dialog
+        open={addItemOpen}
+        onOpenChange={(open) => {
+          setAddItemOpen(open);
+          if (!open) resetAddItemDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add Grocery Item</DialogTitle>
+            <DialogDescription>
+              Add a one-time item for this week or save it as a weekly staple.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Item name</p>
+              <Input
+                value={manualItemName}
+                onChange={(event) => setManualItemName(event.target.value)}
+                placeholder="Milk"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Quantity</p>
+                <Input
+                  value={manualItemQuantity}
+                  onChange={(event) => setManualItemQuantity(event.target.value)}
+                  placeholder="1 gallon"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Category</p>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={manualItemCategory}
+                  onChange={(event) => setManualItemCategory(event.target.value as GroceryCategory)}
+                >
+                  <option value="produce">Produce</option>
+                  <option value="meat">Meat & Protein</option>
+                  <option value="dairy">Dairy</option>
+                  <option value="pantry">Pantry</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={manualItemRepeatsWeekly}
+                onCheckedChange={(checked) => setManualItemRepeatsWeekly(Boolean(checked))}
+              />
+              <span className="text-sm">Add this item every week</span>
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAddItemOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addManualItem}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add item
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
         <DialogContent className="sm:max-w-md">
