@@ -71,7 +71,7 @@ import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calenda
 import { useAccountCalendarPreferences } from '@/hooks/useAccountCalendarPreferences';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 type PlannerMode = 'month' | 'twoWeek';
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
@@ -237,6 +237,7 @@ export default function CalendarPlannerPage() {
   const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>(
     DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
   );
+  const [calendarIntegrationsExpanded, setCalendarIntegrationsExpanded] = useState(false);
   const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<CalendarEventModule | null>(null);
   const [editingModuleName, setEditingModuleName] = useState('');
@@ -1249,8 +1250,48 @@ export default function CalendarPlannerPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Calendar integrations" subtitle="Plan in Home Harmony, then display in your calendar app">
-            <div className="space-y-3">
+          <SectionCard title="Upcoming" subtitle="Next 10 scheduled items">
+            <div className="space-y-2">
+              {upcomingEvents.length === 0 && <p className="text-sm text-muted-foreground">No upcoming items.</p>}
+              {upcomingEvents.map((event) => (
+                <EventRow
+                  key={event.id}
+                  badgeLabel={getEventBadgeLabel(event)}
+                  event={event}
+                  googleEnabled={googlePrefs.enabled}
+                  compact
+                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                  onDelete={event.source === 'manual' ? removeManualEvent : undefined}
+                />
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <SectionCard
+          title="Calendar integrations"
+          subtitle="Plan in Home Harmony, then display in your calendar app"
+          action={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCalendarIntegrationsExpanded((prev) => !prev)}
+              aria-expanded={calendarIntegrationsExpanded}
+              aria-controls="calendar-planner-integrations-panel"
+              aria-label={calendarIntegrationsExpanded ? 'Collapse calendar integrations' : 'Expand calendar integrations'}
+            >
+              <ChevronDown
+                className={cn('h-4 w-4 transition-transform', calendarIntegrationsExpanded && 'rotate-180')}
+              />
+            </Button>
+          }
+        >
+          {calendarIntegrationsExpanded ? (
+            <div id="calendar-planner-integrations-panel" className="space-y-3">
               <div className="rounded-lg border border-border p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">Google Calendar</p>
@@ -1292,25 +1333,12 @@ export default function CalendarPlannerPage() {
                 </p>
               </div>
             </div>
-          </SectionCard>
-
-          <SectionCard title="Upcoming" subtitle="Next 10 scheduled items">
-            <div className="space-y-2">
-              {upcomingEvents.length === 0 && <p className="text-sm text-muted-foreground">No upcoming items.</p>}
-              {upcomingEvents.map((event) => (
-                <EventRow
-                  key={event.id}
-                  badgeLabel={getEventBadgeLabel(event)}
-                  event={event}
-                  googleEnabled={googlePrefs.enabled}
-                  compact
-                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                  onDelete={event.source === 'manual' ? removeManualEvent : undefined}
-                />
-              ))}
-            </div>
-          </SectionCard>
-        </div>
+          ) : (
+            <p id="calendar-planner-integrations-panel" className="text-sm text-muted-foreground">
+              Expand to manage Apple Calendar, Google Calendar, and quick-add sync options.
+            </p>
+          )}
+        </SectionCard>
       </div>
 
       <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
