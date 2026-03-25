@@ -4,6 +4,7 @@ import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSett
 import { Macros, MealLog } from '@/types';
 
 export type AdultId = string;
+export type HouseholdMemberType = 'adult' | 'child';
 export type Sex = 'male' | 'female';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'athlete';
 export type BodyGoal = 'fat_loss' | 'maintenance' | 'muscle_gain' | 'recomp';
@@ -50,6 +51,7 @@ interface PersonGameProfile {
   id: AdultId;
   name: string;
   macroPlan: MacroPlan;
+  memberType: HouseholdMemberType;
   createdAt?: string;
 }
 
@@ -67,6 +69,7 @@ interface StoredState {
 export interface DashboardProfile {
   id: string;
   name: string;
+  memberType: HouseholdMemberType;
   createdAt?: string;
 }
 
@@ -204,6 +207,10 @@ function defaultPlan(id: AdultId, name?: string): MacroPlan {
   };
 }
 
+function normalizeHouseholdMemberType(value: unknown): HouseholdMemberType {
+  return value === 'child' ? 'child' : 'adult';
+}
+
 function sanitizeDashboardName(name: string): string {
   const trimmed = name.trim().replace(/\s+/g, ' ');
   return trimmed || 'Dashboard';
@@ -249,8 +256,20 @@ function initialState(): StoredState {
   return {
     mealLogs: mockMealLogs.map(toStoredMealLog),
     profiles: {
-      me: { id: 'me', name: meProfile?.name || 'Me', macroPlan: mePlan, createdAt: new Date().toISOString() },
-      wife: { id: 'wife', name: wifeProfile?.name || 'Wife', macroPlan: wifePlan, createdAt: new Date().toISOString() },
+      me: {
+        id: 'me',
+        name: meProfile?.name || 'Me',
+        memberType: 'adult',
+        macroPlan: mePlan,
+        createdAt: new Date().toISOString(),
+      },
+      wife: {
+        id: 'wife',
+        name: wifeProfile?.name || 'Wife',
+        memberType: 'adult',
+        macroPlan: wifePlan,
+        createdAt: new Date().toISOString(),
+      },
     },
     trackers: {},
   };
@@ -277,6 +296,10 @@ function normalizeProfiles(
     mergedProfiles[id] = {
       id,
       name: incoming?.name?.trim() || fallbackProfile?.name || fallbackName,
+      memberType:
+        id === 'me' || id === 'wife'
+          ? 'adult'
+          : normalizeHouseholdMemberType(incoming?.memberType ?? fallbackProfile?.memberType),
       createdAt: incoming?.createdAt || fallbackProfile?.createdAt || new Date().toISOString(),
       macroPlan: {
         ...basePlan,
@@ -540,7 +563,7 @@ export function getProfiles(): Record<AdultId, PersonGameProfile> {
 }
 
 export function listDashboardProfiles(): DashboardProfile[] {
-  const profiles = Object.values(getProfiles());
+  const profiles = Object.values(getProfiles()).filter((profile) => profile.memberType === 'adult');
   return profiles
     .slice()
     .sort((a, b) => {
@@ -550,10 +573,35 @@ export function listDashboardProfiles(): DashboardProfile[] {
       if (b.id === 'wife') return 1;
       return (a.createdAt || '').localeCompare(b.createdAt || '');
     })
-    .map((profile) => ({ id: profile.id, name: profile.name, createdAt: profile.createdAt }));
+    .map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      memberType: profile.memberType,
+      createdAt: profile.createdAt,
+    }));
 }
 
-export function addDashboardProfile(name: string): DashboardProfile {
+export function listHouseholdProfiles(): DashboardProfile[] {
+  const profiles = Object.values(getProfiles());
+  return profiles
+    .slice()
+    .sort((a, b) => {
+      if (a.id === 'me') return -1;
+      if (b.id === 'me') return 1;
+      if (a.id === 'wife') return -1;
+      if (b.id === 'wife') return 1;
+      if (a.memberType !== b.memberType) return a.memberType === 'adult' ? -1 : 1;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    })
+    .map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      memberType: profile.memberType,
+      createdAt: profile.createdAt,
+    }));
+}
+
+export function addHouseholdProfile(name: string, memberType: HouseholdMemberType = 'adult'): DashboardProfile {
   const state = readState();
   const finalName = sanitizeDashboardName(name);
   let id = createDashboardId(finalName);
@@ -563,12 +611,22 @@ export function addDashboardProfile(name: string): DashboardProfile {
   const profile: PersonGameProfile = {
     id,
     name: finalName,
+    memberType,
     createdAt: new Date().toISOString(),
     macroPlan: defaultPlan(id, finalName),
   };
   state.profiles[id] = profile;
   writeState(state);
-  return { id: profile.id, name: profile.name, createdAt: profile.createdAt };
+  return {
+    id: profile.id,
+    name: profile.name,
+    memberType: profile.memberType,
+    createdAt: profile.createdAt,
+  };
+}
+
+export function addDashboardProfile(name: string): DashboardProfile {
+  return addHouseholdProfile(name, 'adult');
 }
 
 export function renameDashboardProfile(personId: AdultId, name: string): DashboardProfile {
@@ -577,7 +635,16 @@ export function renameDashboardProfile(personId: AdultId, name: string): Dashboa
   profile.name = sanitizeDashboardName(name);
   state.profiles[personId] = profile;
   writeState(state);
-  return { id: profile.id, name: profile.name, createdAt: profile.createdAt };
+  return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
+}
+
+export function setHouseholdProfileType(personId: AdultId, memberType: HouseholdMemberType): DashboardProfile {
+  const state = readState();
+  const profile = ensureProfile(state, personId);
+  profile.memberType = personId === 'me' || personId === 'wife' ? 'adult' : memberType;
+  state.profiles[personId] = profile;
+  writeState(state);
+  return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
 }
 
 function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile {
@@ -587,6 +654,7 @@ function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile
   const created: PersonGameProfile = {
     id: personId,
     name: fallbackName,
+    memberType: 'adult',
     createdAt: new Date().toISOString(),
     macroPlan: defaultPlan(personId, fallbackName),
   };

@@ -56,6 +56,18 @@ export interface KidChoreSeedInput {
   age: number | null;
 }
 
+export interface ChoreChildProfileInput {
+  id: string;
+  name: string;
+  age?: number | null;
+}
+
+export interface ChoreChildSummary {
+  id: string;
+  name: string;
+  age: number | null;
+}
+
 function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
@@ -119,10 +131,109 @@ function parseExistingState(userId?: string | null): ChoresState {
     return {
       children: Array.isArray(parsed.children) ? (parsed.children as ChildEconomy[]) : [],
       availableExtraChores: Array.isArray(parsed.availableExtraChores) ? parsed.availableExtraChores : [],
+      lastDailyResetDate: parsed.lastDailyResetDate,
+      lastWeeklyResetDate: parsed.lastWeeklyResetDate,
     };
   } catch {
     return { children: [], availableExtraChores: [] };
   }
+}
+
+function saveState(state: ChoresState, userId?: string | null) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(
+    choresStateKey(userId),
+    JSON.stringify({
+      children: state.children,
+      availableExtraChores: state.availableExtraChores,
+      lastDailyResetDate: state.lastDailyResetDate || dateKey(),
+      lastWeeklyResetDate: state.lastWeeklyResetDate || weekResetDateKey(),
+    }),
+  );
+  window.dispatchEvent(new CustomEvent('homehub:chores-state-updated'));
+}
+
+function normalizeNameKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function buildChildEconomy(input: ChoreChildProfileInput): ChildEconomy {
+  const age = sanitizeAge(input.age ?? null);
+  const template = buildTemplate(age);
+  return {
+    id: input.id,
+    name: input.name.trim(),
+    age,
+    dailyChores: template.daily.map((name, choreIndex) => ({
+      id: `daily-${input.id}-${choreIndex}`,
+      name,
+      isCompleted: false,
+      reward: 1,
+      rewardUnit: 'money',
+      completionDates: [],
+    })),
+    weeklyChores: template.weekly.map((weekly, choreIndex) => ({
+      id: `weekly-${input.id}-${choreIndex}`,
+      name: weekly.name,
+      day: weekly.day,
+      isCompleted: false,
+      reward: 2,
+      rewardUnit: 'money',
+      completionDates: [],
+    })),
+    extraChores: [],
+    piggyBank: 0,
+    pointsBank: 0,
+    lifetimeEarned: 0,
+    lifetimePointsEarned: 0,
+    lifetimePenalties: 0,
+    cashedOut: 0,
+  };
+}
+
+export function listChoreChildren(userId?: string | null): ChoreChildSummary[] {
+  return parseExistingState(userId).children.map((child) => ({
+    id: child.id,
+    name: child.name,
+    age: sanitizeAge(child.age ?? null),
+  }));
+}
+
+export function upsertChildInChores(input: ChoreChildProfileInput, userId?: string | null): ChoreChildSummary {
+  if (!canUseStorage()) {
+    return { id: input.id, name: input.name.trim(), age: sanitizeAge(input.age ?? null) };
+  }
+
+  const name = input.name.trim();
+  const age = sanitizeAge(input.age ?? null);
+  const state = parseExistingState(userId);
+  const normalizedName = normalizeNameKey(name);
+  const existingIndex = state.children.findIndex(
+    (child) => child.id === input.id || normalizeNameKey(child.name) === normalizedName,
+  );
+
+  if (existingIndex >= 0) {
+    const existing = state.children[existingIndex];
+    state.children[existingIndex] = {
+      ...existing,
+      id: input.id,
+      name,
+      age,
+    };
+  } else {
+    state.children.push(buildChildEconomy({ id: input.id, name, age }));
+  }
+
+  saveState(state, userId);
+  return { id: input.id, name, age };
+}
+
+export function removeChildFromChores(childId: string, userId?: string | null) {
+  if (!canUseStorage()) return;
+  const state = parseExistingState(userId);
+  const nextChildren = state.children.filter((child) => child.id !== childId);
+  if (nextChildren.length === state.children.length) return;
+  saveState({ ...state, children: nextChildren }, userId);
 }
 
 export function seedChoresForKidsIfEmpty(kids: KidChoreSeedInput[], userId?: string | null): boolean {

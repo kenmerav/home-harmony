@@ -24,7 +24,8 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { addDashboardProfile, listDashboardProfiles, renameDashboardProfile } from '@/lib/macroGame';
+import { listDashboardProfiles, renameDashboardProfile } from '@/lib/macroGame';
+import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
 import {
   Dialog,
   DialogContent,
@@ -62,6 +63,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const [mobileDashboardsOpen, setMobileDashboardsOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
+  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('homehub:sidebar-collapsed') === '1';
@@ -121,11 +123,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   };
 
   const handleAddDashboard = () => {
-    const raw = window.prompt('Name this dashboard', 'New Dashboard');
-    if (!raw || !raw.trim()) return;
-    const created = addDashboardProfile(raw);
-    refreshDashboards();
-    navigate(`/dashboard/${created.id}`);
+    setMemberDialogOpen(true);
   };
 
   const handleRenameDashboard = (dashboardId: string, currentName: string) => {
@@ -232,15 +230,15 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
           <div className={cn('pt-4 pb-2 flex items-center', isSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-3')}>
             {!isSidebarCollapsed && (
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Dashboards
+                Adult Dashboards
               </p>
             )}
             <button
               type="button"
               onClick={handleAddDashboard}
               className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              aria-label="Add dashboard"
-              title="Add dashboard"
+              aria-label="Add family member"
+              title="Add family member"
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -354,7 +352,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
       <Dialog open={mobileDashboardsOpen} onOpenChange={setMobileDashboardsOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display">Dashboards</DialogTitle>
+            <DialogTitle className="font-display">Adult Dashboards</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             {dashboards.map((dashboard) => {
@@ -390,7 +388,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               onClick={handleAddDashboard}
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add Dashboard
+              Add Adult or Child
             </Button>
           </div>
         </DialogContent>
@@ -424,7 +422,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               onClick={() => openFamilySetupPath('/family?role=kid')}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted/40"
             >
-              Add kids to dashboards and chores
+              Set up adults and kids locally
             </button>
             <button
               type="button"
@@ -442,6 +440,21 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <LocalFamilyMemberDialog
+        open={memberDialogOpen}
+        onOpenChange={setMemberDialogOpen}
+        userId={user?.id}
+        onCreated={(member) => {
+          refreshDashboards();
+          if (member.memberType === 'adult') {
+            navigate(`/dashboard/${member.id}`);
+            setMobileDashboardsOpen(false);
+            return;
+          }
+          navigate('/chores');
+        }}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Flame, Trophy } from 'lucide-react';
+import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
 import {
   acceptHouseholdInvite,
   createOrGetHousehold,
@@ -12,8 +13,10 @@ import {
   type HouseholdDashboard,
 } from '@/lib/api/family';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFamilyLeaderboard } from '@/lib/macroGame';
+import { getFamilyLeaderboard, listHouseholdProfiles, setHouseholdProfileType } from '@/lib/macroGame';
+import { removeChildFromChores, upsertChildInChores } from '@/lib/choresSetup';
 import { sendFamilyInviteEmail } from '@/lib/api/emails';
+import { useToast } from '@/hooks/use-toast';
 
 const EMPTY_DASHBOARD: HouseholdDashboard = {
   household: null,
@@ -37,8 +40,10 @@ export default function FamilyPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
   const inviteSectionRef = useRef<HTMLElement | null>(null);
   const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
+  const { toast } = useToast();
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -76,7 +81,24 @@ export default function FamilyPage() {
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),
     [dashboard.members],
   );
+  const localProfiles = useMemo(() => listHouseholdProfiles(), [refreshTick]);
   const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+
+  const updateLocalMemberType = (memberId: string, nextType: 'adult' | 'child') => {
+    const updated = setHouseholdProfileType(memberId, nextType);
+    if (nextType === 'child') {
+      upsertChildInChores({ id: updated.id, name: updated.name }, user?.id);
+    } else {
+      removeChildFromChores(updated.id, user?.id);
+    }
+    toast({
+      title: nextType === 'child' ? 'Moved to kids chores' : 'Moved to adult dashboards',
+      description:
+        nextType === 'child'
+          ? `${updated.name} will score from chores instead of calorie tracking.`
+          : `${updated.name} now shows up as an adult dashboard again.`,
+    });
+  };
 
   const onCreateHousehold = async () => {
     setCreatingHousehold(true);
@@ -157,11 +179,65 @@ export default function FamilyPage() {
                 Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.
               </p>
             </div>
-            <Button onClick={onAddFamilyMemberClick} disabled={loading || creatingHousehold}>
-              Add family member
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={onAddFamilyMemberClick} disabled={loading || creatingHousehold}>
+                Invite family member
+              </Button>
+              <Button onClick={() => setLocalMemberDialogOpen(true)}>
+                Add adult or child
+              </Button>
+            </div>
           </div>
         </div>
+
+        <section className="rounded-xl border border-border bg-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">Local Family Setup</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Adults get dashboards and nutrition tracking. Kids go into chores and the kid scoreboard.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setLocalMemberDialogOpen(true)}>
+              Add Member
+            </Button>
+          </div>
+          <div className="mt-3 space-y-2">
+            {localProfiles.map((member) => {
+              const canChangeType = member.id !== 'me' && member.id !== 'wife';
+              return (
+                <div key={member.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">{member.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {member.memberType === 'adult' ? 'Adult dashboard' : 'Kid chores member'}
+                      {canChangeType ? '' : ' • Primary profile'}
+                    </p>
+                  </div>
+                  {canChangeType ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        updateLocalMemberType(
+                          member.id,
+                          member.memberType === 'adult' ? 'child' : 'adult',
+                        )
+                      }
+                    >
+                      {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Adult</span>
+                  )}
+                </div>
+              );
+            })}
+            {localProfiles.length === 0 && (
+              <p className="text-sm text-muted-foreground">No local family members set up yet.</p>
+            )}
+          </div>
+        </section>
 
         <section className="rounded-xl border border-border bg-card p-5">
           <h2 className="font-semibold">Family leaderboard</h2>
@@ -296,6 +372,11 @@ export default function FamilyPage() {
 
         {message && <p className="text-sm text-muted-foreground">{message}</p>}
       </div>
+      <LocalFamilyMemberDialog
+        open={localMemberDialogOpen}
+        onOpenChange={setLocalMemberDialogOpen}
+        userId={user?.id}
+      />
     </AppLayout>
   );
 }
