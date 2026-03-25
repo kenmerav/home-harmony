@@ -4,7 +4,6 @@ import {
   addHours,
   addMinutes,
   addMonths,
-  addWeeks,
   endOfMonth,
   endOfWeek,
   format,
@@ -68,6 +67,14 @@ import {
   normalizeAddressForCompare,
 } from '@/lib/departureAddresses';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
+import {
+  buildRecurringStartDates,
+  CalendarRecurrenceDraft,
+  getRecurrencePattern,
+  RECURRING_OCCURRENCE_COUNT,
+  RecurrencePreset,
+  RecurrenceUnit,
+} from '@/lib/calendarRecurrence';
 import { useAccountCalendarPreferences } from '@/hooks/useAccountCalendarPreferences';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
@@ -75,9 +82,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, Ref
 
 type PlannerMode = 'month' | 'twoWeek';
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
-type RecurrenceCadence = 'daily' | 'weekly' | 'monthly';
 
-const RECURRING_OCCURRENCE_COUNT = 12;
 const BUILT_IN_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
 const VISIBLE_FILTER_MODULES: CalendarEventModule[] = ['meals', 'tasks', 'chores', 'workouts', 'reminders'];
 const FILTER_COLOR_SWATCHES = [
@@ -274,7 +279,9 @@ export default function CalendarPlannerPage() {
   const [draftModule, setDraftModule] = useState<CalendarEventModule>('manual');
   const [draftCalendarLayer, setDraftCalendarLayer] = useState('family');
   const [draftRecurringEnabled, setDraftRecurringEnabled] = useState(false);
-  const [draftRecurringCadence, setDraftRecurringCadence] = useState<RecurrenceCadence>('weekly');
+  const [draftRecurringPreset, setDraftRecurringPreset] = useState<RecurrencePreset>('weekly');
+  const [draftCustomRecurringInterval, setDraftCustomRecurringInterval] = useState('2');
+  const [draftCustomRecurringUnit, setDraftCustomRecurringUnit] = useState<RecurrenceUnit>('week');
   const [departureAddressProfile, setDepartureAddressProfile] = useState(() =>
     loadDepartureAddressProfile(user?.id),
   );
@@ -588,7 +595,9 @@ export default function CalendarPlannerPage() {
       normalizeCalendarLayerName(firstEnabledPreset?.name || fallbackPreset?.name || 'family'),
     );
     setDraftRecurringEnabled(false);
-    setDraftRecurringCadence('weekly');
+    setDraftRecurringPreset('weekly');
+    setDraftCustomRecurringInterval('2');
+    setDraftCustomRecurringUnit('week');
     setDraftTitle('');
     setDraftDescription('');
     setDraftLocation('');
@@ -624,7 +633,9 @@ export default function CalendarPlannerPage() {
       normalizeCalendarLayerName(event.source === 'manual' ? event.calendarLayer || defaultLayerForModule(event.module) : 'family'),
     );
     setDraftRecurringEnabled(false);
-    setDraftRecurringCadence('weekly');
+    setDraftRecurringPreset('weekly');
+    setDraftCustomRecurringInterval('2');
+    setDraftCustomRecurringUnit('week');
 
     const homeAddress = (smsPrefs.home_address || '').trim();
     const workAddress = (smsPrefs.work_address || '').trim();
@@ -758,6 +769,15 @@ export default function CalendarPlannerPage() {
       endsAt: endOffsetMs !== null ? new Date(startDate.getTime() + endOffsetMs).toISOString() : undefined,
       allDay: draftAllDay,
     });
+    const recurrenceDraft: CalendarRecurrenceDraft = {
+      preset: draftRecurringPreset,
+      customInterval: draftCustomRecurringInterval,
+      customUnit: draftCustomRecurringUnit,
+    };
+    const recurrenceLabel = getRecurrencePattern(recurrenceDraft).label;
+    const recurringStartDates = draftRecurringEnabled
+      ? buildRecurringStartDates(baseStartDate, recurrenceDraft, RECURRING_OCCURRENCE_COUNT)
+      : [baseStartDate];
     const editingSource = editingEventSource;
     if (editingSource?.source === 'task') {
       const relatedId = editingSource.relatedId || editingSource.id;
@@ -797,24 +817,19 @@ export default function CalendarPlannerPage() {
         toast({ title: 'Could not update event', variant: 'destructive' });
         return;
       }
+      if (draftRecurringEnabled) {
+        recurringStartDates.slice(1).forEach((occurrenceStart) => {
+          addManualCalendarEvent(buildPayloadForStart(occurrenceStart), user?.id);
+        });
+      }
     } else {
       if (draftRecurringEnabled) {
-        const startDates = Array.from({ length: RECURRING_OCCURRENCE_COUNT }, (_, index) => {
-          if (index === 0) return baseStartDate;
-          if (draftRecurringCadence === 'monthly') {
-            return addMonths(baseStartDate, index);
-          }
-          if (draftRecurringCadence === 'weekly') {
-            return addWeeks(baseStartDate, index);
-          }
-          return addDays(baseStartDate, index);
-        });
-        startDates.forEach((occurrenceStart) => {
+        recurringStartDates.forEach((occurrenceStart) => {
           addManualCalendarEvent(buildPayloadForStart(occurrenceStart), user?.id);
         });
         toast({
-          title: `${startDates.length} recurring events added`,
-          description: `Repeats ${draftRecurringCadence} for the next ${startDates.length - 1} occurrences.`,
+          title: `${recurringStartDates.length} recurring events added`,
+          description: `Repeats ${recurrenceLabel} for the next ${recurringStartDates.length - 1} occurrences.`,
         });
       } else {
         addManualCalendarEvent(buildPayloadForStart(baseStartDate), user?.id);
@@ -823,7 +838,14 @@ export default function CalendarPlannerPage() {
     setAddDialogOpen(false);
     setEditingEventId(null);
     setEditingEventSource(null);
-    if (editingEventId) toast({ title: 'Event updated' });
+    if (editingEventId) {
+      toast({
+        title: draftRecurringEnabled ? 'Event updated and repeats added' : 'Event updated',
+        description: draftRecurringEnabled
+          ? `This event now repeats ${recurrenceLabel}.`
+          : undefined,
+      });
+    }
     if (!editingEventId && !draftRecurringEnabled) toast({ title: 'Event added' });
     void refreshEvents();
   };
@@ -1664,19 +1686,19 @@ export default function CalendarPlannerPage() {
                 <Switch
                   checked={draftRecurringEnabled}
                   onCheckedChange={setDraftRecurringEnabled}
-                  disabled={Boolean(editingEventId)}
+                  disabled={Boolean(editingEventSource && editingEventSource.source !== 'manual')}
                 />
               </div>
-              {editingEventId ? (
+              {editingEventSource && editingEventSource.source !== 'manual' ? (
                 <p className="text-xs text-muted-foreground">
-                  To change recurrence for an existing event, create a new recurring event.
+                  Recurrence for this item is managed in its source module.
                 </p>
               ) : draftRecurringEnabled ? (
                 <div className="space-y-1">
                   <label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Repeat</label>
                   <Select
-                    value={draftRecurringCadence}
-                    onValueChange={(value) => setDraftRecurringCadence(value as RecurrenceCadence)}
+                    value={draftRecurringPreset}
+                    onValueChange={(value) => setDraftRecurringPreset(value as RecurrencePreset)}
                   >
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Choose cadence" />
@@ -1684,11 +1706,42 @@ export default function CalendarPlannerPage() {
                     <SelectContent>
                       <SelectItem value="daily">Daily</SelectItem>
                       <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
                       <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="yearly">Yearly</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
                     </SelectContent>
                   </Select>
+                  {draftRecurringPreset === 'custom' ? (
+                    <div className="grid grid-cols-[110px_1fr] gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={draftCustomRecurringInterval}
+                        onChange={(event) => setDraftCustomRecurringInterval(event.target.value)}
+                        placeholder="2"
+                      />
+                      <Select
+                        value={draftCustomRecurringUnit}
+                        onValueChange={(value) => setDraftCustomRecurringUnit(value as RecurrenceUnit)}
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue placeholder="Choose unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="day">Days</SelectItem>
+                          <SelectItem value="week">Weeks</SelectItem>
+                          <SelectItem value="month">Months</SelectItem>
+                          <SelectItem value="year">Years</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
-                    Adds this event plus the next {RECURRING_OCCURRENCE_COUNT - 1} occurrences.
+                    {editingEventId
+                      ? `Updates this event and adds the next ${RECURRING_OCCURRENCE_COUNT - 1} repeats.`
+                      : `Adds this event plus the next ${RECURRING_OCCURRENCE_COUNT - 1} occurrences.`}
                   </p>
                 </div>
               ) : (
