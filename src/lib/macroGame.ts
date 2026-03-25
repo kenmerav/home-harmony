@@ -647,6 +647,30 @@ export function setHouseholdProfileType(personId: AdultId, memberType: Household
   return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
 }
 
+export function removeHouseholdProfile(personId: AdultId): DashboardProfile | null {
+  if (personId === 'me' || personId === 'wife') return null;
+
+  const state = readState();
+  const profile = state.profiles[personId];
+  if (!profile) return null;
+
+  delete state.profiles[personId];
+  state.mealLogs = state.mealLogs.filter((log) => log.person !== personId);
+
+  Object.keys(state.trackers).forEach((date) => {
+    const dayTrackers = state.trackers[date];
+    if (!dayTrackers || !(personId in dayTrackers)) return;
+
+    delete dayTrackers[personId];
+    if (Object.keys(dayTrackers).length === 0) {
+      delete state.trackers[date];
+    }
+  });
+
+  writeState(state);
+  return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
+}
+
 function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile {
   const existing = state.profiles[personId];
   if (existing) return existing;

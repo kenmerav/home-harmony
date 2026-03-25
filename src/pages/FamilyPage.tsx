@@ -1,9 +1,19 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Flame, Trophy } from 'lucide-react';
+import { Flame, Trash2, Trophy } from 'lucide-react';
 import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
 import {
   acceptHouseholdInvite,
@@ -13,7 +23,13 @@ import {
   type HouseholdDashboard,
 } from '@/lib/api/family';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFamilyLeaderboard, listHouseholdProfiles, setHouseholdProfileType } from '@/lib/macroGame';
+import {
+  getFamilyLeaderboard,
+  listHouseholdProfiles,
+  removeHouseholdProfile,
+  setHouseholdProfileType,
+  type DashboardProfile,
+} from '@/lib/macroGame';
 import { removeChildFromChores, upsertChildInChores } from '@/lib/choresSetup';
 import { sendFamilyInviteEmail } from '@/lib/api/emails';
 import { useToast } from '@/hooks/use-toast';
@@ -41,6 +57,7 @@ export default function FamilyPage() {
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
+  const [pendingDeleteMember, setPendingDeleteMember] = useState<DashboardProfile | null>(null);
   const inviteSectionRef = useRef<HTMLElement | null>(null);
   const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
@@ -97,6 +114,30 @@ export default function FamilyPage() {
         nextType === 'child'
           ? `${updated.name} will score from chores instead of calorie tracking.`
           : `${updated.name} now shows up as an adult dashboard again.`,
+    });
+  };
+
+  const deleteLocalMember = () => {
+    if (!pendingDeleteMember) return;
+
+    const deleted = removeHouseholdProfile(pendingDeleteMember.id);
+    removeChildFromChores(pendingDeleteMember.id, user?.id);
+    setPendingDeleteMember(null);
+
+    if (!deleted) {
+      toast({
+        title: 'Unable to remove member',
+        description: 'Primary profiles stay in place. Try deleting a custom adult or child instead.',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Family member removed',
+      description:
+        deleted.memberType === 'child'
+          ? `${deleted.name} was removed from chores and the kid leaderboard.`
+          : `${deleted.name} was removed from dashboards and nutrition tracking.`,
     });
   };
 
@@ -215,18 +256,28 @@ export default function FamilyPage() {
                     </p>
                   </div>
                   {canChangeType ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        updateLocalMemberType(
-                          member.id,
-                          member.memberType === 'adult' ? 'child' : 'adult',
-                        )
-                      }
-                    >
-                      {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          updateLocalMemberType(
+                            member.id,
+                            member.memberType === 'adult' ? 'child' : 'adult',
+                          )
+                        }
+                      >
+                        {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => setPendingDeleteMember(member)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">Adult</span>
                   )}
@@ -377,6 +428,29 @@ export default function FamilyPage() {
         onOpenChange={setLocalMemberDialogOpen}
         userId={user?.id}
       />
+      <AlertDialog open={Boolean(pendingDeleteMember)} onOpenChange={(open) => !open && setPendingDeleteMember(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove family member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteMember
+                ? pendingDeleteMember.memberType === 'child'
+                  ? `${pendingDeleteMember.name} will be removed from chores, the kid leaderboard, and local family setup.`
+                  : `${pendingDeleteMember.name} will be removed from dashboards, nutrition tracking, and local family setup.`
+                : 'This will remove the selected family member from local family setup.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={deleteLocalMember}
+            >
+              Delete member
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
