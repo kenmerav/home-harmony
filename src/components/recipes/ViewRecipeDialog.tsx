@@ -23,6 +23,13 @@ interface ViewRecipeDialogProps {
   onEdit?: (recipe: Recipe) => void;
 }
 
+function formatDishType(value?: string) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'side') return 'Side dish';
+  if (normalized === 'dessert') return 'Dessert';
+  return 'Main dish';
+}
+
 export function ViewRecipeDialog({ recipe, open, onOpenChange, onEdit }: ViewRecipeDialogProps) {
   if (!recipe) return null;
   const formattedInstructions = normalizeRecipeInstructions(recipe.instructions);
@@ -53,6 +60,7 @@ export function ViewRecipeDialog({ recipe, open, onOpenChange, onEdit }: ViewRec
               </Badge>
             )}
             <Badge variant="outline">{recipe.mealType}</Badge>
+            <Badge variant="outline">{formatDishType(recipe.dishType)}</Badge>
             {recipe.isMealPrep && <Badge variant="outline">meal prep</Badge>}
             {recipe.defaultDay && (
               <Badge variant="outline" className="flex items-center gap-1">

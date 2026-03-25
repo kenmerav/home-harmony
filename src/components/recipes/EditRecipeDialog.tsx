@@ -32,6 +32,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
   const [name, setName] = useState('');
   const [servings, setServings] = useState(4);
   const [mealType, setMealType] = useState('dinner');
+  const [dishType, setDishType] = useState<'main' | 'side' | 'dessert'>('main');
   const [calories, setCalories] = useState(0);
   const [protein, setProtein] = useState(0);
   const [carbs, setCarbs] = useState(0);
@@ -45,6 +46,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
       setName(recipe.name);
       setServings(recipe.servings);
       setMealType(recipe.mealType);
+      setDishType(recipe.dishType || 'main');
       setCalories(recipe.macrosPerServing.calories);
       setProtein(recipe.macrosPerServing.protein_g);
       setCarbs(recipe.macrosPerServing.carbs_g);
@@ -65,6 +67,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
         name,
         servings,
         meal_type: mealType,
+        course_type: dishType,
         calories,
         protein_g: protein,
         carbs_g: carbs,
@@ -112,7 +115,7 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
             <Input id="recipe-name" value={name} onChange={e => setName(e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <Label htmlFor="recipe-servings">Servings</Label>
               <Input id="recipe-servings" type="number" min={1} value={servings} onChange={e => setServings(Number(e.target.value))} />
@@ -126,6 +129,17 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
                   <SelectItem value="lunch">Lunch</SelectItem>
                   <SelectItem value="dinner">Dinner</SelectItem>
                   <SelectItem value="snack">Snack</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Dish Type</Label>
+              <Select value={dishType} onValueChange={(value) => setDishType(value as 'main' | 'side' | 'dessert')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="main">Main dish</SelectItem>
+                  <SelectItem value="side">Side dish</SelectItem>
+                  <SelectItem value="dessert">Dessert</SelectItem>
                 </SelectContent>
               </Select>
             </div>

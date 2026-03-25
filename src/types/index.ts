@@ -14,6 +14,7 @@ export interface Recipe {
   macrosPerServing: Macros;
   defaultDay?: DayOfWeek;
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  dishType?: 'main' | 'side' | 'dessert';
   isAnchored: boolean;
   sourceFile?: string;
   createdAt: Date;

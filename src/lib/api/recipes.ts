@@ -5,10 +5,13 @@ import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
 import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
 
+export type RecipeCourseType = 'main' | 'side' | 'dessert';
+
 export interface ExtractedRecipe {
   name: string;
   servings: number;
   mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  courseType?: RecipeCourseType;
   isMealPrep?: boolean;
   macrosPerServing: {
     calories: number;
@@ -744,6 +747,7 @@ export interface DbRecipe {
   fat_g: number;
   fiber_g: number | null;
   meal_type: string;
+  course_type?: string;
   is_anchored: boolean;
   is_meal_prep: boolean;
   default_day: string | null;
@@ -779,6 +783,16 @@ function sanitizeInstructionText(value: unknown): string | null {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return normalized || null;
+}
+
+function sanitizeCourseType(value: unknown, fallback: RecipeCourseType = 'main'): RecipeCourseType {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'side' || normalized === 'side dish') return 'side';
+  if (normalized === 'dessert' || normalized === 'sweet') return 'dessert';
+  if (normalized === 'main' || normalized === 'main dish' || normalized === 'entree') return 'main';
+  return fallback;
 }
 
 function buildCleanRecipePayload(recipe: {
@@ -899,6 +913,12 @@ function inferMealPrepForRecipe(recipe: {
   return MEAL_PREP_KEYWORDS.some((keyword) => haystack.includes(keyword));
 }
 
+function inferCourseTypeForRecipe(recipe: {
+  courseType?: unknown;
+}): RecipeCourseType {
+  return sanitizeCourseType(recipe.courseType, 'main');
+}
+
 export async function fetchRecipes(): Promise<DbRecipe[]> {
   if (isDemoModeEnabled()) {
     return [...getDemoRecipes()]
@@ -971,6 +991,30 @@ export async function parseRecipesFromJson(file: File): Promise<{ success: boole
         }
         return undefined;
       })(),
+      courseType: (() => {
+        const value = String(
+          recipe.courseType ??
+            recipe.course_type ??
+            recipe.course ??
+            recipe.dishType ??
+            recipe.dish_type ??
+            '',
+        )
+          .trim()
+          .toLowerCase();
+        if (
+          value === 'main' ||
+          value === 'main dish' ||
+          value === 'entree' ||
+          value === 'side' ||
+          value === 'side dish' ||
+          value === 'dessert' ||
+          value === 'sweet'
+        ) {
+          return sanitizeCourseType(value);
+        }
+        return undefined;
+      })(),
       isMealPrep: Boolean(recipe.isMealPrep ?? recipe.is_meal_prep),
       macrosPerServing: {
         calories: toNumber(macros.calories ?? recipe.calories ?? nutrition.calories, 0),
@@ -1016,6 +1060,9 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
           instructions: cleaned.instructions,
           mealType: r.mealType,
         }),
+        course_type: inferCourseTypeForRecipe({
+          courseType: r.courseType,
+        }),
         is_meal_prep: inferMealPrepForRecipe({
           name: cleaned.name,
           ingredients: cleaned.ingredients,
@@ -1041,6 +1088,7 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
       fat_g: row.fat_g,
       fiber_g: row.fiber_g,
       meal_type: row.meal_type,
+      course_type: row.course_type,
       is_meal_prep: row.is_meal_prep,
       is_anchored: row.is_anchored,
       default_day: null,
@@ -1075,6 +1123,9 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
         ingredients: cleaned.ingredients,
         instructions: cleaned.instructions,
         mealType: r.mealType,
+      }),
+      course_type: inferCourseTypeForRecipe({
+        courseType: r.courseType,
       }),
       is_meal_prep: inferMealPrepForRecipe({
         name: cleaned.name,
@@ -1137,6 +1188,7 @@ export async function updateRecipe(id: string, updates: {
   carbs_g?: number;
   fat_g?: number;
   meal_type?: string;
+  course_type?: string;
   is_meal_prep?: boolean;
   is_anchored?: boolean;
   default_day?: string | null;
@@ -1159,6 +1211,7 @@ export async function updateRecipe(id: string, updates: {
   if (updates.protein_g !== undefined) cleanedUpdates.protein_g = sanitizeMacroValue(updates.protein_g);
   if (updates.carbs_g !== undefined) cleanedUpdates.carbs_g = sanitizeMacroValue(updates.carbs_g);
   if (updates.fat_g !== undefined) cleanedUpdates.fat_g = sanitizeMacroValue(updates.fat_g);
+  if (updates.course_type !== undefined) cleanedUpdates.course_type = sanitizeCourseType(updates.course_type);
 
   if (isDemoModeEnabled()) {
     const recipes = getDemoRecipes();

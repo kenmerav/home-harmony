@@ -215,6 +215,13 @@ function guessRecipeTitleFromUrl(url: string): string {
   }
 }
 
+function formatDishType(value?: string): string {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'side') return 'Side dish';
+  if (normalized === 'dessert') return 'Dessert';
+  return 'Main dish';
+}
+
 // Convert DB recipe to display format
 function dbRecipeToDisplayRecipe(
   dbRecipe: DbRecipe,
@@ -242,6 +249,7 @@ function dbRecipeToDisplayRecipe(
       fat_g: dbRecipe.fat_g,
     },
     mealType: dbRecipe.meal_type as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    dishType: (dbRecipe.course_type === 'side' || dbRecipe.course_type === 'dessert' ? dbRecipe.course_type : 'main') as 'main' | 'side' | 'dessert',
     isMealPrep: !!dbRecipe.is_meal_prep,
     isAnchored: dbRecipe.is_anchored,
     defaultDay: dbRecipe.default_day as DayOfWeek | undefined,
@@ -284,6 +292,7 @@ export default function RecipesPage() {
     name: '',
     servings: '4',
     mealType: 'dinner' as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    dishType: 'main' as 'main' | 'side' | 'dessert',
     isMealPrep: false,
     ingredients: '',
     instructions: '',
@@ -1237,6 +1246,7 @@ export default function RecipesPage() {
       name,
       servings: Number.isFinite(servings) && servings > 0 ? servings : 4,
       mealType: manualRecipeForm.mealType,
+      courseType: manualRecipeForm.dishType,
       isMealPrep: manualRecipeForm.isMealPrep,
       ingredients: ingredientsList,
       ingredientsRaw: ingredientsList.join('\n'),
@@ -1282,6 +1292,7 @@ export default function RecipesPage() {
       name: '',
       servings: '4',
       mealType: 'dinner',
+      dishType: 'main',
       isMealPrep: false,
       ingredients: '',
       instructions: '',
@@ -1643,6 +1654,23 @@ export default function RecipesPage() {
                       <option value="dinner">Dinner</option>
                       <option value="snack">Snack</option>
                     </select>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={manualRecipeForm.dishType}
+                      onChange={(event) =>
+                        setManualRecipeForm((prev) => ({
+                          ...prev,
+                          dishType: event.target.value as 'main' | 'side' | 'dessert',
+                        }))
+                      }
+                      disabled={isProcessing}
+                    >
+                      <option value="main">Main dish</option>
+                      <option value="side">Side dish</option>
+                      <option value="dessert">Dessert</option>
+                    </select>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
                     <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
                       <Checkbox
                         checked={manualRecipeForm.isMealPrep}
@@ -2070,6 +2098,7 @@ export default function RecipesPage() {
                           {formatCookTime(estimateCookMinutes(recipe.instructions)) && (
                             <> • {formatCookTime(estimateCookMinutes(recipe.instructions))}</>
                           )}
+                          <> • {formatDishType(recipe.courseType)}</>
                         </p>
                         <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                           <span>{recipe.macrosPerServing?.calories} cal</span>
@@ -2207,6 +2236,11 @@ function RecipeCard({
             </span>
           </div>
         )}
+        <div className="mt-2">
+          <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {formatDishType(recipe.dishType)}
+          </span>
+        </div>
       </div>
 
       {/* Macros */}

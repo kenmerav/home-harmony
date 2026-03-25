@@ -438,6 +438,7 @@ export type Database = {
         Row: {
           calories: number
           carbs_g: number
+          course_type: string
           created_at: string
           default_day: string | null
           fat_g: number
@@ -458,6 +459,7 @@ export type Database = {
         Insert: {
           calories?: number
           carbs_g?: number
+          course_type?: string
           created_at?: string
           default_day?: string | null
           fat_g?: number
@@ -478,6 +480,7 @@ export type Database = {
         Update: {
           calories?: number
           carbs_g?: number
+          course_type?: string
           created_at?: string
           default_day?: string | null
           fat_g?: number
