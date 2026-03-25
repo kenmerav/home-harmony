@@ -462,6 +462,10 @@ export default function GroceryPage() {
     ));
   };
 
+  const checkAllItems = () => {
+    setItems((prev) => prev.map((item) => (item.isChecked ? item : { ...item, isChecked: true })));
+  };
+
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = items.filter(item => item.category === category);
     if (categoryItems.length > 0) {
@@ -531,6 +535,7 @@ export default function GroceryPage() {
     const now = new Date().toISOString();
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
+    checkAllItems();
     toast({ title: 'Order marked complete', description: 'Reminder will wait until next scheduled window.' });
   };
 
@@ -539,6 +544,9 @@ export default function GroceryPage() {
       setUpdatingNextWeekStatus(true);
       const status = await setWeeklyGroceriesOrdered(getNextWeekOf(), ordered);
       setNextWeekStatus(status);
+      if (ordered) {
+        checkAllItems();
+      }
       toast({
         title: ordered ? 'Marked next week as ordered' : 'Cleared ordered status',
         description: ordered
