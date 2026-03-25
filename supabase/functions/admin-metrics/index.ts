@@ -178,11 +178,7 @@ serve(async (req) => {
       recipesCount,
       plannedMealsCount,
       referralsCount,
-      freeToolsEventsCount,
-      freeToolsLeadsCount,
       growthEventsAllTimeCount,
-      growthEventsLast7dCount,
-      growthEventsLast30dCount,
       onboardingCompletedCount,
       subscriptionsRows,
     ] = await Promise.all([
@@ -192,11 +188,7 @@ serve(async (req) => {
       countRows(service, "recipes"),
       countRows(service, "planned_meals"),
       countRows(service, "referral_events"),
-      countRows(service, "free_tools_cta_events"),
-      countRows(service, "free_tools_lead_captures"),
       countRows(service, "growth_events"),
-      countRowsSince(service, "growth_events", "occurred_at", sevenDaysAgoIso),
-      countRowsSince(service, "growth_events", "occurred_at", thirtyDaysAgoIso),
       countRowsSince(service, "profiles", "onboarding_completed_at", "1970-01-01T00:00:00.000Z"),
       service.from("subscriptions").select("status"),
     ]);
@@ -210,14 +202,23 @@ serve(async (req) => {
     const uniqueUsers7 = new Set<string>();
     const eventCounts = new Map<string, number>();
     const moduleUsage: ModuleUsage = {};
+    let growthEventsLast7dCount = 0;
+    let growthEventsLast30dCount = 0;
 
     for (const row of growthLast30) {
       const eventType = normalizeEventType(row.event_type);
       const occurredAtTs = toTs(row.occurred_at);
+      if (eventType.startsWith("free_tool_")) continue;
+
       const userId = row.user_id;
 
       if (userId) uniqueUsers30.add(userId);
-      if (occurredAtTs >= toTs(sevenDaysAgoIso) && userId) uniqueUsers7.add(userId);
+      if (occurredAtTs >= toTs(sevenDaysAgoIso)) {
+        growthEventsLast7dCount += 1;
+        if (userId) uniqueUsers7.add(userId);
+      }
+
+      growthEventsLast30dCount += 1;
 
       eventCounts.set(eventType, (eventCounts.get(eventType) || 0) + 1);
 
@@ -269,8 +270,6 @@ serve(async (req) => {
         recipes: recipesCount,
         plannedMeals: plannedMealsCount,
         referralEvents: referralsCount,
-        freeToolsEvents: freeToolsEventsCount,
-        freeToolsLeads: freeToolsLeadsCount,
         growthEventsAllTime: growthEventsAllTimeCount,
       },
       subscriptionsByStatus,

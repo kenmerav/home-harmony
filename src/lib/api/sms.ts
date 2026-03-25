@@ -2,6 +2,13 @@ import { supabase } from '@/integrations/supabase/client';
 
 export const SMS_REMINDER_MODULES = ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'] as const;
 export type SmsReminderModule = (typeof SMS_REMINDER_MODULES)[number];
+export const VISIBLE_SMS_REMINDER_MODULES: Array<Exclude<SmsReminderModule, 'manual'>> = [
+  'meals',
+  'tasks',
+  'chores',
+  'workouts',
+  'reminders',
+];
 
 type ModuleRecipientsMap = Record<SmsReminderModule, string[]>;
 

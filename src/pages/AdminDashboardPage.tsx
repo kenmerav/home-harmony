@@ -102,7 +102,6 @@ export default function AdminDashboardPage() {
       growthEventsPerMau: safeRatio(summary.growthEvents30d, summary.activeUsers30d),
       recipesPerHousehold: safeRatio(totals.recipes, totals.households),
       plannedMealsPerHousehold: safeRatio(totals.plannedMeals, totals.households),
-      freeToolLeadRate: percentFmt(totals.freeToolsLeads, totals.freeToolsEvents),
       referralPerUserRate: percentFmt(totals.referralEvents, summary.totalUsers),
     };
   }, [metrics]);
@@ -245,15 +244,6 @@ export default function AdminDashboardPage() {
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Planned meals</p>
                 <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.plannedMeals)}</p>
                 <p className="text-xs text-muted-foreground">{derived.plannedMealsPerHousehold} per household</p>
-              </div>
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Free tool CTA events</p>
-                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.freeToolsEvents)}</p>
-              </div>
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Free tool leads</p>
-                <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.freeToolsLeads)}</p>
-                <p className="text-xs text-muted-foreground">Lead rate {derived.freeToolLeadRate}</p>
               </div>
               <div className="rounded-lg border border-border p-3">
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Referral events</p>

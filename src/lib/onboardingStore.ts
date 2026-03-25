@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { loadProfileSettingsDocument, setProfileSettingsValue } from '@/lib/profileSettingsStore';
 
 export interface StoredOnboardingResult {
   completedAt: string;
@@ -86,13 +87,17 @@ export async function saveOnboardingResult(
 
   if (!userId) return;
 
+  const currentSettings = await loadProfileSettingsDocument(userId);
+  const mergedSettings = setProfileSettingsValue(
+    setProfileSettingsValue(currentSettings, ['onboarding'], payload.onboarding),
+    ['personalizedPlan'],
+    payload.personalizedPlan,
+  );
+
   const { error } = await supabase
     .from('profiles')
     .update({
-      onboarding_settings: {
-        onboarding: payload.onboarding,
-        personalizedPlan: payload.personalizedPlan,
-      },
+      onboarding_settings: mergedSettings,
       onboarding_completed_at: payload.completedAt,
     })
     .eq('id', userId);

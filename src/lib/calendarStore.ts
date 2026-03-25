@@ -153,6 +153,17 @@ function normalizeAllDayStartsAt(startsAt: string, allDay: boolean): string {
   return startsAt;
 }
 
+function normalizeStoredCalendarLayer(
+  value: string | null | undefined,
+  module: CalendarEventModule,
+): string {
+  const trimmed = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  if (!trimmed || trimmed.toLowerCase() === 'manual') {
+    return module === 'manual' ? 'family' : module;
+  }
+  return trimmed;
+}
+
 function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<StoredManualEvent>;
@@ -167,12 +178,7 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
     || moduleValue === 'manual'
       ? (moduleValue as CalendarEventModule)
       : 'manual';
-  const calendarLayer =
-    typeof input.calendarLayer === 'string' && input.calendarLayer.trim()
-      ? input.calendarLayer.trim()
-      : module === 'manual'
-      ? 'family'
-      : module;
+  const calendarLayer = normalizeStoredCalendarLayer(input.calendarLayer, module);
   const hasCommuteRouting = Boolean(
     typeof input.travelFromAddress === 'string'
       && input.travelFromAddress.trim()
@@ -544,7 +550,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
     module: input.module || 'manual',
-    calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
+    calendarLayer: normalizeStoredCalendarLayer(input.calendarLayer, input.module || 'manual'),
     location: normalizedLocation,
     eventReminderEnabled: !!input.eventReminderEnabled,
     eventReminderLeadMinutes:
@@ -662,7 +668,7 @@ export function updateManualCalendarEvent(
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
     module: input.module || 'manual',
-    calendarLayer: input.calendarLayer?.trim() || (input.module === 'manual' || !input.module ? 'family' : input.module),
+    calendarLayer: normalizeStoredCalendarLayer(input.calendarLayer, input.module || 'manual'),
     location: normalizedLocation,
     eventReminderEnabled: !!input.eventReminderEnabled,
     eventReminderLeadMinutes:

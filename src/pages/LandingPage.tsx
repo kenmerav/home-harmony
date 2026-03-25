@@ -31,7 +31,7 @@ export default function LandingPage() {
   }, [user?.id, isDemoUser]);
 
   useSeoMeta({
-    title: 'Home Harmony HQ | Your Home, Finally Running Like Clockwork',
+    title: 'Home Harmony | Your Home, Finally Running Like Clockwork',
     description:
       'Home Harmony combines meal planning, calorie and macro tracking, workout tracking, daily schedule SMS reminders, and preferred-store grocery quick-add in one family system.',
     keywords: [

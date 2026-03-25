@@ -1,5 +1,6 @@
 import { format, subDays } from 'date-fns';
 import { mockMealLogs, mockProfiles } from '@/data/mockData';
+import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 import { Macros, MealLog } from '@/types';
 
 export type AdultId = string;
@@ -11,6 +12,13 @@ export type BodyUnitSystem = 'imperial' | 'metric';
 
 const STORAGE_KEY = 'homehub.macroGameState.v1';
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
+const MACRO_GAME_PROFILES_SETTINGS_PATH = ['appPreferences', 'macroGame', 'profiles'];
+
+let currentStorageScopeUserId: string | null = null;
+let hydratedProfilesScopeKey: string | null = null;
+let lastPersistedProfilesSnapshot: string | null = null;
+let profilePersistTimer: number | null = null;
+let profileHydrationToken = 0;
 
 interface StoredMealLog extends Omit<MealLog, 'createdAt'> {
   createdAt: string;
@@ -140,6 +148,20 @@ function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function macroStateKey(userId?: string | null): string {
+  return `${STORAGE_KEY}:${userId || 'anon'}`;
+}
+
+function macroScopeKey(userId?: string | null): string {
+  return userId || 'anon';
+}
+
+function dispatchMacroStateUpdated() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:macro-state-updated'));
+  }
+}
+
 function choresStateKey(userId?: string | null): string {
   return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
 }
@@ -224,71 +246,243 @@ function initialState(): StoredState {
   };
 }
 
-function readState(): StoredState {
-  if (!canUseStorage()) return initialState();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const seed = initialState();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
-      return seed;
-    }
-    const parsed = JSON.parse(raw) as Partial<StoredState>;
-    const seed = initialState();
-    const parsedProfiles =
-      parsed.profiles && typeof parsed.profiles === 'object'
-        ? (parsed.profiles as Record<string, Partial<PersonGameProfile>>)
-        : {};
-    const mergedProfiles: Record<string, PersonGameProfile> = {};
+function normalizeProfiles(
+  input: unknown,
+  seedProfiles: Record<string, PersonGameProfile>,
+): Record<string, PersonGameProfile> {
+  const parsedProfiles =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, Partial<PersonGameProfile>>)
+      : {};
+  const mergedProfiles: Record<string, PersonGameProfile> = {};
 
-    Object.entries(parsedProfiles).forEach(([id, incoming]) => {
-      if (!id) return;
-      const fallbackName = id === 'me' ? 'Me' : id === 'wife' ? 'Wife' : toDashboardName(id);
-      const basePlan = defaultPlan(id, incoming?.name || fallbackName);
-      const incomingMacroPlan = incoming?.macroPlan || {};
-      const incomingQuestionnaire = incomingMacroPlan.questionnaire || {};
+  Object.entries(parsedProfiles).forEach(([id, incoming]) => {
+    if (!id) return;
+    const fallbackName = id === 'me' ? 'Me' : id === 'wife' ? 'Wife' : toDashboardName(id);
+    const fallbackProfile = seedProfiles[id];
+    const basePlan = defaultPlan(id, incoming?.name || fallbackName);
+    const incomingMacroPlan = incoming?.macroPlan || {};
+    const incomingQuestionnaire = incomingMacroPlan.questionnaire || {};
 
-      mergedProfiles[id] = {
-        id,
-        name: incoming?.name?.trim() || fallbackName,
-        createdAt: incoming?.createdAt || new Date().toISOString(),
-        macroPlan: {
-          ...basePlan,
-          ...incomingMacroPlan,
-          questionnaire: {
-            ...basePlan.questionnaire,
-            ...incomingQuestionnaire,
-          },
-          bodyUnitSystem: incomingMacroPlan.bodyUnitSystem || basePlan.bodyUnitSystem,
+    mergedProfiles[id] = {
+      id,
+      name: incoming?.name?.trim() || fallbackProfile?.name || fallbackName,
+      createdAt: incoming?.createdAt || fallbackProfile?.createdAt || new Date().toISOString(),
+      macroPlan: {
+        ...basePlan,
+        ...incomingMacroPlan,
+        questionnaire: {
+          ...basePlan.questionnaire,
+          ...incomingQuestionnaire,
         },
-      };
-    });
-
-    ['me', 'wife'].forEach((id) => {
-      if (!mergedProfiles[id]) {
-        mergedProfiles[id] = seed.profiles[id];
-      }
-    });
-
-    return {
-      mealLogs: Array.isArray(parsed.mealLogs) ? (parsed.mealLogs as StoredMealLog[]) : seed.mealLogs,
-      profiles: mergedProfiles,
-      trackers:
-        parsed.trackers && typeof parsed.trackers === 'object'
-          ? (parsed.trackers as StoredState['trackers'])
-          : {},
+        bodyUnitSystem: incomingMacroPlan.bodyUnitSystem || basePlan.bodyUnitSystem,
+      },
     };
-  } catch {
-    return initialState();
+  });
+
+  ['me', 'wife'].forEach((id) => {
+    if (!mergedProfiles[id]) {
+      mergedProfiles[id] = seedProfiles[id];
+    }
+  });
+
+  return mergedProfiles;
+}
+
+function normalizeStoredState(input: Partial<StoredState> | null | undefined): StoredState {
+  const seed = initialState();
+  return {
+    mealLogs: Array.isArray(input?.mealLogs) ? (input?.mealLogs as StoredMealLog[]) : seed.mealLogs,
+    profiles: normalizeProfiles(input?.profiles, seed.profiles),
+    trackers:
+      input?.trackers && typeof input.trackers === 'object'
+        ? (input.trackers as StoredState['trackers'])
+        : {},
+  };
+}
+
+function readScopedStateRaw(userId?: string | null): string | null {
+  if (!canUseStorage()) return null;
+
+  const scopedRaw = window.localStorage.getItem(macroStateKey(userId));
+  if (scopedRaw) return scopedRaw;
+
+  if (userId) {
+    const anonRaw = window.localStorage.getItem(macroStateKey(null));
+    const anonMigratedTo = window.localStorage.getItem(`${STORAGE_KEY}:anon-migrated-to`);
+    if (anonRaw && (!anonMigratedTo || anonMigratedTo === userId)) {
+      window.localStorage.setItem(macroStateKey(userId), anonRaw);
+      window.localStorage.setItem(`${STORAGE_KEY}:anon-migrated-to`, userId);
+      return anonRaw;
+    }
+  }
+
+  const legacyRaw = window.localStorage.getItem(STORAGE_KEY);
+  if (!legacyRaw) return null;
+
+  window.localStorage.setItem(macroStateKey(userId), legacyRaw);
+  window.localStorage.removeItem(STORAGE_KEY);
+  return legacyRaw;
+}
+
+function serializeProfiles(profiles: Record<string, PersonGameProfile>): string {
+  return JSON.stringify(normalizeProfiles(profiles, initialState().profiles));
+}
+
+function mergeProfilesPreferRemote(
+  localProfiles: Record<string, PersonGameProfile>,
+  remoteProfiles: Record<string, PersonGameProfile>,
+): Record<string, PersonGameProfile> {
+  const seedProfiles = initialState().profiles;
+  const merged = normalizeProfiles(localProfiles, seedProfiles);
+  Object.values(normalizeProfiles(remoteProfiles, seedProfiles)).forEach((profile) => {
+    merged[profile.id] = profile;
+  });
+  return normalizeProfiles(merged, seedProfiles);
+}
+
+async function loadRemoteProfiles(userId: string): Promise<Record<string, PersonGameProfile> | null> {
+  const document = await loadProfileSettingsDocument(userId);
+  const storedProfiles = getProfileSettingsValue(document, MACRO_GAME_PROFILES_SETTINGS_PATH);
+  if (typeof storedProfiles === 'undefined') return null;
+  return normalizeProfiles(storedProfiles, initialState().profiles);
+}
+
+async function persistProfilesToAccount(
+  userId: string,
+  profiles: Record<string, PersonGameProfile>,
+): Promise<void> {
+  const normalizedProfiles = normalizeProfiles(profiles, initialState().profiles);
+  await updateProfileSettingsValue(userId, MACRO_GAME_PROFILES_SETTINGS_PATH, normalizedProfiles);
+  if (currentStorageScopeUserId === userId) {
+    lastPersistedProfilesSnapshot = serializeProfiles(normalizedProfiles);
   }
 }
 
-function writeState(state: StoredState) {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('homehub:macro-state-updated'));
+function scheduleProfilesPersist(state: StoredState) {
+  if (!currentStorageScopeUserId) return;
+  if (hydratedProfilesScopeKey !== macroScopeKey(currentStorageScopeUserId)) return;
+
+  const snapshot = serializeProfiles(state.profiles);
+  if (snapshot === lastPersistedProfilesSnapshot) return;
+  if (typeof window === 'undefined') return;
+
+  if (profilePersistTimer !== null) {
+    window.clearTimeout(profilePersistTimer);
   }
+
+  const scopedUserId = currentStorageScopeUserId;
+  profilePersistTimer = window.setTimeout(() => {
+    profilePersistTimer = null;
+    const latestState = readState(scopedUserId);
+    const latestSnapshot = serializeProfiles(latestState.profiles);
+    if (latestSnapshot === lastPersistedProfilesSnapshot) return;
+    void persistProfilesToAccount(scopedUserId, latestState.profiles).catch((error) => {
+      console.error('Failed to save dashboard profiles:', error);
+    });
+  }, 500);
+}
+
+function readState(userId: string | null = currentStorageScopeUserId): StoredState {
+  if (!canUseStorage()) return initialState();
+  try {
+    const raw = readScopedStateRaw(userId);
+    if (!raw) {
+      const seed = initialState();
+      writeState(seed, { userId, skipRemotePersist: true });
+      return seed;
+    }
+    return normalizeStoredState(JSON.parse(raw) as Partial<StoredState>);
+  } catch {
+    const seed = initialState();
+    writeState(seed, { userId, skipRemotePersist: true });
+    return seed;
+  }
+}
+
+function writeState(
+  state: StoredState,
+  options?: { userId?: string | null; skipRemotePersist?: boolean },
+) {
+  if (!canUseStorage()) return;
+  const scopedUserId = options?.userId ?? currentStorageScopeUserId;
+  window.localStorage.setItem(macroStateKey(scopedUserId), JSON.stringify(normalizeStoredState(state)));
+  if (!options?.skipRemotePersist) {
+    scheduleProfilesPersist(state);
+  }
+  dispatchMacroStateUpdated();
+}
+
+export async function hydrateMacroGameProfilesFromAccount(userId?: string | null): Promise<void> {
+  if (!userId) return;
+
+  const scopeKey = macroScopeKey(userId);
+  const hydrationToken = ++profileHydrationToken;
+  const localState = readState(userId);
+  const localSnapshot = serializeProfiles(localState.profiles);
+
+  try {
+    const remoteProfiles = await loadRemoteProfiles(userId);
+    if (profileHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+
+    const currentState = readState(userId);
+    const currentSnapshot = serializeProfiles(currentState.profiles);
+    const localChangedDuringLoad = currentSnapshot !== localSnapshot;
+
+    let nextProfiles = currentState.profiles;
+    let nextSnapshot = currentSnapshot;
+
+    if (localChangedDuringLoad) {
+      await persistProfilesToAccount(userId, currentState.profiles);
+    } else if (remoteProfiles) {
+      nextProfiles = mergeProfilesPreferRemote(currentState.profiles, remoteProfiles);
+      nextSnapshot = serializeProfiles(nextProfiles);
+      if (nextSnapshot !== currentSnapshot) {
+        writeState({ ...currentState, profiles: nextProfiles }, { userId, skipRemotePersist: true });
+      }
+      if (nextSnapshot !== serializeProfiles(remoteProfiles)) {
+        await persistProfilesToAccount(userId, nextProfiles);
+      } else {
+        lastPersistedProfilesSnapshot = nextSnapshot;
+      }
+    } else {
+      await persistProfilesToAccount(userId, currentState.profiles);
+    }
+
+    if (profileHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+
+    hydratedProfilesScopeKey = scopeKey;
+    lastPersistedProfilesSnapshot = nextSnapshot;
+    dispatchMacroStateUpdated();
+  } catch (error) {
+    console.error('Failed to hydrate dashboard profiles:', error);
+    if (profileHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+    hydratedProfilesScopeKey = scopeKey;
+    lastPersistedProfilesSnapshot = null;
+    dispatchMacroStateUpdated();
+  }
+}
+
+export function setMacroGameStorageScope(userId?: string | null) {
+  currentStorageScopeUserId = userId || null;
+  hydratedProfilesScopeKey = null;
+
+  if (typeof window !== 'undefined' && profilePersistTimer !== null) {
+    window.clearTimeout(profilePersistTimer);
+    profilePersistTimer = null;
+  }
+
+  const state = readState(currentStorageScopeUserId);
+  if (!currentStorageScopeUserId) {
+    hydratedProfilesScopeKey = macroScopeKey(null);
+    lastPersistedProfilesSnapshot = serializeProfiles(state.profiles);
+    dispatchMacroStateUpdated();
+    return;
+  }
+
+  lastPersistedProfilesSnapshot = null;
+  dispatchMacroStateUpdated();
+  void hydrateMacroGameProfilesFromAccount(currentStorageScopeUserId);
 }
 
 function dayKey(date = new Date()) {

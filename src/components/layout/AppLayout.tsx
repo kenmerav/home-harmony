@@ -191,7 +191,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
         <div className={cn('p-4 flex items-start', isSidebarCollapsed ? 'justify-center' : 'justify-between')}>
           <div className={cn(isSidebarCollapsed ? 'hidden' : 'block')}>
             <h1 className="font-display text-xl font-semibold text-sidebar-foreground">
-              Home Hub
+              Home Harmony
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Family management</p>
           </div>

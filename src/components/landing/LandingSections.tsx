@@ -583,8 +583,8 @@ export function SignupSection({ startHref }: SignupSectionProps) {
             />
 
             <Link to={startHref} className="block">
-              <Button className="w-full" aria-label="Create my free home hub">
-                Create My Free Home Hub
+              <Button className="w-full" aria-label="Create my free Home Harmony plan">
+                Create My Free Home Harmony Plan
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -604,7 +604,7 @@ export function SeoFooterLinks() {
     <footer className="bg-foreground text-background">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 md:grid-cols-[1.2fr_1fr_1fr_1fr] md:px-6">
         <div>
-          <p className="font-display text-2xl">Home Harmony HQ</p>
+          <p className="font-display text-2xl">Home Harmony</p>
           <p className="mt-3 text-sm text-background/60">
             The household operating system for modern families. Meals, chores, schedules, and routines in one place.
           </p>
@@ -628,7 +628,7 @@ export function SeoFooterLinks() {
 
       <div className="border-t border-background/10">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-4 text-xs text-background/50 md:flex-row md:items-center md:justify-between md:px-6">
-          <p>© 2026 Home Harmony HQ. All rights reserved.</p>
+          <p>© 2026 Home Harmony. All rights reserved.</p>
           <p>Built for busy families who want calmer weeks.</p>
         </div>
       </div>

@@ -14,7 +14,6 @@ import {
   workoutTrackingPages,
   lifestyleTrackingPages,
 } from '../src/data/seoContent.ts';
-import { freeToolPages } from '../src/data/freeToolsContent.ts';
 import { comparisonPages } from '../src/data/comparisonContent.ts';
 
 const root = process.cwd();
@@ -52,7 +51,6 @@ function categoryForSlug(slug) {
   if (taskSystemPages.some((x) => x.slug === slug)) return 'task-systems';
   if (workoutTrackingPages.some((x) => x.slug === slug)) return 'workout-tracking';
   if (lifestyleTrackingPages.some((x) => x.slug === slug)) return 'lifestyle-tracking';
-  if (freeToolPages.some((x) => x.slug === slug)) return 'task-systems';
   if (comparisonPages.some((x) => x.slug === slug)) return 'task-systems';
   return 'task-systems';
 }
@@ -69,7 +67,6 @@ const allEntries = [
   ...taskSystemPages.map((x) => ({ slug: x.slug, title: x.title, description: x.description })),
   ...workoutTrackingPages.map((x) => ({ slug: x.slug, title: x.title, description: x.description })),
   ...lifestyleTrackingPages.map((x) => ({ slug: x.slug, title: x.title, description: x.description })),
-  ...freeToolPages.map((x) => ({ slug: x.slug, title: x.title, description: x.description })),
   ...comparisonPages.map((x) => ({ slug: x.slug, title: x.title, description: x.description })),
 ];
 
@@ -140,16 +137,11 @@ function updateHeroImagesBySlug(source, replacementsBySlug) {
 
 async function updateDataFiles(mapBySlug) {
   const seoPath = path.join(root, 'src/data/seoContent.ts');
-  const freePath = path.join(root, 'src/data/freeToolsContent.ts');
   const cmpPath = path.join(root, 'src/data/comparisonContent.ts');
 
   let seo = await fs.readFile(seoPath, 'utf8');
   seo = updateHeroImagesBySlug(seo, mapBySlug);
   await fs.writeFile(seoPath, seo);
-
-  let free = await fs.readFile(freePath, 'utf8');
-  free = updateHeroImagesBySlug(free, mapBySlug);
-  await fs.writeFile(freePath, free);
 
   let cmp = await fs.readFile(cmpPath, 'utf8');
   cmp = updateHeroImagesBySlug(cmp, mapBySlug);

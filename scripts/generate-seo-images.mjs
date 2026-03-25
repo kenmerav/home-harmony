@@ -15,7 +15,6 @@ import {
   workoutTrackingPages,
   lifestyleTrackingPages,
 } from '../src/data/seoContent.ts';
-import { freeToolPages } from '../src/data/freeToolsContent.ts';
 import { comparisonPages } from '../src/data/comparisonContent.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -150,18 +149,6 @@ function pageEntries() {
     }
   }
 
-  for (const page of freeToolPages) {
-    entries.push({
-      key: `tool:${page.slug}`,
-      slug: page.slug,
-      title: page.title,
-      description: page.description,
-      query: `${page.title} family planning tool real life`.trim(),
-      outputRel: `/seo/generated/tool-${sanitizeFileBase(page.slug)}.jpg`,
-      categorySlug: 'task-systems',
-    });
-  }
-
   for (const page of comparisonPages) {
     entries.push({
       key: `compare:${page.slug}`,
@@ -251,16 +238,6 @@ async function writeUpdatedContentFiles(imageBySlug) {
   }
   seoText = updateHeroImagesBySlug(seoText, seoMap);
   await fs.writeFile(seoContentPath, seoText);
-
-  const freePath = path.join(root, 'src/data/freeToolsContent.ts');
-  let freeText = await fs.readFile(freePath, 'utf8');
-  const freeMap = new Map();
-  for (const page of freeToolPages) {
-    const rel = imageBySlug.get(page.slug);
-    if (rel) freeMap.set(page.slug, rel);
-  }
-  freeText = updateHeroImagesBySlug(freeText, freeMap);
-  await fs.writeFile(freePath, freeText);
 
   const cmpPath = path.join(root, 'src/data/comparisonContent.ts');
   let cmpText = await fs.readFile(cmpPath, 'utf8');

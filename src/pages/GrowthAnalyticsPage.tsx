@@ -28,10 +28,12 @@ interface FunnelRow {
   eventType: string;
 }
 
+function isDeprecatedGrowthEvent(eventType: string): boolean {
+  return eventType.startsWith('free_tool_');
+}
+
 const FUNNEL: FunnelRow[] = [
   { label: 'Landing view', eventType: 'landing_view' },
-  { label: 'Free tool impression', eventType: 'free_tool_impression' },
-  { label: 'Free tool CTA click', eventType: 'free_tool_primary_click' },
   { label: 'Sign-in success', eventType: 'signin_success' },
   { label: 'Onboarding complete', eventType: 'onboarding_complete' },
   { label: 'Meals regenerated', eventType: 'meals_regenerated' },
@@ -61,8 +63,12 @@ export default function GrowthAnalyticsPage() {
         fetchRecentGrowthEvents(100),
         getReferralStats(),
       ]);
-      setCounts(nextCounts);
-      setEvents(nextEvents);
+      setCounts(
+        Object.fromEntries(
+          Object.entries(nextCounts).filter(([eventType]) => !isDeprecatedGrowthEvent(eventType)),
+        ),
+      );
+      setEvents(nextEvents.filter((row) => !isDeprecatedGrowthEvent(row.eventType)));
       setReferralStats(nextReferrals);
     } catch (error) {
       toast({

@@ -46,7 +46,7 @@ export const CALENDAR_MODULE_META: Record<
   { label: string; badgeClass: string; dotClass: string }
 > = {
   manual: {
-    label: 'Manual',
+    label: 'Family',
     badgeClass: 'border-violet-200 bg-violet-100/70 text-violet-800',
     dotClass: 'bg-violet-500',
   },

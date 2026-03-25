@@ -18,8 +18,6 @@ export interface AdminMetricsTotals {
   recipes: number;
   plannedMeals: number;
   referralEvents: number;
-  freeToolsEvents: number;
-  freeToolsLeads: number;
   growthEventsAllTime: number;
 }
 

@@ -30,7 +30,7 @@ const checks = [
   },
   {
     name: 'Private app routes disallowed in robots',
-    pass: ['/signin', '/onboarding', '/billing', '/app', '/meals', '/recipes', '/grocery', '/chores', '/tasks', '/family', '/me', '/wife', '/free-tools-analytics'].every((p) =>
+    pass: ['/signin', '/onboarding', '/billing', '/app', '/meals', '/recipes', '/grocery', '/chores', '/tasks', '/family', '/me', '/wife'].every((p) =>
       robots.includes(`Disallow: ${p}`),
     ),
     impact: 'high',
@@ -52,14 +52,9 @@ const checks = [
   },
   {
     name: 'Public SEO hub routes are in App router',
-    pass: ['/meal-plans', '/grocery-lists', '/pantry-meals', '/recipe-collections', '/household-templates', '/macro-plans', '/chore-systems', '/task-systems', '/workout-tracking', '/lifestyle-tracking', '/free-tools'].every((p) =>
+    pass: ['/meal-plans', '/grocery-lists', '/pantry-meals', '/recipe-collections', '/household-templates', '/macro-plans', '/chore-systems', '/task-systems', '/workout-tracking', '/lifestyle-tracking'].every((p) =>
       app.includes(`path=\"${p}\"`),
     ),
-    impact: 'high',
-  },
-  {
-    name: 'Free tools URLs present in sitemap',
-    pass: urls.some((url) => url.endsWith('/free-tools')) && urls.some((url) => url.includes('/free-tools/')),
     impact: 'high',
   },
   {

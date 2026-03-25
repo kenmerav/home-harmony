@@ -341,6 +341,21 @@ function useWorkoutStoreInternal() {
     setWeightLogs(prev => prev.filter(l => l.id !== id));
   }, []);
 
+  const clearAllWorkoutData = useCallback(() => {
+    const emptyState: PersistedWorkoutState = {
+      schemaVersion: STATE_SCHEMA_VERSION,
+      workouts: [],
+      templates: mergeStarterTemplates([]),
+      settings: DEFAULT_SETTINGS,
+      customExercises: [],
+      cardioSessions: [],
+      weightLogs: [],
+    };
+
+    applyState(emptyState);
+    toLocalStorage(emptyState);
+  }, [applyState]);
+
   const getExerciseHistory = useCallback(
     (exerciseName: string): ExerciseHistory | null => {
       const records = workouts
@@ -433,6 +448,7 @@ function useWorkoutStoreInternal() {
     deleteCardioSession,
     addWeightLog,
     deleteWeightLog,
+    clearAllWorkoutData,
     getExerciseHistory,
     getLastExerciseData,
   };

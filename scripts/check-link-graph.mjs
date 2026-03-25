@@ -16,7 +16,6 @@ const expectedHubs = [
   '/task-systems',
   '/workout-tracking',
   '/lifestyle-tracking',
-  '/free-tools',
 ];
 
 const missingHubConfig = expectedHubs.filter((hub) => !linkGraph.includes(`'${hub}'`) && !linkGraph.includes(`\"${hub}\"`));

@@ -134,8 +134,6 @@ const App = () => (
               <Route path="/workout-tracking/:slug" element={<WorkoutTrackingDetailPage />} />
               <Route path="/lifestyle-tracking" element={<LifestyleTrackingHubPage />} />
               <Route path="/lifestyle-tracking/:slug" element={<LifestyleTrackingDetailPage />} />
-              <Route path="/free-tools" element={<Navigate to="/resources" replace />} />
-              <Route path="/free-tools/:slug" element={<Navigate to="/resources" replace />} />
               <Route path="/compare" element={<ComparisonHubPage />} />
               <Route path="/compare/:slug" element={<ComparisonDetailPage />} />
               <Route path="/templates" element={<TemplatesHubPage />} />
@@ -289,16 +287,6 @@ const App = () => (
                   <RequireProfileComplete>
                     <RequireSubscription>
                       <GetStartedDetailPage />
-                    </RequireSubscription>
-                  </RequireProfileComplete>
-                }
-              />
-              <Route
-                path="/free-tools-analytics"
-                element={
-                  <RequireProfileComplete>
-                    <RequireSubscription>
-                      <Navigate to="/growth-analytics" replace />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }

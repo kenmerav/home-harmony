@@ -6,14 +6,12 @@ const now = new Date().toISOString().slice(0, 10);
 
 const repoRoot = resolve(process.cwd());
 const seoSourcePath = resolve(repoRoot, 'src/data/seoContent.ts');
-const freeToolsSourcePath = resolve(repoRoot, 'src/data/freeToolsContent.ts');
 const comparisonSourcePath = resolve(repoRoot, 'src/data/comparisonContent.ts');
 const templatesSourcePath = resolve(repoRoot, 'src/data/templateGalleryContent.ts');
 const sitemapPath = resolve(repoRoot, 'public/sitemap.xml');
 
 const sources = {
   seo: readFileSync(seoSourcePath, 'utf8'),
-  freeTools: readFileSync(freeToolsSourcePath, 'utf8'),
   comparison: readFileSync(comparisonSourcePath, 'utf8'),
   templates: readFileSync(templatesSourcePath, 'utf8'),
 };
@@ -31,7 +29,6 @@ const staticRoutes = [
   '/task-systems',
   '/workout-tracking',
   '/lifestyle-tracking',
-  '/free-tools',
   '/compare',
   '/templates',
 ];
@@ -47,7 +44,6 @@ const collections = [
   { sourceKey: 'seo', constName: 'taskSystemPages', base: '/task-systems' },
   { sourceKey: 'seo', constName: 'workoutTrackingPages', base: '/workout-tracking' },
   { sourceKey: 'seo', constName: 'lifestyleTrackingPages', base: '/lifestyle-tracking' },
-  { sourceKey: 'freeTools', constName: 'freeToolPages', base: '/free-tools' },
   { sourceKey: 'comparison', constName: 'comparisonPages', base: '/compare' },
   { sourceKey: 'templates', constName: 'templatePacks', base: '/templates' },
 ];

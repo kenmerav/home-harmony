@@ -135,8 +135,8 @@ export default function Index() {
     <div className="min-h-screen bg-background pb-40">
       {/* Header */}
       <header className="px-4 pt-8 pb-6">
-        <h1 className="text-3xl font-bold text-foreground">LiftLog</h1>
-        <p className="text-muted-foreground mt-1">Track your gains</p>
+        <h1 className="text-3xl font-bold text-foreground">Workouts</h1>
+        <p className="text-muted-foreground mt-1">Track strength, cardio, and progress in one place</p>
       </header>
 
       {/* Quick Start */}

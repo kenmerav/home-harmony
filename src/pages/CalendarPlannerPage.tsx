@@ -56,13 +56,11 @@ import {
 import {
   CalendarFilterPreset,
   CalendarFilterPresetColor,
+  CalendarModuleFilterSettings,
   createCalendarFilterPreset,
   DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
-  loadStoredCalendarFilterPresets,
-  loadStoredCalendarFilters,
+  formatCalendarLayerLabel,
   normalizeCalendarFilterName,
-  saveStoredCalendarFilterPresets,
-  saveStoredCalendarFilters,
 } from '@/lib/calendarFilters';
 import {
   loadCommonDepartureAddresses,
@@ -70,22 +68,18 @@ import {
   normalizeAddressForCompare,
 } from '@/lib/departureAddresses';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
+import { useAccountCalendarPreferences } from '@/hooks/useAccountCalendarPreferences';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 type PlannerMode = 'month' | 'twoWeek';
-type ModuleLabelOverrides = Partial<Record<CalendarEventModule, string>>;
-type CalendarModuleFilterSettings = {
-  labelOverrides: ModuleLabelOverrides;
-};
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
 type RecurrenceCadence = 'daily' | 'weekly' | 'monthly';
 
 const RECURRING_OCCURRENCE_COUNT = 12;
 const BUILT_IN_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
-
-const CALENDAR_MODULE_FILTER_SETTINGS_KEY = 'homehub.calendar.module-filter-settings.v1';
+const VISIBLE_FILTER_MODULES: CalendarEventModule[] = ['meals', 'tasks', 'chores', 'workouts', 'reminders'];
 const FILTER_COLOR_SWATCHES = [
   '#5A8F72',
   '#8A78E8',
@@ -184,11 +178,8 @@ function formatPhoneList(input: string[]): string {
 
 function normalizeCalendarLayerName(value: string | null | undefined): string {
   const compact = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return compact || 'family';
-}
-
-function canUseStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  if (!compact || compact === 'manual') return 'family';
+  return compact;
 }
 
 function normalizeAddressKey(value?: string | null): string {
@@ -200,28 +191,6 @@ function isSameOrContainedAddress(candidateKey: string, referenceKey: string): b
   return candidateKey === referenceKey
     || candidateKey.includes(referenceKey)
     || referenceKey.includes(candidateKey);
-}
-
-function scopedModuleFilterSettingsKey(userId?: string | null): string {
-  return `${CALENDAR_MODULE_FILTER_SETTINGS_KEY}:${userId || 'anon'}`;
-}
-
-function loadModuleFilterSettings(userId?: string | null): CalendarModuleFilterSettings {
-  if (!canUseStorage()) return { labelOverrides: {} };
-  try {
-    const raw = window.localStorage.getItem(scopedModuleFilterSettingsKey(userId));
-    if (!raw) return { labelOverrides: {} };
-    const parsed = JSON.parse(raw) as Partial<CalendarModuleFilterSettings>;
-    const labelOverrides = (parsed.labelOverrides || {}) as ModuleLabelOverrides;
-    return { labelOverrides };
-  } catch {
-    return { labelOverrides: {} };
-  }
-}
-
-function saveModuleFilterSettings(settings: CalendarModuleFilterSettings, userId?: string | null) {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(scopedModuleFilterSettingsKey(userId), JSON.stringify(settings));
 }
 
 function isSmsFilterModule(module: CalendarEventModule): module is SmsReminderModule {
@@ -246,6 +215,14 @@ function isCalendarModule(value: string): value is CalendarEventModule {
 export default function CalendarPlannerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const {
+    filters,
+    setFilters,
+    filterPresets,
+    setFilterPresets,
+    moduleFilterSettings,
+    setModuleFilterSettings,
+  } = useAccountCalendarPreferences(user?.id);
   const [mode, setMode] = useState<PlannerMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -253,21 +230,12 @@ export default function CalendarPlannerPage() {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filters, setFilters] = useState<Record<CalendarEventModule, boolean>>(() =>
-    loadStoredCalendarFilters(user?.id),
-  );
-  const [filterPresets, setFilterPresets] = useState<CalendarFilterPreset[]>(() =>
-    loadStoredCalendarFilterPresets(user?.id),
-  );
   const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
   const [editingFilterPresetId, setEditingFilterPresetId] = useState<string | null>(null);
   const [filterPresetDraftName, setFilterPresetDraftName] = useState('');
   const [filterPresetDraftRecipients, setFilterPresetDraftRecipients] = useState('');
   const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>(
     DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
-  );
-  const [moduleFilterSettings, setModuleFilterSettings] = useState<CalendarModuleFilterSettings>(() =>
-    loadModuleFilterSettings(user?.id),
   );
   const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<CalendarEventModule | null>(null);
@@ -321,24 +289,6 @@ export default function CalendarPlannerPage() {
     setDepartureAddressProfile(loadDepartureAddressProfile(user?.id));
     setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
   }, [user?.id]);
-
-  useEffect(() => {
-    setFilters(loadStoredCalendarFilters(user?.id));
-    setFilterPresets(loadStoredCalendarFilterPresets(user?.id));
-    setModuleFilterSettings(loadModuleFilterSettings(user?.id));
-  }, [user?.id]);
-
-  useEffect(() => {
-    saveStoredCalendarFilters(filters, user?.id);
-  }, [filters, user?.id]);
-
-  useEffect(() => {
-    saveStoredCalendarFilterPresets(filterPresets, user?.id);
-  }, [filterPresets, user?.id]);
-
-  useEffect(() => {
-    saveModuleFilterSettings(moduleFilterSettings, user?.id);
-  }, [moduleFilterSettings, user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -509,10 +459,11 @@ export default function CalendarPlannerPage() {
   );
 
   const assignFilterOptions = useMemo(() => {
-    const options: Array<{ value: string; label: string }> = [];
+    const options: Array<{ value: string; label: string }> = [{ value: 'custom:family', label: 'Family' }];
     const seen = new Set<string>();
 
-    BUILT_IN_FILTER_MODULES.forEach((module) => {
+    seen.add('custom:family');
+    VISIBLE_FILTER_MODULES.forEach((module) => {
       const label = moduleFilterSettings.labelOverrides[module]?.trim() || CALENDAR_MODULE_META[module].label;
       const value = `module:${module}`;
       if (seen.has(value)) return;
@@ -533,12 +484,21 @@ export default function CalendarPlannerPage() {
     return options;
   }, [filterPresets, moduleFilterSettings.labelOverrides]);
 
+  const manualLayerLabelMap = useMemo(() => {
+    const next = new Map<string, string>([['family', 'Family']]);
+    filterPresets.forEach((preset) => {
+      const label = normalizeCalendarFilterName(preset.name);
+      next.set(normalizeCalendarLayerName(label), label);
+    });
+    return next;
+  }, [filterPresets]);
+
   const draftAssignFilterValue = useMemo(() => {
     if (draftModule !== 'manual') return `module:${draftModule}`;
     const layer = normalizeCalendarLayerName(draftCalendarLayer || 'family');
-    if (layer === 'family') return 'module:manual';
+    if (layer === 'family') return 'custom:family';
     const customValue = `custom:${layer}`;
-    return assignFilterOptions.some((option) => option.value === customValue) ? customValue : 'module:manual';
+    return assignFilterOptions.some((option) => option.value === customValue) ? customValue : 'custom:family';
   }, [assignFilterOptions, draftCalendarLayer, draftModule]);
 
   const applyAssignFilterValue = (value: string) => {
@@ -878,6 +838,15 @@ export default function CalendarPlannerPage() {
     return override?.trim() || CALENDAR_MODULE_META[module].label;
   };
 
+  const getEventBadgeLabel = useCallback(
+    (event: CalendarEvent): string => {
+      if (event.module !== 'manual') return getModuleLabel(event.module);
+      const layer = normalizeCalendarLayerName(event.calendarLayer || 'family');
+      return manualLayerLabelMap.get(layer) || formatCalendarLayerLabel(layer);
+    },
+    [getModuleLabel, manualLayerLabelMap],
+  );
+
   const openModuleEditor = (module: CalendarEventModule) => {
     setEditingModule(module);
     setEditingModuleName(getModuleLabel(module));
@@ -892,7 +861,7 @@ export default function CalendarPlannerPage() {
     const trimmedName = editingModuleName.trim();
     const defaultName = CALENDAR_MODULE_META[editingModule].label;
     const finalName = trimmedName || defaultName;
-    const nextOverrides: ModuleLabelOverrides = { ...moduleFilterSettings.labelOverrides };
+    const nextOverrides: CalendarModuleFilterSettings['labelOverrides'] = { ...moduleFilterSettings.labelOverrides };
 
     if (!trimmedName || trimmedName.toLowerCase() === defaultName.toLowerCase()) {
       delete nextOverrides[editingModule];
@@ -1019,8 +988,30 @@ export default function CalendarPlannerPage() {
 
   const saveFilterPresetDialog = () => {
     const normalizedName = normalizeCalendarFilterName(filterPresetDraftName || nextFilterNameSuggestion());
+    const normalizedLayer = normalizeCalendarLayerName(normalizedName);
     const recipients = parsePhoneList(filterPresetDraftRecipients);
     const color = normalizeHexColor(filterPresetDraftColor);
+
+    if (normalizedLayer === 'family') {
+      toast({
+        title: 'Family is already built in',
+        description: 'Choose another name for a custom filter.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const duplicatePreset = filterPresets.find(
+      (preset) => preset.id !== editingFilterPresetId && normalizeCalendarLayerName(preset.name) === normalizedLayer,
+    );
+    if (duplicatePreset) {
+      toast({
+        title: 'Filter name already used',
+        description: 'Choose a different name so each custom filter stays unique.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     if (editingFilterPresetId) {
       setFilterPresets((prev) =>
@@ -1205,6 +1196,7 @@ export default function CalendarPlannerPage() {
                 {selectedDayEvents.map((event) => (
                   <EventRow
                     key={event.id}
+                    badgeLabel={getEventBadgeLabel(event)}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
@@ -1217,7 +1209,7 @@ export default function CalendarPlannerPage() {
 
           <SectionCard title="Filters" subtitle="Show/hide event types">
             <div className="space-y-2">
-              {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
+              {VISIBLE_FILTER_MODULES.map((module) => (
                 <div key={module} className="flex items-center justify-between">
                   <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
                     <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
@@ -1308,6 +1300,7 @@ export default function CalendarPlannerPage() {
               {upcomingEvents.map((event) => (
                 <EventRow
                   key={event.id}
+                  badgeLabel={getEventBadgeLabel(event)}
                   event={event}
                   googleEnabled={googlePrefs.enabled}
                   compact
@@ -1336,6 +1329,7 @@ export default function CalendarPlannerPage() {
                 {selectedDayEvents.map((event) => (
                   <EventRow
                     key={event.id}
+                    badgeLabel={getEventBadgeLabel(event)}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
@@ -1355,7 +1349,7 @@ export default function CalendarPlannerPage() {
             <DialogDescription>Choose which event types show in your planner and day popout.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-            {(Object.keys(CALENDAR_MODULE_META) as CalendarEventModule[]).map((module) => (
+            {VISIBLE_FILTER_MODULES.map((module) => (
               <div key={module} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                 <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
                   <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
@@ -1548,7 +1542,7 @@ export default function CalendarPlannerPage() {
               {editingEventSource ? 'Edit planner event' : 'Add planner event'}
             </DialogTitle>
             <DialogDescription>
-              {editingEventSource ? 'Update this calendar item.' : 'Create a manual event for this calendar.'}
+              {editingEventSource ? 'Update this calendar item.' : 'Create a calendar event for this planner.'}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 md:grid-cols-2">
@@ -1810,12 +1804,14 @@ export default function CalendarPlannerPage() {
 }
 
 function EventRow({
+  badgeLabel,
   event,
   googleEnabled,
   compact,
   onEdit,
   onDelete,
 }: {
+  badgeLabel: string;
   event: CalendarEvent;
   googleEnabled: boolean;
   compact?: boolean;
@@ -1856,7 +1852,7 @@ function EventRow({
           <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
             <span>{eventTimeLabel(event)}</span>
             <Badge variant="outline" className={cn('border', CALENDAR_MODULE_META[event.module].badgeClass)}>
-              {CALENDAR_MODULE_META[event.module].label}
+              {badgeLabel}
             </Badge>
           </div>
           {event.description && !compact && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{event.description}</p>}

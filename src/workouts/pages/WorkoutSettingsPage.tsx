@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Bell, Vibrate, Scale, Timer, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { WorkoutsBottomNav } from '@/workouts/components/WorkoutsBottomNav';
@@ -6,7 +5,7 @@ import { useWorkoutStore } from '@/workouts/hooks/useWorkoutStore';
 import { cn } from '@/lib/utils';
 
 export default function Settings() {
-  const { settings, updateSettings, workouts, templates } = useWorkoutStore();
+  const { settings, updateSettings, workouts, templates, clearAllWorkoutData } = useWorkoutStore();
 
   const handleExportData = () => {
     const data = {
@@ -20,7 +19,7 @@ export default function Settings() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `liftlog-export-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `home-harmony-workouts-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -28,8 +27,8 @@ export default function Settings() {
   };
 
   const handleClearData = () => {
-    if (confirm('This will delete ALL your workout data. This cannot be undone. Are you sure?')) {
-      localStorage.clear();
+    if (window.confirm('This will delete your workout history, templates, cardio, and weigh-ins. This cannot be undone. Are you sure?')) {
+      clearAllWorkoutData();
       window.location.reload();
     }
   };
@@ -170,14 +169,14 @@ export default function Settings() {
             onClick={handleClearData}
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Clear All Data
+            Clear Workout Data
           </Button>
         </div>
 
         {/* Stats */}
         <div className="text-center text-sm text-muted-foreground pt-4">
           <p>{workouts.length} workouts • {templates.length} templates</p>
-          <p className="mt-1">LiftLog v1.0</p>
+          <p className="mt-1">Workouts v1.0</p>
         </div>
       </div>
       <WorkoutsBottomNav />

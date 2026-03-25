@@ -8,6 +8,7 @@ import { claimReferral } from '@/lib/api/referrals';
 import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { BILLING_ENABLED } from '@/lib/billing';
+import { setMacroGameStorageScope } from '@/lib/macroGame';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -202,6 +203,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSubscription();
     refreshProfile();
   }, [refreshProfile, refreshSubscription, user?.id]);
+
+  useEffect(() => {
+    setMacroGameStorageScope(!isDemoUser ? user?.id : null);
+  }, [isDemoUser, user?.id]);
 
   useEffect(() => {
     if (!user || isDemoUser) return;
