@@ -78,7 +78,7 @@ import {
 import { useAccountCalendarPreferences } from '@/hooks/useAccountCalendarPreferences';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
-import { CalendarDays, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarDays, ChevronDown, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
 
@@ -422,6 +422,7 @@ export default function CalendarPage() {
     setupModeFromQuery || 'google',
   );
   const [calendarSetupOpen, setCalendarSetupOpen] = useState(Boolean(setupModeFromQuery));
+  const [calendarIntegrationsExpanded, setCalendarIntegrationsExpanded] = useState(false);
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -1690,66 +1691,6 @@ export default function CalendarPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Calendar integrations" subtitle="Plan in Home Harmony, then display in your calendar app">
-            <div className="space-y-3">
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Google Calendar</span>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to="/calendar/connect-apple?platform=google">Connect Google</Link>
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Status</span>
-                  <Badge variant="outline">{googlePrefs.enabled ? 'Quick-add enabled' : 'Ready to connect'}</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Subscribe once with your private URL. Google Calendar will mirror Home Harmony updates.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Apple Calendar</span>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to="/calendar/connect-apple?platform=apple">Connect Apple</Link>
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  One-way subscribed feeds: edit events in Home Harmony, and Apple Calendar reflects updates automatically.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Google quick-add links (optional)</span>
-                  <Switch
-                    checked={googlePrefs.enabled}
-                    onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Target calendar label</label>
-                  <Input
-                    value={googlePrefs.selectedCalendarLabel}
-                    onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Optional helper links on each event. Feed subscription is the recommended sync path.
-                </p>
-              </div>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={() => setCalendarSetupOpen(true)}
-              >
-                Guided calendar setup
-              </Button>
-            </div>
-          </SectionCard>
         </div>
 
         <div className="space-y-6">
@@ -1838,6 +1779,94 @@ export default function CalendarPage() {
             )}
           </SectionCard>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <SectionCard
+          title="Calendar integrations"
+          subtitle="Plan in Home Harmony, then display in your calendar app"
+          action={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCalendarIntegrationsExpanded((prev) => !prev)}
+              aria-expanded={calendarIntegrationsExpanded}
+              aria-controls="calendar-integrations-panel"
+              aria-label={calendarIntegrationsExpanded ? 'Collapse calendar integrations' : 'Expand calendar integrations'}
+            >
+              <ChevronDown
+                className={cn('h-4 w-4 transition-transform', calendarIntegrationsExpanded && 'rotate-180')}
+              />
+            </Button>
+          }
+        >
+          {calendarIntegrationsExpanded ? (
+            <div id="calendar-integrations-panel" className="space-y-3">
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Google Calendar</span>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple?platform=google">Connect Google</Link>
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Status</span>
+                  <Badge variant="outline">{googlePrefs.enabled ? 'Quick-add enabled' : 'Ready to connect'}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Subscribe once with your private URL. Google Calendar will mirror Home Harmony updates.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Apple Calendar</span>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/calendar/connect-apple?platform=apple">Connect Apple</Link>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  One-way subscribed feeds: edit events in Home Harmony, and Apple Calendar reflects updates automatically.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Google quick-add links (optional)</span>
+                  <Switch
+                    checked={googlePrefs.enabled}
+                    onCheckedChange={(checked) => updateGooglePrefs({ enabled: checked })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Target calendar label</label>
+                  <Input
+                    value={googlePrefs.selectedCalendarLabel}
+                    onChange={(e) => updateGooglePrefs({ selectedCalendarLabel: e.target.value || 'Primary calendar' })}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Optional helper links on each event. Feed subscription is the recommended sync path.
+                </p>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setCalendarSetupOpen(true)}
+              >
+                Guided calendar setup
+              </Button>
+            </div>
+          ) : (
+            <p id="calendar-integrations-panel" className="text-sm text-muted-foreground">
+              Expand to manage Apple Calendar, Google Calendar, and quick-add sync options.
+            </p>
+          )}
+        </SectionCard>
       </div>
 
       <Dialog open={calendarSetupOpen} onOpenChange={(open) => (open ? setCalendarSetupOpen(true) : closeCalendarSetupDialog())}>
