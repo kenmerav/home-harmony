@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useCurrentDate } from '@/hooks/useCurrentDate';
 import {
   addAlcohol,
   addMealLog,
@@ -51,9 +52,9 @@ import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calenda
 import { CalendarEvent } from '@/lib/calendarStore';
 import { getPlannedFoodEntries, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
 
-const getCurrentDay = (): DayOfWeek => {
+const getCurrentDay = (date = new Date()): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  return days[new Date().getDay()] as DayOfWeek;
+  return days[date.getDay()] as DayOfWeek;
 };
 
 const LEADERBOARD_PRIZE_KEY = 'homehub.leaderboardPrizeByWeek.v1';
@@ -116,10 +117,11 @@ function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
 
 export default function TodayPage() {
   const { user } = useAuth();
-  const todayLabel = format(new Date(), 'EEEE, MMMM d');
-  const currentDay = getCurrentDay();
-  const todayKey = format(new Date(), 'yyyy-MM-dd');
-  const weekKey = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const currentDate = useCurrentDate();
+  const todayLabel = format(currentDate, 'EEEE, MMMM d');
+  const currentDay = getCurrentDay(currentDate);
+  const todayKey = format(currentDate, 'yyyy-MM-dd');
+  const weekKey = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
   const mockTodaysMeal = mockMealPlan.find((m) => m.day === currentDay);
   const { toast } = useToast();
 
@@ -157,7 +159,7 @@ export default function TodayPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [todayKey]);
 
   useEffect(() => {
     try {
@@ -205,11 +207,11 @@ export default function TodayPage() {
         id: dashboard.id,
         label: dashboard.name,
         score: getDailyScore(dashboard.id, todayKey),
-        streak: getCurrentStreak(dashboard.id),
+        streak: getCurrentStreak(dashboard.id, currentDate),
       })),
-    [dashboards, todayKey, refreshTick],
+    [currentDate, dashboards, todayKey, refreshTick],
   );
-  const leaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+  const leaderboard = useMemo(() => getFamilyLeaderboard(currentDate, user?.id), [currentDate, refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
 
   useEffect(() => {
@@ -217,11 +219,11 @@ export default function TodayPage() {
     const loadTodayEvents = async () => {
       setEventsLoading(true);
       try {
-        const events = await fetchCalendarEventsForMonth(new Date(), user?.id);
+        const events = await fetchCalendarEventsForMonth(currentDate, user?.id);
         if (cancelled) return;
         const todayEvents = events.filter((event) => {
           try {
-            return isSameDay(parseISO(event.startsAt), new Date());
+            return isSameDay(parseISO(event.startsAt), currentDate);
           } catch {
             return false;
           }
@@ -238,15 +240,15 @@ export default function TodayPage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshTick, user?.id]);
+  }, [currentDate, refreshTick, user?.id]);
 
   const todaysTasks = useMemo(() => {
-    const today = new Date();
+    const today = new Date(currentDate);
     today.setHours(0, 0, 0, 0);
     return loadTasks(user?.id)
       .filter((task) => taskOccursOnDate(task, today))
       .slice(0, 6);
-  }, [refreshTick, user?.id]);
+  }, [currentDate, refreshTick, user?.id]);
 
   const pendingTaskCount = todaysTasks.filter((task) => task.status !== 'done').length;
   const pendingChoreCount = childChores.reduce((sum, child) => sum + Math.max(child.total - child.completed, 0), 0);
@@ -356,6 +358,7 @@ export default function TodayPage() {
     () => logMealCandidates.find((entry) => entry.id === selectedLogMealId) || logMealCandidates[0] || null,
     [logMealCandidates, selectedLogMealId],
   );
+  const tonightDinnerCandidate = logMealCandidatesByCategory.dinner[0] || null;
 
   useEffect(() => {
     if (logMealCandidates.length === 0) {
@@ -376,23 +379,27 @@ export default function TodayPage() {
     return Math.min(4, Math.max(0.25, parsed));
   };
 
-  const logMeal = (person: string | 'all') => {
-    if (!selectedLogMeal) return;
-    const servings = parseServings(mealServings);
+  const logMealCandidate = (
+    candidate: LogMealCandidate | null,
+    person: string | 'all',
+    servingsInput = mealServings,
+  ) => {
+    if (!candidate) return;
+    const servings = parseServings(servingsInput);
     const scaledMacros = {
-      calories: Math.round(selectedLogMeal.macrosPerServing.calories * servings),
-      protein_g: Math.round(selectedLogMeal.macrosPerServing.protein_g * servings),
-      carbs_g: Math.round(selectedLogMeal.macrosPerServing.carbs_g * servings),
-      fat_g: Math.round(selectedLogMeal.macrosPerServing.fat_g * servings),
-      fiber_g: selectedLogMeal.macrosPerServing.fiber_g
-        ? Math.round(selectedLogMeal.macrosPerServing.fiber_g * servings)
+      calories: Math.round(candidate.macrosPerServing.calories * servings),
+      protein_g: Math.round(candidate.macrosPerServing.protein_g * servings),
+      carbs_g: Math.round(candidate.macrosPerServing.carbs_g * servings),
+      fat_g: Math.round(candidate.macrosPerServing.fat_g * servings),
+      fiber_g: candidate.macrosPerServing.fiber_g
+        ? Math.round(candidate.macrosPerServing.fiber_g * servings)
         : undefined,
     };
 
     const createLog = (target: string): MealLog => ({
       id: `log-${Date.now()}-${target}`,
-      recipeId: selectedLogMeal.recipeId,
-      recipeName: selectedLogMeal.label,
+      recipeId: candidate.recipeId,
+      recipeName: candidate.label,
       date: todayKey,
       person: target,
       servings,
@@ -405,17 +412,21 @@ export default function TodayPage() {
       dashboards.forEach((dashboard) => addMealLog(createLog(dashboard.id)));
       toast({
         title: dashboards.length > 1 ? 'Logged for all dashboards' : 'Logged meal',
-        description: `${selectedLogMeal.label} • ${servings} servings`,
+        description: `${candidate.label} • ${servings} servings`,
       });
     } else {
       addMealLog(createLog(person));
       const targetName = dashboards.find((dashboard) => dashboard.id === person)?.name || profiles[person]?.name || 'Dashboard';
       toast({
         title: `Logged for ${targetName}`,
-        description: `${selectedLogMeal.label} • ${servings} servings`,
+        description: `${candidate.label} • ${servings} servings`,
       });
     }
     refresh();
+  };
+
+  const logMeal = (person: string | 'all') => {
+    logMealCandidate(selectedLogMeal, person);
   };
 
   const handleQuickAdd = () => {
@@ -686,6 +697,24 @@ export default function TodayPage() {
               </Link>
             }
           >
+            {tonightDinnerCandidate && (
+              <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-primary/80">Tonight&apos;s Dinner</p>
+                    <h3 className="mt-1 font-display text-lg font-semibold text-foreground">{tonightDinnerCandidate.label}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {Math.round(tonightDinnerCandidate.macrosPerServing.calories)} cal/serving
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => logMealCandidate(tonightDinnerCandidate, 'all', String(tonightDinnerCandidate.defaultServings || 1))}>
+                    <Check className="w-4 h-4 mr-2" />
+                    Quick Add Dinner
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2 mb-4">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Meal slot</label>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -6,8 +6,15 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { MacroBar } from '@/components/ui/MacroBar';
 import { Button } from '@/components/ui/button';
-import { AdultId, getCurrentStreak, getDailyScore, getMealLogs, getProfiles, getWeekPoints } from '@/lib/macroGame';
-import { Flame, Plus, Target, Trophy, TrendingUp } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useCurrentDate } from '@/hooks/useCurrentDate';
+import { mockMealPlan } from '@/data/mockData';
+import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
+import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
+import { AdultId, addMealLog, getCurrentStreak, getDailyScore, getMealLogs, getProfiles, getWeekPoints } from '@/lib/macroGame';
+import { DayOfWeek, MealLog } from '@/types';
+import { Check, Flame, Plus, Target, Trophy, TrendingUp } from 'lucide-react';
 import { MacroGoalDialog } from './MacroGoalDialog';
 
 interface PersonNutritionDashboardProps {
@@ -15,10 +22,44 @@ interface PersonNutritionDashboardProps {
   accent: 'primary' | 'accent';
 }
 
+interface DinnerCandidate {
+  label: string;
+  recipeId?: string;
+  defaultServings: number;
+  macros: {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g?: number;
+  };
+}
+
 export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDashboardProps) {
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [, setRefreshTick] = useState(0);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
-  const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const [liveMeals, setLiveMeals] = useState<DbPlannedMeal[]>([]);
+  const currentDate = useCurrentDate();
+  const todayKey = format(currentDate, 'yyyy-MM-dd');
+  const currentDay = getCurrentDay(currentDate);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTodayMeals = async () => {
+      try {
+        const data = await fetchMealsForWeek(0);
+        if (!cancelled) setLiveMeals(data);
+      } catch (error) {
+        console.error('Failed to load dashboard dinner candidate:', error);
+      }
+    };
+    void loadTodayMeals();
+    return () => {
+      cancelled = true;
+    };
+  }, [todayKey]);
 
   const profile = getProfiles()[personId];
   if (!profile) {
@@ -34,12 +75,80 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const allLogs = getMealLogs();
   const todaysLogs = allLogs.filter((log) => log.date === todayKey && log.person === personId);
   const todayScore = getDailyScore(personId, todayKey);
-  const currentStreak = getCurrentStreak(personId);
-  const weekPoints = getWeekPoints(personId);
+  const currentStreak = getCurrentStreak(personId, currentDate);
+  const weekPoints = getWeekPoints(personId, currentDate);
   const targetCalories = profile.macroPlan.calories || 2000;
+  const plannedDinnerEntry = useMemo(
+    () =>
+      getPlannedFoodEntries(user?.id).find((entry) => entry.date === todayKey && entry.mealType === 'dinner') || null,
+    [todayKey, user?.id],
+  );
+  const liveTodaysMeal = liveMeals.find((meal) => meal.day === currentDay && !meal.is_skipped && !!meal.recipes);
+  const tonightDinner = useMemo<DinnerCandidate | null>(() => {
+    if (plannedDinnerEntry) {
+      const servings = Math.max(0.1, plannedDinnerEntry.servings || 1);
+      return {
+        label: plannedDinnerEntry.name,
+        recipeId: plannedDinnerEntry.sourceRecipeId || undefined,
+        defaultServings: servings,
+        macros: {
+          calories: Math.round(plannedDinnerEntry.calories / servings),
+          protein_g: Math.round(plannedDinnerEntry.protein_g / servings),
+          carbs_g: Math.round(plannedDinnerEntry.carbs_g / servings),
+          fat_g: Math.round(plannedDinnerEntry.fat_g / servings),
+        },
+      };
+    }
+
+    if (liveTodaysMeal?.recipes) {
+      return {
+        label: liveTodaysMeal.recipes.name || "Tonight's dinner",
+        recipeId: liveTodaysMeal.recipe_id,
+        defaultServings: 1,
+        macros: {
+          calories: liveTodaysMeal.recipes.calories || 0,
+          protein_g: liveTodaysMeal.recipes.protein_g || 0,
+          carbs_g: liveTodaysMeal.recipes.carbs_g || 0,
+          fat_g: liveTodaysMeal.recipes.fat_g || 0,
+          fiber_g: liveTodaysMeal.recipes.fiber_g || undefined,
+        },
+      };
+    }
+
+    return createMockDinnerCandidate(currentDay);
+  }, [currentDay, liveTodaysMeal, plannedDinnerEntry]);
+
+  const handleQuickAddDinner = () => {
+    if (!tonightDinner) return;
+    const log: MealLog = {
+      id: `dashboard-dinner-${Date.now()}-${personId}`,
+      recipeId: tonightDinner.recipeId,
+      recipeName: tonightDinner.label,
+      date: todayKey,
+      person: personId,
+      servings: tonightDinner.defaultServings,
+      macros: {
+        calories: Math.round(tonightDinner.macros.calories * tonightDinner.defaultServings),
+        protein_g: Math.round(tonightDinner.macros.protein_g * tonightDinner.defaultServings),
+        carbs_g: Math.round(tonightDinner.macros.carbs_g * tonightDinner.defaultServings),
+        fat_g: Math.round(tonightDinner.macros.fat_g * tonightDinner.defaultServings),
+        fiber_g: tonightDinner.macros.fiber_g
+          ? Math.round(tonightDinner.macros.fiber_g * tonightDinner.defaultServings)
+          : undefined,
+      },
+      isQuickAdd: false,
+      createdAt: new Date(),
+    };
+    addMealLog(log);
+    setRefreshTick((prev) => prev + 1);
+    toast({
+      title: `Logged for ${profile.name}`,
+      description: `${tonightDinner.label} • ${tonightDinner.defaultServings} serving${tonightDinner.defaultServings !== 1 ? 's' : ''}`,
+    });
+  };
 
   const weekData = Array.from({ length: 7 }, (_, i) => {
-    const date = subDays(new Date(), 6 - i);
+    const date = subDays(currentDate, 6 - i);
     const dateStr = format(date, 'yyyy-MM-dd');
     const score = getDailyScore(personId, dateStr);
     return {
@@ -109,6 +218,24 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
             </Link>
           }
         >
+          {tonightDinner && (
+            <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-primary/80">Tonight&apos;s Dinner</p>
+                  <h3 className="mt-1 font-display text-lg font-semibold text-foreground">{tonightDinner.label}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {Math.round(tonightDinner.macros.calories)} cal/serving
+                  </p>
+                </div>
+                <Button size="sm" onClick={handleQuickAddDinner}>
+                  <Check className="w-4 h-4 mr-2" />
+                  Add Dinner
+                </Button>
+              </div>
+            </div>
+          )}
+
           {todaysLogs.length > 0 ? (
             <div className="space-y-3">
               {todaysLogs.map((log) => (
@@ -222,4 +349,20 @@ function MetricPill({ label, value, highlight }: { label: string; value: string;
       <p className="font-medium text-sm">{value}</p>
     </div>
   );
+}
+
+function getCurrentDay(date = new Date()): DayOfWeek {
+  const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return days[date.getDay()] as DayOfWeek;
+}
+
+function createMockDinnerCandidate(day: DayOfWeek): DinnerCandidate | null {
+  const mockDinner = mockMealPlan.find((meal) => meal.day === day)?.recipe;
+  if (!mockDinner) return null;
+  return {
+    label: mockDinner.name,
+    recipeId: mockDinner.id,
+    defaultServings: 1,
+    macros: mockDinner.macrosPerServing,
+  };
 }
