@@ -282,6 +282,22 @@ function hasRecipeUploadDraftContent(draft: RecipesUploadDraft): boolean {
   );
 }
 
+function hasManualRecipeContent(form: ManualRecipeFormState): boolean {
+  return (
+    form.name.trim().length > 0 ||
+    form.ingredients.trim().length > 0 ||
+    form.instructions.trim().length > 0 ||
+    form.calories.trim().length > 0 ||
+    form.protein_g.trim().length > 0 ||
+    form.carbs_g.trim().length > 0 ||
+    form.fat_g.trim().length > 0 ||
+    form.servings !== EMPTY_MANUAL_RECIPE_FORM.servings ||
+    form.mealType !== EMPTY_MANUAL_RECIPE_FORM.mealType ||
+    form.dishType !== EMPTY_MANUAL_RECIPE_FORM.dishType ||
+    form.isMealPrep !== EMPTY_MANUAL_RECIPE_FORM.isMealPrep
+  );
+}
+
 function parseBulkUrlInput(raw: string): string[] {
   const lines = raw
     .split(/\r?\n/)
@@ -1574,6 +1590,47 @@ export default function RecipesPage() {
     }
   };
 
+  const openUploadImportModal = () => {
+    setUploadStep('upload');
+    setImportEntryMode('import');
+    setUploadModalOpen(true);
+  };
+
+  const openFreshManualRecipeModal = () => {
+    setUploadStep('upload');
+    setExtractedRecipes([]);
+    setSelectedRecipes(new Set());
+    setUrlInput('');
+    setBulkUrlsInput('');
+    setBulkFailedUrls([]);
+    setPinterestBoardUrl('');
+    setPinterestBoardTitle('');
+    setPinterestPinLinks([]);
+    setSelectedPinterestPins(new Set());
+    setRecipeCollectionUrl('');
+    setRecipeCollectionTitle('');
+    setRecipeCollectionLinks([]);
+    setSelectedRecipeCollectionLinks(new Set());
+    setIsResolvingLinkTitles(false);
+    setLinkPreviewByUrl({});
+    setCurrentImportUrl('');
+    setImportEntryMode('manual');
+    setManualRecipeForm(EMPTY_MANUAL_RECIPE_FORM);
+    setProcessingStatus('');
+    clearRecipeUploadDraft();
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    setUploadModalOpen(true);
+  };
+
+  const resetManualRecipeForm = () => {
+    setManualRecipeForm(EMPTY_MANUAL_RECIPE_FORM);
+    setExtractedRecipes([]);
+    setSelectedRecipes(new Set());
+    setUploadStep('upload');
+  };
+
   return (
     <AppLayout>
       <PageHeader 
@@ -1585,7 +1642,11 @@ export default function RecipesPage() {
               <WandSparkles className="w-4 h-4 mr-2" />
               AI Recipe
             </Button>
-            <Button onClick={() => setUploadModalOpen(true)}>
+            <Button variant="outline" onClick={openFreshManualRecipeModal}>
+              <Anchor className="w-4 h-4 mr-2" />
+              Manual Recipe
+            </Button>
+            <Button onClick={openUploadImportModal}>
               <Upload className="w-4 h-4 mr-2" />
               Upload Recipes
             </Button>
@@ -1620,7 +1681,7 @@ export default function RecipesPage() {
               <p className="text-sm">Add at least 8 recipes</p>
             </div>
             {!checklistRecipeReady && (
-              <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openUploadImportModal}>
                 Add Recipes
               </Button>
             )}
@@ -1700,7 +1761,7 @@ export default function RecipesPage() {
               <p className="text-sm text-muted-foreground">
                 Open a board that matches your style, pick pins you like, then paste those links in bulk import.
               </p>
-              <Button size="sm" variant="outline" onClick={() => setUploadModalOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openUploadImportModal}>
                 <Upload className="mr-2 h-4 w-4" />
                 Bulk Import Links
               </Button>
@@ -1863,7 +1924,13 @@ export default function RecipesPage() {
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={importEntryMode}
-                  onChange={(event) => setImportEntryMode(event.target.value as ImportEntryMode)}
+                  onChange={(event) => {
+                    const nextMode = event.target.value as ImportEntryMode;
+                    setImportEntryMode(nextMode);
+                    if (nextMode === 'manual') {
+                      resetManualRecipeForm();
+                    }
+                  }}
                   disabled={isProcessing || isResolvingLinkTitles}
                 >
                   <option value="import">Import from file or links</option>
@@ -1873,7 +1940,18 @@ export default function RecipesPage() {
 
               {importEntryMode === 'manual' && (
                 <div className="rounded-lg border border-border/70 bg-card p-4 space-y-3">
-                  <p className="font-medium">Manual recipe input</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">Manual recipe input</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={resetManualRecipeForm}
+                      disabled={isProcessing || isEstimatingManualNutrition || !hasManualRecipeContent(manualRecipeForm)}
+                    >
+                      Start Fresh
+                    </Button>
+                  </div>
                   <Input
                     value={manualRecipeForm.name}
                     onChange={(event) =>
