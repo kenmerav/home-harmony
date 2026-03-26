@@ -892,6 +892,15 @@ function toLegacyRecipeInsertRow(row: Record<string, unknown>): Record<string, u
   return legacyRow;
 }
 
+function shouldRetryRecipeUpdateWithLegacyShape(error: unknown): boolean {
+  return shouldRetryRecipeInsertWithLegacyShape(error);
+}
+
+function toLegacyRecipeUpdateRow(row: Record<string, unknown>): Record<string, unknown> {
+  const { course_type: _courseType, is_meal_prep: _isMealPrep, ...legacyRow } = row;
+  return legacyRow;
+}
+
 function buildCleanRecipePayload(recipe: {
   name?: unknown;
   servings?: unknown;
@@ -1345,12 +1354,29 @@ export async function updateRecipe(id: string, updates: {
     .select()
     .single();
 
-  if (error) {
-    console.error('Error updating recipe:', error);
-    throw error;
+  if (!error && data) {
+    return { ...data, ingredients: normalizeRecipeIngredients(data.ingredients) };
   }
 
-  return { ...data, ingredients: normalizeRecipeIngredients(data.ingredients) };
+  if (error && shouldRetryRecipeUpdateWithLegacyShape(error)) {
+    const legacyUpdates = toLegacyRecipeUpdateRow(cleanedUpdates);
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('recipes')
+      .update(legacyUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (legacyError) {
+      console.error('Error updating recipe with legacy shape:', legacyError);
+      throw new Error(formatPostgrestError(legacyError, 'Failed to update recipe.'));
+    }
+
+    return { ...legacyData, ingredients: normalizeRecipeIngredients(legacyData.ingredients) };
+  }
+
+  console.error('Error updating recipe:', error);
+  throw new Error(formatPostgrestError(error, 'Failed to update recipe.'));
 }
 
 export async function cleanUpRecipeLibrary(): Promise<{ scanned: number; updated: number }> {
