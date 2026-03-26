@@ -440,42 +440,6 @@ export async function estimateRecipeNutrition(input: {
       return { success: false, error: 'Add a recipe name or ingredients first.' };
     }
 
-    let edgeErrorMessage = '';
-
-    try {
-      const { data, error } = await supabase.functions.invoke('estimate-recipe-macros', {
-        body: {
-          name,
-          servings,
-          ingredients,
-          instructions,
-        },
-      });
-
-      if (!error) {
-        const response = data as EstimateRecipeNutritionResponse;
-        if (response.success && response.macrosPerServing) {
-          return {
-            success: true,
-            macrosPerServing: {
-              calories: toInt(response.macrosPerServing.calories, 0),
-              protein_g: toInt(response.macrosPerServing.protein_g, 0),
-              carbs_g: toInt(response.macrosPerServing.carbs_g, 0),
-              fat_g: toInt(response.macrosPerServing.fat_g, 0),
-              ...(response.macrosPerServing.fiber_g !== undefined
-                ? { fiber_g: toInt(response.macrosPerServing.fiber_g, 0) }
-                : {}),
-            },
-          };
-        }
-        edgeErrorMessage = response.error || 'Nutrition estimate failed.';
-      } else {
-        edgeErrorMessage = error.message || 'Nutrition estimate failed.';
-      }
-    } catch (edgeError) {
-      edgeErrorMessage = edgeError instanceof Error ? edgeError.message : 'Nutrition estimate failed.';
-    }
-
     const fallbackPrompt = [
       'Estimate realistic calories and macros per serving for this existing recipe.',
       'Keep the recipe substantially the same and use the provided servings count.',
@@ -488,17 +452,17 @@ export async function estimateRecipeNutrition(input: {
       .filter(Boolean)
       .join('\n\n');
 
-    const fallback = await generateRecipeFromPrompt(fallbackPrompt, servings);
-    if (fallback.success && fallback.recipe) {
+    const generatedEstimate = await generateRecipeFromPrompt(fallbackPrompt, servings);
+    if (generatedEstimate.success && generatedEstimate.recipe) {
       return {
         success: true,
         macrosPerServing: {
-          calories: toInt(fallback.recipe.macrosPerServing.calories, 0),
-          protein_g: toInt(fallback.recipe.macrosPerServing.protein_g, 0),
-          carbs_g: toInt(fallback.recipe.macrosPerServing.carbs_g, 0),
-          fat_g: toInt(fallback.recipe.macrosPerServing.fat_g, 0),
-          ...(fallback.recipe.macrosPerServing.fiber_g !== undefined
-            ? { fiber_g: toInt(fallback.recipe.macrosPerServing.fiber_g, 0) }
+          calories: toInt(generatedEstimate.recipe.macrosPerServing.calories, 0),
+          protein_g: toInt(generatedEstimate.recipe.macrosPerServing.protein_g, 0),
+          carbs_g: toInt(generatedEstimate.recipe.macrosPerServing.carbs_g, 0),
+          fat_g: toInt(generatedEstimate.recipe.macrosPerServing.fat_g, 0),
+          ...(generatedEstimate.recipe.macrosPerServing.fiber_g !== undefined
+            ? { fiber_g: toInt(generatedEstimate.recipe.macrosPerServing.fiber_g, 0) }
             : {}),
         },
       };
@@ -506,7 +470,7 @@ export async function estimateRecipeNutrition(input: {
 
     return {
       success: false,
-      error: edgeErrorMessage || fallback.error || 'Could not estimate nutrition for this recipe.',
+      error: generatedEstimate.error || 'Could not estimate nutrition for this recipe.',
     };
   } catch (error) {
     console.error('Error estimating recipe nutrition:', error);

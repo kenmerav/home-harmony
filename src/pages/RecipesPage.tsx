@@ -150,6 +150,138 @@ interface LinkPreviewRecord {
   recipes?: ExtractedRecipe[];
 }
 
+type ImportEntryMode = 'import' | 'manual';
+
+interface ManualRecipeFormState {
+  name: string;
+  servings: string;
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  dishType: 'main' | 'side' | 'dessert';
+  isMealPrep: boolean;
+  ingredients: string;
+  instructions: string;
+  calories: string;
+  protein_g: string;
+  carbs_g: string;
+  fat_g: string;
+}
+
+interface RecipesUploadDraft {
+  uploadModalOpen: boolean;
+  uploadStep: 'upload' | 'review';
+  extractedRecipes: ExtractedRecipe[];
+  selectedRecipeIndexes: number[];
+  urlInput: string;
+  bulkUrlsInput: string;
+  bulkFailedUrls: string[];
+  pinterestBoardUrl: string;
+  pinterestBoardTitle: string;
+  pinterestPinLinks: string[];
+  selectedPinterestPins: string[];
+  recipeCollectionUrl: string;
+  recipeCollectionTitle: string;
+  recipeCollectionLinks: Array<{ url: string; title: string }>;
+  selectedRecipeCollectionLinks: string[];
+  currentImportUrl: string;
+  importEntryMode: ImportEntryMode;
+  manualRecipeForm: ManualRecipeFormState;
+}
+
+const RECIPE_UPLOAD_DRAFT_KEY = 'home-harmony:recipes-upload-draft';
+
+const EMPTY_MANUAL_RECIPE_FORM: ManualRecipeFormState = {
+  name: '',
+  servings: '4',
+  mealType: 'dinner',
+  dishType: 'main',
+  isMealPrep: false,
+  ingredients: '',
+  instructions: '',
+  calories: '',
+  protein_g: '',
+  carbs_g: '',
+  fat_g: '',
+};
+
+function canUseBrowserStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function loadRecipeUploadDraft(): RecipesUploadDraft | null {
+  if (!canUseBrowserStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(RECIPE_UPLOAD_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<RecipesUploadDraft>;
+    return {
+      uploadModalOpen: !!parsed.uploadModalOpen,
+      uploadStep: parsed.uploadStep === 'review' ? 'review' : 'upload',
+      extractedRecipes: Array.isArray(parsed.extractedRecipes) ? parsed.extractedRecipes : [],
+      selectedRecipeIndexes: Array.isArray(parsed.selectedRecipeIndexes) ? parsed.selectedRecipeIndexes : [],
+      urlInput: String(parsed.urlInput || ''),
+      bulkUrlsInput: String(parsed.bulkUrlsInput || ''),
+      bulkFailedUrls: Array.isArray(parsed.bulkFailedUrls) ? parsed.bulkFailedUrls : [],
+      pinterestBoardUrl: String(parsed.pinterestBoardUrl || ''),
+      pinterestBoardTitle: String(parsed.pinterestBoardTitle || ''),
+      pinterestPinLinks: Array.isArray(parsed.pinterestPinLinks) ? parsed.pinterestPinLinks : [],
+      selectedPinterestPins: Array.isArray(parsed.selectedPinterestPins) ? parsed.selectedPinterestPins : [],
+      recipeCollectionUrl: String(parsed.recipeCollectionUrl || ''),
+      recipeCollectionTitle: String(parsed.recipeCollectionTitle || ''),
+      recipeCollectionLinks: Array.isArray(parsed.recipeCollectionLinks) ? parsed.recipeCollectionLinks : [],
+      selectedRecipeCollectionLinks: Array.isArray(parsed.selectedRecipeCollectionLinks)
+        ? parsed.selectedRecipeCollectionLinks
+        : [],
+      currentImportUrl: String(parsed.currentImportUrl || ''),
+      importEntryMode: parsed.importEntryMode === 'manual' ? 'manual' : 'import',
+      manualRecipeForm: {
+        ...EMPTY_MANUAL_RECIPE_FORM,
+        ...(parsed.manualRecipeForm || {}),
+      },
+    };
+  } catch (error) {
+    console.error('Failed to load recipe upload draft:', error);
+    return null;
+  }
+}
+
+function saveRecipeUploadDraft(draft: RecipesUploadDraft) {
+  if (!canUseBrowserStorage()) return;
+  try {
+    window.localStorage.setItem(RECIPE_UPLOAD_DRAFT_KEY, JSON.stringify(draft));
+  } catch (error) {
+    console.error('Failed to save recipe upload draft:', error);
+  }
+}
+
+function clearRecipeUploadDraft() {
+  if (!canUseBrowserStorage()) return;
+  window.localStorage.removeItem(RECIPE_UPLOAD_DRAFT_KEY);
+}
+
+function hasRecipeUploadDraftContent(draft: RecipesUploadDraft): boolean {
+  return (
+    draft.uploadModalOpen ||
+    draft.extractedRecipes.length > 0 ||
+    draft.selectedRecipeIndexes.length > 0 ||
+    draft.urlInput.trim().length > 0 ||
+    draft.bulkUrlsInput.trim().length > 0 ||
+    draft.bulkFailedUrls.length > 0 ||
+    draft.pinterestBoardUrl.trim().length > 0 ||
+    draft.pinterestPinLinks.length > 0 ||
+    draft.recipeCollectionUrl.trim().length > 0 ||
+    draft.recipeCollectionLinks.length > 0 ||
+    draft.currentImportUrl.trim().length > 0 ||
+    draft.importEntryMode === 'manual' ||
+    draft.manualRecipeForm.name.trim().length > 0 ||
+    draft.manualRecipeForm.ingredients.trim().length > 0 ||
+    draft.manualRecipeForm.instructions.trim().length > 0 ||
+    draft.manualRecipeForm.calories.trim().length > 0 ||
+    draft.manualRecipeForm.protein_g.trim().length > 0 ||
+    draft.manualRecipeForm.carbs_g.trim().length > 0 ||
+    draft.manualRecipeForm.fat_g.trim().length > 0
+  );
+}
+
 function parseBulkUrlInput(raw: string): string[] {
   const lines = raw
     .split(/\r?\n/)
@@ -259,7 +391,6 @@ function dbRecipeToDisplayRecipe(
 }
 
 export default function RecipesPage() {
-  type ImportEntryMode = 'import' | 'manual';
   const [searchQuery, setSearchQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
@@ -289,19 +420,7 @@ export default function RecipesPage() {
   const [linkPreviewByUrl, setLinkPreviewByUrl] = useState<Record<string, LinkPreviewRecord>>({});
   const [currentImportUrl, setCurrentImportUrl] = useState('');
   const [importEntryMode, setImportEntryMode] = useState<ImportEntryMode>('import');
-  const [manualRecipeForm, setManualRecipeForm] = useState({
-    name: '',
-    servings: '4',
-    mealType: 'dinner' as 'breakfast' | 'lunch' | 'dinner' | 'snack',
-    dishType: 'main' as 'main' | 'side' | 'dessert',
-    isMealPrep: false,
-    ingredients: '',
-    instructions: '',
-    calories: '',
-    protein_g: '',
-    carbs_g: '',
-    fat_g: '',
-  });
+  const [manualRecipeForm, setManualRecipeForm] = useState<ManualRecipeFormState>(EMPTY_MANUAL_RECIPE_FORM);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
@@ -319,6 +438,7 @@ export default function RecipesPage() {
   const [planningLoading, setPlanningLoading] = useState(false);
   const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
   const hasLoadedImportJobsRef = useRef(false);
+  const hasHydratedDraftRef = useRef(false);
 
   const loadRecipes = useCallback(async () => {
     try {
@@ -361,6 +481,83 @@ export default function RecipesPage() {
     setKidFriendlyOverrides(getKidFriendlyOverrides());
     void loadRecipes();
   }, [loadRecipes]);
+
+  useEffect(() => {
+    const draft = loadRecipeUploadDraft();
+    if (draft) {
+      setUploadModalOpen(draft.uploadModalOpen);
+      setUploadStep(draft.uploadStep);
+      setExtractedRecipes(draft.extractedRecipes);
+      setSelectedRecipes(new Set(draft.selectedRecipeIndexes));
+      setUrlInput(draft.urlInput);
+      setBulkUrlsInput(draft.bulkUrlsInput);
+      setBulkFailedUrls(draft.bulkFailedUrls);
+      setPinterestBoardUrl(draft.pinterestBoardUrl);
+      setPinterestBoardTitle(draft.pinterestBoardTitle);
+      setPinterestPinLinks(draft.pinterestPinLinks);
+      setSelectedPinterestPins(new Set(draft.selectedPinterestPins));
+      setRecipeCollectionUrl(draft.recipeCollectionUrl);
+      setRecipeCollectionTitle(draft.recipeCollectionTitle);
+      setRecipeCollectionLinks(draft.recipeCollectionLinks);
+      setSelectedRecipeCollectionLinks(new Set(draft.selectedRecipeCollectionLinks));
+      setCurrentImportUrl(draft.currentImportUrl);
+      setImportEntryMode(draft.importEntryMode);
+      setManualRecipeForm({
+        ...EMPTY_MANUAL_RECIPE_FORM,
+        ...draft.manualRecipeForm,
+      });
+    }
+    hasHydratedDraftRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedDraftRef.current) return;
+    const draft = {
+      uploadModalOpen,
+      uploadStep,
+      extractedRecipes,
+      selectedRecipeIndexes: Array.from(selectedRecipes),
+      urlInput,
+      bulkUrlsInput,
+      bulkFailedUrls,
+      pinterestBoardUrl,
+      pinterestBoardTitle,
+      pinterestPinLinks,
+      selectedPinterestPins: Array.from(selectedPinterestPins),
+      recipeCollectionUrl,
+      recipeCollectionTitle,
+      recipeCollectionLinks,
+      selectedRecipeCollectionLinks: Array.from(selectedRecipeCollectionLinks),
+      currentImportUrl,
+      importEntryMode,
+      manualRecipeForm,
+    };
+
+    if (hasRecipeUploadDraftContent(draft)) {
+      saveRecipeUploadDraft(draft);
+    } else {
+      clearRecipeUploadDraft();
+    }
+  }, [
+    bulkFailedUrls,
+    bulkUrlsInput,
+    currentImportUrl,
+    extractedRecipes,
+    importEntryMode,
+    manualRecipeForm,
+    pinterestBoardTitle,
+    pinterestBoardUrl,
+    pinterestPinLinks,
+    recipeCollectionLinks,
+    recipeCollectionTitle,
+    recipeCollectionUrl,
+    selectedPinterestPins,
+    selectedRecipeCollectionLinks,
+    selectedRecipes,
+    uploadModalOpen,
+    uploadStep,
+    urlInput,
+  ]);
 
   useEffect(() => {
     if (isDemoModeEnabled()) return;
@@ -1172,6 +1369,7 @@ export default function RecipesPage() {
       setUploadStep('upload');
       setExtractedRecipes([]);
       setSelectedRecipes(new Set());
+      clearRecipeUploadDraft();
       
       toast({
         title: "Recipes imported",
@@ -1368,20 +1566,9 @@ export default function RecipesPage() {
     setLinkPreviewByUrl({});
     setCurrentImportUrl('');
     setImportEntryMode('import');
-    setManualRecipeForm({
-      name: '',
-      servings: '4',
-      mealType: 'dinner',
-      dishType: 'main',
-      isMealPrep: false,
-      ingredients: '',
-      instructions: '',
-      calories: '',
-      protein_g: '',
-      carbs_g: '',
-      fat_g: '',
-    });
+    setManualRecipeForm(EMPTY_MANUAL_RECIPE_FORM);
     setProcessingStatus('');
+    clearRecipeUploadDraft();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }

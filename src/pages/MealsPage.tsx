@@ -159,6 +159,8 @@ interface GridQuickAddContext {
   mealType: PlannedMealType;
 }
 
+type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
+
 const MEAL_GRID_ROWS: MealGridRow[] = [
   { key: 'breakfast', label: 'Breakfast', mealType: 'breakfast' },
   { key: 'snack-1', label: 'Snack', mealType: 'snack' },
@@ -224,6 +226,8 @@ export default function MealsPage() {
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
   const [gridQuickAddContext, setGridQuickAddContext] = useState<GridQuickAddContext | null>(null);
+  const [plannerRepeatMode, setPlannerRepeatMode] = useState<PlannerRepeatMode>('once');
+  const [plannerRepeatDays, setPlannerRepeatDays] = useState<Set<DayOfWeek>>(new Set());
   const [macroSuggestions, setMacroSuggestions] = useState<MacroMealSuggestion[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [suggestionDate, setSuggestionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -620,47 +624,56 @@ export default function MealsPage() {
     normalizeText(manualSelectedRecipe.name) === normalizeText(manualRecipeQuery.trim());
   const alcoholPresetOptions = filterAlcoholPresets(alcoholPresetQuery).slice(0, 40);
 
+  const setPlannerRepeatModeSafe = (nextMode: PlannerRepeatMode) => {
+    setPlannerRepeatMode(nextMode);
+    if (nextMode === 'selected_days') {
+      setPlannerRepeatDays((prev) => {
+        if (prev.size > 0) return prev;
+        return new Set<DayOfWeek>([dayFromDate(new Date(`${plannerForm.date}T12:00:00`))]);
+      });
+    }
+  };
+
+  const togglePlannerRepeatDay = (day: DayOfWeek) => {
+    setPlannerRepeatDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  };
+
+  const getPlannerTargetDates = (): string[] => {
+    if (plannerRepeatMode === 'once') return [plannerForm.date];
+
+    const anchorDate = new Date(`${plannerForm.date}T12:00:00`);
+    const repeatWeekStart = startOfWeek(anchorDate, { weekStartsOn: 1 });
+
+    if (plannerRepeatMode === 'daily') {
+      return days.map((_, index) => format(addDays(repeatWeekStart, index), 'yyyy-MM-dd'));
+    }
+
+    if (plannerRepeatDays.size === 0) {
+      return [plannerForm.date];
+    }
+
+    return days
+      .map((day, index) => ({ day, date: format(addDays(repeatWeekStart, index), 'yyyy-MM-dd') }))
+      .filter((entry) => plannerRepeatDays.has(entry.day))
+      .map((entry) => entry.date);
+  };
+
+  const closeGridQuickAdd = () => {
+    setGridQuickAddContext(null);
+    setPlannerRepeatMode('once');
+    setPlannerRepeatDays(new Set());
+  };
+
   const selectRecipeForPlanner = (recipeId: string) => {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
     if (!recipe) {
       setPlannerForm((prev) => ({ ...prev, recipeId }));
       if (!recipeId) setPlannerRecipeQuery('');
-      return;
-    }
-
-    // Quick-add from meal grid should save immediately and count in projections.
-    if (gridQuickAddContext) {
-      addPlannedFoodEntry(
-        {
-          date: plannerForm.date,
-          mealType: plannerForm.mealType,
-          name: recipe.name,
-          servings: 1,
-          calories: Math.max(0, Math.round(recipe.calories || 0)),
-          protein_g: Math.max(0, Math.round(recipe.protein_g || 0)),
-          carbs_g: Math.max(0, Math.round(recipe.carbs_g || 0)),
-          fat_g: Math.max(0, Math.round(recipe.fat_g || 0)),
-          sourceRecipeId: recipe.id,
-        },
-        user?.id,
-      );
-      refreshPlannerEntries();
-      setGridQuickAddContext(null);
-      setPlannerRecipeQuery('');
-      setPlannerForm((prev) => ({
-        ...prev,
-        recipeId: '',
-        name: '',
-        servings: '1',
-        calories: '',
-        protein_g: '',
-        carbs_g: '',
-        fat_g: '',
-      }));
-      toast({
-        title: `${plannedMealTypeLabel[plannerForm.mealType]} added`,
-        description: `${recipe.name} was added to your macro planner.`,
-      });
       return;
     }
 
@@ -760,20 +773,23 @@ export default function MealsPage() {
       return false;
     }
 
-    addPlannedFoodEntry(
-      {
-        date: plannerForm.date,
-        mealType: plannerForm.mealType,
-        name: plannerForm.name.trim(),
-        servings,
-        calories,
-        protein_g: protein,
-        carbs_g: carbs,
-        fat_g: fat,
-        sourceRecipeId: plannerForm.recipeId || null,
-      },
-      user?.id,
-    );
+    const targetDates = Array.from(new Set(getPlannerTargetDates()));
+    for (const date of targetDates) {
+      addPlannedFoodEntry(
+        {
+          date,
+          mealType: plannerForm.mealType,
+          name: plannerForm.name.trim(),
+          servings,
+          calories,
+          protein_g: protein,
+          carbs_g: carbs,
+          fat_g: fat,
+          sourceRecipeId: plannerForm.recipeId || null,
+        },
+        user?.id,
+      );
+    }
     setPlannerForm((prev) => ({
       ...prev,
       name: '',
@@ -784,8 +800,16 @@ export default function MealsPage() {
       carbs_g: '',
       fat_g: '',
     }));
+    setPlannerRepeatMode('once');
+    setPlannerRepeatDays(new Set());
     refreshPlannerEntries();
-    toast({ title: 'Planned meal added' });
+    toast({
+      title: targetDates.length > 1 ? 'Planned meals added' : 'Planned meal added',
+      description:
+        targetDates.length > 1
+          ? `${plannerForm.name.trim()} was added to ${targetDates.length} days this week.`
+          : undefined,
+    });
     return true;
   };
 
@@ -805,6 +829,8 @@ export default function MealsPage() {
     setPlannerRecipeQuery('');
     setPlannerDay(date);
     setSuggestionDate(date);
+    setPlannerRepeatMode('once');
+    setPlannerRepeatDays(new Set());
     setGridQuickAddContext({ date, mealType });
   };
 
@@ -1637,6 +1663,48 @@ export default function MealsPage() {
                   </select>
                 </div>
 
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Repeat this meal</p>
+                  <div className="mt-2 grid gap-2 md:grid-cols-3">
+                    <Button
+                      type="button"
+                      variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
+                      onClick={() => setPlannerRepeatModeSafe('once')}
+                    >
+                      Just this day
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
+                      onClick={() => setPlannerRepeatModeSafe('daily')}
+                    >
+                      Every day
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
+                      onClick={() => setPlannerRepeatModeSafe('selected_days')}
+                    >
+                      Certain days
+                    </Button>
+                  </div>
+                  {plannerRepeatMode === 'selected_days' ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {days.map((day) => (
+                        <Button
+                          key={`planner-repeat-${day}`}
+                          type="button"
+                          size="sm"
+                          variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
+                          onClick={() => togglePlannerRepeatDay(day)}
+                        >
+                          {dayLabels[day]}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
                 {plannerForm.mealType === 'alcohol' ? (
                   <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
                     <p className="text-xs font-medium text-muted-foreground">
@@ -2465,7 +2533,7 @@ export default function MealsPage() {
       </Dialog>
 
       {/* Grid Quick Add Dialog */}
-      <Dialog open={!!gridQuickAddContext} onOpenChange={(open) => !open && setGridQuickAddContext(null)}>
+      <Dialog open={!!gridQuickAddContext} onOpenChange={(open) => !open && closeGridQuickAdd()}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-display">
@@ -2505,6 +2573,47 @@ export default function MealsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="rounded-md border border-border bg-muted/10 p-3">
+              <p className="text-xs font-medium text-muted-foreground">Repeat this meal</p>
+              <div className="mt-2 grid gap-2 md:grid-cols-3">
+                <Button
+                  type="button"
+                  variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
+                  onClick={() => setPlannerRepeatModeSafe('once')}
+                >
+                  Just this day
+                </Button>
+                <Button
+                  type="button"
+                  variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
+                  onClick={() => setPlannerRepeatModeSafe('daily')}
+                >
+                  Every day
+                </Button>
+                <Button
+                  type="button"
+                  variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
+                  onClick={() => setPlannerRepeatModeSafe('selected_days')}
+                >
+                  Certain days
+                </Button>
+              </div>
+              {plannerRepeatMode === 'selected_days' ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {days.map((day) => (
+                    <Button
+                      key={`grid-planner-repeat-${day}`}
+                      type="button"
+                      size="sm"
+                      variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
+                      onClick={() => togglePlannerRepeatDay(day)}
+                    >
+                      {dayLabels[day]}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             {plannerForm.mealType === 'alcohol' ? (
               <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
@@ -2613,13 +2722,13 @@ export default function MealsPage() {
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setGridQuickAddContext(null)}>
+              <Button variant="outline" onClick={closeGridQuickAdd}>
                 Cancel
               </Button>
               <Button
                 onClick={() => {
                   if (addPlannerItem()) {
-                    setGridQuickAddContext(null);
+                    closeGridQuickAdd();
                   }
                 }}
               >
