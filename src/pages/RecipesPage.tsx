@@ -24,6 +24,7 @@ import {
   parseRecipesFromImage,
   parseRecipesFromUrl,
   generateRecipeFromPrompt,
+  estimateRecipeNutrition,
   extractPinterestBoardLinks,
   extractRecipePageLinks,
   fetchCookbookImportJobs,
@@ -311,6 +312,7 @@ export default function RecipesPage() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiServings, setAiServings] = useState('4');
   const [isGeneratingAiRecipe, setIsGeneratingAiRecipe] = useState(false);
+  const [isEstimatingManualNutrition, setIsEstimatingManualNutrition] = useState(false);
   const [importJobs, setImportJobs] = useState<CookbookImportJob[]>([]);
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [nextWeekPlanning, setNextWeekPlanning] = useState<WeeklyPlanningStatus | null>(null);
@@ -1268,6 +1270,66 @@ export default function RecipesPage() {
     });
   };
 
+  const estimateManualRecipeMacros = async () => {
+    const name = manualRecipeForm.name.trim();
+    const ingredientsList = manualRecipeForm.ingredients
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const instructions = manualRecipeForm.instructions.trim();
+    const servings = Number.parseInt(manualRecipeForm.servings, 10);
+
+    if (ingredientsList.length === 0) {
+      toast({
+        title: 'Add ingredients first',
+        description: 'Enter ingredients so the estimate has something real to work from.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsEstimatingManualNutrition(true);
+    try {
+      const result = await estimateRecipeNutrition({
+        name,
+        servings: Number.isFinite(servings) && servings > 0 ? servings : 4,
+        ingredients: ingredientsList,
+        instructions,
+      });
+
+      if (!result.success || !result.macrosPerServing) {
+        toast({
+          title: 'Could not estimate nutrition',
+          description: result.error || 'Please add a little more recipe detail and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setManualRecipeForm((prev) => ({
+        ...prev,
+        calories: String(Math.round(result.macrosPerServing?.calories || 0)),
+        protein_g: String(Math.round(result.macrosPerServing?.protein_g || 0)),
+        carbs_g: String(Math.round(result.macrosPerServing?.carbs_g || 0)),
+        fat_g: String(Math.round(result.macrosPerServing?.fat_g || 0)),
+      }));
+
+      toast({
+        title: 'Nutrition estimated',
+        description: 'Calories and macros were filled in from your recipe details.',
+      });
+    } catch (error) {
+      console.error('Failed estimating manual recipe macros:', error);
+      toast({
+        title: 'Could not estimate nutrition',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsEstimatingManualNutrition(false);
+    }
+  };
+
   const closeModal = () => {
     setUploadModalOpen(false);
     setUploadStep('upload');
@@ -1731,10 +1793,27 @@ export default function RecipesPage() {
                     placeholder={'Instructions\n1. Prep ingredients...\n2. Cook...\n3. Serve...'}
                     disabled={isProcessing}
                   />
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/10 px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium">Need help with nutrition?</p>
+                      <p className="text-xs text-muted-foreground">
+                        Estimate calories, protein, carbs, and fat from the recipe details above.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void estimateManualRecipeMacros()}
+                      disabled={isProcessing || isEstimatingManualNutrition || !manualRecipeForm.ingredients.trim()}
+                    >
+                      <WandSparkles className="mr-2 h-4 w-4" />
+                      {isEstimatingManualNutrition ? 'Estimating...' : 'Estimate Calories + Macros'}
+                    </Button>
+                  </div>
                   <div className="flex justify-end">
                     <Button
                       onClick={queueManualRecipeForReview}
-                      disabled={isProcessing}
+                      disabled={isProcessing || isEstimatingManualNutrition}
                     >
                       Add to review
                     </Button>
