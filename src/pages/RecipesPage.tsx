@@ -1149,9 +1149,25 @@ export default function RecipesPage() {
 
     try {
       const savedRecipes = await saveRecipes(selectedExtracted);
-      setProcessingStatus('Cleaning ingredient formatting...');
-      await cleanUpRecipeLibrary();
-      await loadRecipes();
+      let followUpIssue: string | null = null;
+
+      try {
+        setProcessingStatus('Cleaning ingredient formatting...');
+        await cleanUpRecipeLibrary();
+      } catch (cleanupError) {
+        console.error('Recipe cleanup failed after save:', cleanupError);
+        followUpIssue = cleanupError instanceof Error ? cleanupError.message : 'Ingredient cleanup failed.';
+      }
+
+      try {
+        await loadRecipes();
+      } catch (reloadError) {
+        console.error('Recipe reload failed after save:', reloadError);
+        followUpIssue =
+          followUpIssue ||
+          (reloadError instanceof Error ? reloadError.message : 'Recipe list refresh failed.');
+      }
+
       setUploadModalOpen(false);
       setUploadStep('upload');
       setExtractedRecipes([]);
@@ -1159,7 +1175,9 @@ export default function RecipesPage() {
       
       toast({
         title: "Recipes imported",
-        description: `${savedRecipes.length} recipes saved to your library`,
+        description: followUpIssue
+          ? `${savedRecipes.length} recipes saved. ${followUpIssue}`
+          : `${savedRecipes.length} recipes saved to your library`,
       });
     } catch (error) {
       console.error('Failed to save recipes:', error);

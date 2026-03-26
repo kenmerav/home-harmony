@@ -43,6 +43,13 @@ interface EstimateRecipeNutritionResponse {
   macrosPerServing?: ExtractedRecipe['macrosPerServing'];
 }
 
+type PostgrestLikeError = {
+  message?: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+};
+
 interface ParsePdfOptions {
   onProgress?: (message: string) => void;
 }
@@ -896,6 +903,31 @@ function sanitizeCourseType(value: unknown, fallback: RecipeCourseType = 'main')
   return fallback;
 }
 
+function formatPostgrestError(error: unknown, fallback = 'Unknown database error'): string {
+  if (!error || typeof error !== 'object') return fallback;
+  const candidate = error as PostgrestLikeError;
+  const parts = [candidate.message, candidate.details, candidate.hint]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+  return parts.length > 0 ? parts.join(' ') : fallback;
+}
+
+function shouldRetryRecipeInsertWithLegacyShape(error: unknown): boolean {
+  const message = formatPostgrestError(error, '').toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes("owner_id") ||
+    message.includes("course_type") ||
+    message.includes("is_meal_prep") ||
+    message.includes("schema cache") ||
+    (message.includes("column") && message.includes("recipes"))
+  );
+}
+
+function toLegacyRecipeInsertRow(row: Record<string, unknown>): Record<string, unknown> {
+  const { owner_id: _ownerId, course_type: _courseType, is_meal_prep: _isMealPrep, ...legacyRow } = row;
+  return legacyRow;
+}
+
 function buildCleanRecipePayload(recipe: {
   name?: unknown;
   servings?: unknown;
@@ -1238,17 +1270,31 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
     };
   });
 
-  const { data, error } = await supabase
-    .from('recipes')
-    .insert(rows)
-    .select();
+  const attemptInsert = async (insertRows: Record<string, unknown>[]) =>
+    supabase
+      .from('recipes')
+      .insert(insertRows)
+      .select();
 
-  if (error) {
-    console.error('Error saving recipes:', error);
-    throw error;
+  const { data, error } = await attemptInsert(rows as unknown as Record<string, unknown>[]);
+
+  if (!error) {
+    return data || [];
   }
 
-  return data || [];
+  if (shouldRetryRecipeInsertWithLegacyShape(error)) {
+    console.warn('Retrying recipe save with legacy insert shape:', formatPostgrestError(error));
+    const legacyRows = rows.map((row) => toLegacyRecipeInsertRow(row as unknown as Record<string, unknown>));
+    const { data: legacyData, error: legacyError } = await attemptInsert(legacyRows);
+    if (!legacyError) {
+      return legacyData || [];
+    }
+    console.error('Error saving recipes with legacy fallback:', legacyError);
+    throw new Error(formatPostgrestError(legacyError, 'Failed to save recipes.'));
+  }
+
+  console.error('Error saving recipes:', error);
+  throw new Error(formatPostgrestError(error, 'Failed to save recipes.'));
 }
 
 export async function seedStarterRecipesIfEmpty(
