@@ -92,6 +92,15 @@ const LOG_MEAL_CATEGORY_OPTIONS: Array<{ value: LogMealCategory; label: string }
   { value: 'drinks', label: 'Drinks' },
 ];
 
+function normalizeDecimalInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned) return '';
+  const [wholeRaw, ...rest] = cleaned.split('.');
+  const whole = wholeRaw.replace(/^0+(?=\d)/, '');
+  if (rest.length === 0) return whole;
+  return `${whole || '0'}.${rest.join('').replace(/\./g, '')}`;
+}
+
 function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
   try {
@@ -784,7 +793,7 @@ export default function TodayPage() {
                         min="0.25"
                         max="4"
                         value={mealServings}
-                        onChange={(e) => setMealServings(e.target.value)}
+                        onChange={(e) => setMealServings(normalizeDecimalInput(e.target.value))}
                         className="h-8 w-20 text-center"
                       />
                     </div>

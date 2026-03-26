@@ -161,6 +161,21 @@ interface GridQuickAddContext {
 
 type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
 
+function normalizeIntegerInput(value: string): string {
+  const digitsOnly = value.replace(/\D/g, '');
+  if (!digitsOnly) return '';
+  return digitsOnly.replace(/^0+(?=\d)/, '');
+}
+
+function normalizeDecimalInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned) return '';
+  const [wholeRaw, ...rest] = cleaned.split('.');
+  const whole = wholeRaw.replace(/^0+(?=\d)/, '');
+  if (rest.length === 0) return whole;
+  return `${whole || '0'}.${rest.join('').replace(/\./g, '')}`;
+}
+
 const MEAL_GRID_ROWS: MealGridRow[] = [
   { key: 'breakfast', label: 'Breakfast', mealType: 'breakfast' },
   { key: 'snack-1', label: 'Snack', mealType: 'snack' },
@@ -669,6 +684,24 @@ export default function MealsPage() {
     setPlannerRepeatDays(new Set());
   };
 
+  const resetPlannerItemFields = (keepRepeat = false) => {
+    setPlannerRecipeQuery('');
+    setPlannerForm((prev) => ({
+      ...prev,
+      recipeId: '',
+      name: '',
+      servings: '1',
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+    }));
+    if (!keepRepeat) {
+      setPlannerRepeatMode('once');
+      setPlannerRepeatDays(new Set());
+    }
+  };
+
   const selectRecipeForPlanner = (recipeId: string) => {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
     if (!recipe) {
@@ -749,7 +782,7 @@ export default function MealsPage() {
     }
   };
 
-  const addPlannerItem = (): boolean => {
+  const addPlannerItem = (options: { prepareAnother?: boolean } = {}): boolean => {
     const servings = Number.parseFloat(plannerForm.servings);
     const calories = Number.parseInt(plannerForm.calories, 10);
     const protein = Number.parseInt(plannerForm.protein_g, 10) || 0;
@@ -790,24 +823,15 @@ export default function MealsPage() {
         user?.id,
       );
     }
-    setPlannerForm((prev) => ({
-      ...prev,
-      name: '',
-      recipeId: '',
-      servings: '1',
-      calories: '',
-      protein_g: '',
-      carbs_g: '',
-      fat_g: '',
-    }));
-    setPlannerRepeatMode('once');
-    setPlannerRepeatDays(new Set());
+    resetPlannerItemFields(!!options.prepareAnother);
     refreshPlannerEntries();
     toast({
       title: targetDates.length > 1 ? 'Planned meals added' : 'Planned meal added',
       description:
         targetDates.length > 1
           ? `${plannerForm.name.trim()} was added to ${targetDates.length} days this week.`
+          : options.prepareAnother
+            ? 'Saved. You can add another recipe to this same slot now.'
           : undefined,
     });
     return true;
@@ -1785,7 +1809,7 @@ export default function MealsPage() {
                     min="0.1"
                     placeholder="Servings"
                     value={plannerForm.servings}
-                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: event.target.value }))}
+                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
                   />
                 </div>
 
@@ -1799,28 +1823,28 @@ export default function MealsPage() {
                       min="0"
                       placeholder="Calories"
                       value={plannerForm.calories}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: event.target.value }))}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
                     />
                     <Input
                       type="number"
                       min="0"
                       placeholder="Protein"
                       value={plannerForm.protein_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: event.target.value }))}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
                     />
                     <Input
                       type="number"
                       min="0"
                       placeholder="Carbs"
                       value={plannerForm.carbs_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: event.target.value }))}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
                     />
                     <Input
                       type="number"
                       min="0"
                       placeholder="Fat"
                       value={plannerForm.fat_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: event.target.value }))}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
                     />
                   </div>
                 </details>
@@ -2690,40 +2714,43 @@ export default function MealsPage() {
                 min="0.1"
                 placeholder="Servings"
                 value={plannerForm.servings}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: event.target.value }))}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
               />
               <Input
                 type="number"
                 min="0"
                 placeholder="Calories"
                 value={plannerForm.calories}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: event.target.value }))}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
               />
               <Input
                 type="number"
                 min="0"
                 placeholder="Protein"
                 value={plannerForm.protein_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: event.target.value }))}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
               />
               <Input
                 type="number"
                 min="0"
                 placeholder="Carbs"
                 value={plannerForm.carbs_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: event.target.value }))}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
               />
               <Input
                 type="number"
                 min="0"
                 placeholder="Fat"
                 value={plannerForm.fat_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: event.target.value }))}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
               />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeGridQuickAdd}>
                 Cancel
+              </Button>
+              <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
+                Save + Add Another
               </Button>
               <Button
                 onClick={() => {

@@ -796,6 +796,13 @@ export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
   };
 }
 
+export function isDailyLogFullyLogged(personId: AdultId, date = dayKey()): boolean {
+  const score = getDailyScore(personId, date);
+  const profile = getProfiles()[personId];
+  const calorieTarget = profile?.macroPlan.calories || 0;
+  return score.mealsLogged >= 3 || (calorieTarget > 0 && score.calories >= calorieTarget * 0.8);
+}
+
 export function getCurrentStreak(personId: AdultId, date = new Date()): number {
   let streak = 0;
   for (let i = 0; i < 60; i += 1) {

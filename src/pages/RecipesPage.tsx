@@ -298,6 +298,12 @@ function hasManualRecipeContent(form: ManualRecipeFormState): boolean {
   );
 }
 
+function normalizeIntegerInput(value: string): string {
+  const digitsOnly = value.replace(/\D/g, '');
+  if (!digitsOnly) return '';
+  return digitsOnly.replace(/^0+(?=\d)/, '');
+}
+
 function parseBulkUrlInput(raw: string): string[] {
   const lines = raw
     .split(/\r?\n/)
@@ -1887,7 +1893,7 @@ export default function RecipesPage() {
                 min="1"
                 max="12"
                 value={aiServings}
-                onChange={(event) => setAiServings(event.target.value)}
+                onChange={(event) => setAiServings(normalizeIntegerInput(event.target.value))}
               />
             </div>
             <div className="flex justify-end gap-2">
@@ -1966,7 +1972,7 @@ export default function RecipesPage() {
                       min="1"
                       value={manualRecipeForm.servings}
                       onChange={(event) =>
-                        setManualRecipeForm((prev) => ({ ...prev, servings: event.target.value }))
+                        setManualRecipeForm((prev) => ({ ...prev, servings: normalizeIntegerInput(event.target.value) }))
                       }
                       placeholder="Servings"
                       disabled={isProcessing}
@@ -1976,7 +1982,7 @@ export default function RecipesPage() {
                       min="0"
                       value={manualRecipeForm.calories}
                       onChange={(event) =>
-                        setManualRecipeForm((prev) => ({ ...prev, calories: event.target.value }))
+                        setManualRecipeForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))
                       }
                       placeholder="Calories per serving"
                       disabled={isProcessing}
@@ -2032,7 +2038,7 @@ export default function RecipesPage() {
                       min="0"
                       value={manualRecipeForm.protein_g}
                       onChange={(event) =>
-                        setManualRecipeForm((prev) => ({ ...prev, protein_g: event.target.value }))
+                        setManualRecipeForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))
                       }
                       placeholder="Protein (g)"
                       disabled={isProcessing}
@@ -2042,7 +2048,7 @@ export default function RecipesPage() {
                       min="0"
                       value={manualRecipeForm.carbs_g}
                       onChange={(event) =>
-                        setManualRecipeForm((prev) => ({ ...prev, carbs_g: event.target.value }))
+                        setManualRecipeForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))
                       }
                       placeholder="Carbs (g)"
                       disabled={isProcessing}
@@ -2052,7 +2058,7 @@ export default function RecipesPage() {
                       min="0"
                       value={manualRecipeForm.fat_g}
                       onChange={(event) =>
-                        setManualRecipeForm((prev) => ({ ...prev, fat_g: event.target.value }))
+                        setManualRecipeForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))
                       }
                       placeholder="Fat (g)"
                       disabled={isProcessing}

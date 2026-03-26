@@ -12,7 +12,7 @@ import { useCurrentDate } from '@/hooks/useCurrentDate';
 import { mockMealPlan } from '@/data/mockData';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
-import { AdultId, addMealLog, getCurrentStreak, getDailyScore, getMealLogs, getProfiles, getWeekPoints } from '@/lib/macroGame';
+import { AdultId, addMealLog, getCurrentStreak, getDailyScore, getMealLogs, getProfiles, getWeekPoints, isDailyLogFullyLogged } from '@/lib/macroGame';
 import { DayOfWeek, MealLog } from '@/types';
 import { Check, Flame, Plus, Target, Trophy, TrendingUp } from 'lucide-react';
 import { MacroGoalDialog } from './MacroGoalDialog';
@@ -156,12 +156,20 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       date: dateStr,
       calories: score.calories,
       protein_g: score.protein_g,
+      fullyLogged: isDailyLogFullyLogged(personId, dateStr),
       isToday: dateStr === todayKey,
     };
   });
 
-  const averageProtein = Math.round(weekData.reduce((sum, day) => sum + day.protein_g, 0) / weekData.length);
-  const averageCalories = Math.round(weekData.reduce((sum, day) => sum + day.calories, 0) / weekData.length);
+  const fullyLoggedDays = weekData.filter((day) => day.fullyLogged);
+  const averageProtein =
+    fullyLoggedDays.length > 0
+      ? Math.round(fullyLoggedDays.reduce((sum, day) => sum + day.protein_g, 0) / fullyLoggedDays.length)
+      : 0;
+  const averageCalories =
+    fullyLoggedDays.length > 0
+      ? Math.round(fullyLoggedDays.reduce((sum, day) => sum + day.calories, 0) / fullyLoggedDays.length)
+      : 0;
   const accentBar = accent === 'primary' ? 'bg-primary' : 'bg-accent';
   const accentBarMuted = accent === 'primary' ? 'bg-primary/40' : 'bg-accent/40';
   const accentText = accent === 'primary' ? 'text-primary' : 'text-accent';
@@ -295,14 +303,14 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
             <div className="text-center">
               <TrendingUp className={`w-6 h-6 mx-auto mb-2 ${accentText}`} />
               <p className="text-2xl font-display font-semibold">{averageProtein}g</p>
-              <p className="text-xs text-muted-foreground">Avg Daily Protein</p>
+              <p className="text-xs text-muted-foreground">Avg Protein on fully logged days</p>
             </div>
           </SectionCard>
           <SectionCard>
             <div className="text-center">
               <Target className={`w-6 h-6 mx-auto mb-2 ${accentText}`} />
               <p className="text-2xl font-display font-semibold">{averageCalories}</p>
-              <p className="text-xs text-muted-foreground">Avg Daily Calories</p>
+              <p className="text-xs text-muted-foreground">Avg Calories on fully logged days</p>
             </div>
           </SectionCard>
           <SectionCard>
