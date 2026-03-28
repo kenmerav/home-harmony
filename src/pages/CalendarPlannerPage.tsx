@@ -153,8 +153,10 @@ function buildGoogleEventUrl(event: CalendarEvent): string {
 function eventTimeLabel(event: CalendarEvent): string {
   const start = parseISO(event.startsAt);
   if (event.allDay) return 'All day';
-  if (!event.endsAt) return format(start, 'h:mm a');
-  return `${format(start, 'h:mm a')} - ${format(parseISO(event.endsAt), 'h:mm a')}`;
+  const startLabel = format(start, 'h:mm a');
+  if (event.recommendedLeaveAt) return `Arrive by ${startLabel}`;
+  if (!event.endsAt) return startLabel;
+  return `${startLabel} - ${format(parseISO(event.endsAt), 'h:mm a')}`;
 }
 
 function allDayDraftDateFromStartsAt(startsAt: string): string {

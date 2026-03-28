@@ -386,6 +386,7 @@ function eventTimeLabel(event: CalendarEvent): string {
   const start = parseISO(event.startsAt);
   if (event.allDay) return 'All day';
   const startLabel = format(start, 'h:mm a');
+  if (event.recommendedLeaveAt) return `Arrive by ${startLabel}`;
   if (!event.endsAt) return startLabel;
   const end = parseISO(event.endsAt);
   return `${startLabel} - ${format(end, 'h:mm a')}`;
