@@ -1636,7 +1636,9 @@ export default function CalendarPlannerPage() {
             {!draftAllDay && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium">Start</label>
+                  <label className="text-sm font-medium">
+                    {draftLocation ? 'Arrive by / start time' : 'Start time'}
+                  </label>
                   <Input
                     type="time"
                     value={draftTime}
@@ -1827,13 +1829,19 @@ export default function CalendarPlannerPage() {
                   onClick={() => void estimateTravelForDraft()}
                   disabled={draftTravelLoading || draftAllDay}
                 >
-                  {draftTravelLoading ? 'Estimating...' : 'Estimate route time'}
+                  {draftTravelLoading ? 'Estimating...' : 'Estimate leave time'}
                 </Button>
               </div>
-              {draftAllDay && <p className="text-xs text-muted-foreground">Set a start time to estimate commute.</p>}
+              {draftAllDay && <p className="text-xs text-muted-foreground">Set an arrival time to estimate commute.</p>}
               {draftTravelError && <p className="text-xs text-destructive">{draftTravelError}</p>}
+              {!draftAllDay && draftLocation && (
+                <p className="text-xs text-muted-foreground">
+                  Set the time you want to arrive, then Home Harmony will calculate when to leave.
+                </p>
+              )}
               {draftLeaveByIso && (
                 <p className="text-xs text-muted-foreground">
+                  Arrive by {format(withTime(parseISO(`${draftDate}T00:00:00`), draftTime || '18:00'), 'h:mm a')}.{' '}
                   Estimated drive: {draftTrafficMinutes || draftTravelMinutes} min
                   {draftTrafficMinutes && draftTravelMinutes && draftTrafficMinutes > draftTravelMinutes
                     ? ` (${draftTrafficMinutes - draftTravelMinutes} min traffic delay)`
@@ -1864,7 +1872,7 @@ export default function CalendarPlannerPage() {
                     </Select>
                     {!draftLeaveByIso ? (
                       <p className="text-xs text-muted-foreground">
-                        Estimate route time first so Home Harmony can calculate leave-by.
+                        Estimate leave time first so Home Harmony can calculate leave-by.
                       </p>
                     ) : null}
                   </div>
@@ -1943,6 +1951,8 @@ function EventRow({
           {event.location && !compact && <p className="mt-1 text-xs text-muted-foreground">Location: {event.location}</p>}
           {!compact && event.recommendedLeaveAt && (
             <p className="mt-1 text-xs text-muted-foreground">
+              Arrive by {format(parseISO(event.startsAt), event.allDay ? 'MMM d' : 'h:mm a')}
+              {' · '}
               Leave by {format(parseISO(event.recommendedLeaveAt), 'h:mm a')}
               {event.trafficDurationMinutes
                 ? ` (${event.trafficDurationMinutes} min with traffic)`
