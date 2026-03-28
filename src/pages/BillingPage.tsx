@@ -31,6 +31,16 @@ async function resolveInvokeErrorMessage(error: unknown, fallback: string): Prom
   return fallback;
 }
 
+async function getFunctionHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  return accessToken
+    ? {
+        Authorization: `Bearer ${accessToken}`,
+      }
+    : undefined;
+}
+
 export default function BillingPage() {
   const { user, signOut, subscription, isSubscribed, refreshSubscription } = useAuth();
   const [loadingCheckout, setLoadingCheckout] = useState(false);
@@ -64,7 +74,9 @@ export default function BillingPage() {
     setLoadingCheckout(true);
     setMessage(null);
     try {
+      const headers = await getFunctionHeaders();
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        headers,
         body: {
           interval,
           successUrl: `${window.location.origin}/billing?checkout=success`,
@@ -90,7 +102,9 @@ export default function BillingPage() {
     setLoadingPortal(true);
     setMessage(null);
     try {
+      const headers = await getFunctionHeaders();
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
+        headers,
         body: { returnUrl: `${window.location.origin}/billing` },
       });
       if (error) {
