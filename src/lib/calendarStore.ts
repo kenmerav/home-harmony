@@ -11,6 +11,7 @@ export interface CalendarEvent {
   description?: string;
   calendarLayer?: string;
   location?: string;
+  arriveByAt?: string | null;
   eventReminderEnabled?: boolean;
   eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
@@ -35,6 +36,7 @@ export interface ManualCalendarEventInput {
   module?: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
+  arriveByAt?: string | null;
   eventReminderEnabled?: boolean;
   eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
@@ -76,6 +78,7 @@ interface StoredManualEvent {
   module: CalendarEventModule;
   calendarLayer?: string;
   location?: string;
+  arriveByAt?: string | null;
   eventReminderEnabled?: boolean;
   eventReminderLeadMinutes?: number | null;
   travelFromAddress?: string;
@@ -97,6 +100,7 @@ type CalendarSyncError = { message?: string } | null;
 type SupabaseCalendarSyncClient = {
   from: (table: string) => {
     insert: (values: Record<string, unknown>) => Promise<{ error: CalendarSyncError }>;
+    upsert: (values: Record<string, unknown>, options?: Record<string, unknown>) => Promise<{ error: CalendarSyncError }>;
     update: (values: Record<string, unknown>) => {
       eq: (column: string, value: string) => Promise<{ error: CalendarSyncError }>;
     };
@@ -207,6 +211,10 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
     module,
     calendarLayer,
     location: typeof input.location === 'string' ? input.location : undefined,
+    arriveByAt:
+      typeof input.arriveByAt === 'string' && input.arriveByAt.trim()
+        ? input.arriveByAt
+        : null,
     eventReminderEnabled: normalizedEventReminderEnabled,
     eventReminderLeadMinutes: normalizedEventReminderLeadMinutes,
     travelFromAddress: typeof input.travelFromAddress === 'string' ? input.travelFromAddress : undefined,
@@ -234,6 +242,70 @@ function normalizeManualEvent(raw: unknown): StoredManualEvent | null {
     createdAt: input.createdAt || new Date().toISOString(),
     updatedAt: input.updatedAt || new Date().toISOString(),
   };
+}
+
+function isMissingArriveByColumn(error: CalendarSyncError): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('arrive_by') && (message.includes('column') || message.includes('schema cache'));
+}
+
+function buildManualEventRemotePayload(
+  row: StoredManualEvent,
+  timezoneName: string,
+  userId?: string | null,
+): Record<string, unknown> {
+  return {
+    ...(userId ? { owner_id: userId } : {}),
+    title: row.title,
+    description: row.description || null,
+    location_text: row.location || null,
+    arrive_by: row.arriveByAt || null,
+    event_reminder_enabled: !!row.eventReminderEnabled,
+    event_reminder_lead_minutes: row.eventReminderLeadMinutes ?? 0,
+    travel_from_address: row.travelFromAddress || null,
+    travel_mode: row.travelMode || 'driving',
+    travel_duration_minutes: row.travelDurationMinutes,
+    traffic_duration_minutes: row.trafficDurationMinutes,
+    leave_by: row.recommendedLeaveAt || null,
+    leave_reminder_enabled: !!row.leaveReminderEnabled,
+    leave_reminder_lead_minutes: row.leaveReminderLeadMinutes || 10,
+    starts_at: row.startsAt,
+    ends_at: row.endsAt || null,
+    all_day: row.allDay,
+    module: row.module,
+    source: 'manual',
+    calendar_layer: row.calendarLayer || 'family',
+    timezone_name: timezoneName,
+    recurrence_rule: null,
+    is_deleted: false,
+    deleted_at: null,
+  };
+}
+
+async function insertManualEventRemote(remoteId: string, row: StoredManualEvent, timezoneName: string) {
+  const payload = {
+    id: remoteId,
+    ...buildManualEventRemotePayload(row, timezoneName),
+  };
+  let result = await supabaseCalendarSync.from('calendar_events').insert(payload);
+  if (isMissingArriveByColumn(result.error)) {
+    const { arrive_by: _arriveBy, ...legacyPayload } = payload;
+    result = await supabaseCalendarSync.from('calendar_events').insert(legacyPayload);
+  }
+  return result;
+}
+
+async function upsertManualEventRemote(remoteId: string, row: StoredManualEvent, timezoneName: string, userId: string) {
+  const payload = {
+    id: remoteId,
+    ...buildManualEventRemotePayload(row, timezoneName, userId),
+  };
+  let result = await supabaseCalendarSync.from('calendar_events').upsert(payload, { onConflict: 'id' });
+  if (isMissingArriveByColumn(result.error)) {
+    const { arrive_by: _arriveBy, ...legacyPayload } = payload;
+    result = await supabaseCalendarSync.from('calendar_events').upsert(legacyPayload, { onConflict: 'id' });
+  }
+  return result;
 }
 
 function remoteIdFromLocalId(localId: string): string | null {
@@ -477,34 +549,7 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
     for (const row of rows) {
       const remoteId = remoteIdFromLocalId(row.id);
       if (!remoteId) continue;
-      void supabaseCalendarSync
-        .from('calendar_events')
-        .upsert({
-          id: remoteId,
-          owner_id: userId,
-          title: row.title,
-          description: row.description || null,
-          location_text: row.location || null,
-          event_reminder_enabled: !!row.eventReminderEnabled,
-          event_reminder_lead_minutes: row.eventReminderLeadMinutes ?? 0,
-          travel_from_address: row.travelFromAddress || null,
-          travel_mode: row.travelMode || 'driving',
-          travel_duration_minutes: row.travelDurationMinutes,
-          traffic_duration_minutes: row.trafficDurationMinutes,
-          leave_by: row.recommendedLeaveAt || null,
-          leave_reminder_enabled: !!row.leaveReminderEnabled,
-          leave_reminder_lead_minutes: row.leaveReminderLeadMinutes || 10,
-          starts_at: row.startsAt,
-          ends_at: row.endsAt || null,
-          all_day: row.allDay,
-          module: row.module,
-          source: 'manual',
-          calendar_layer: row.calendarLayer || 'family',
-          timezone_name: timezoneName,
-          recurrence_rule: null,
-          is_deleted: false,
-          deleted_at: null,
-        }, { onConflict: 'id' })
+      void upsertManualEventRemote(remoteId, row, timezoneName, userId)
         .then(({ error }: { error?: { message?: string } | null }) => {
           if (error) console.error('Failed to backfill manual event to Supabase:', error.message || error);
         })
@@ -520,6 +565,7 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
     description: row.description,
     calendarLayer: row.calendarLayer || 'family',
     location: row.location,
+    arriveByAt: row.arriveByAt,
     eventReminderEnabled: row.eventReminderEnabled,
     eventReminderLeadMinutes: row.eventReminderLeadMinutes,
     travelFromAddress: row.travelFromAddress,
@@ -552,6 +598,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     module: input.module || 'manual',
     calendarLayer: normalizeStoredCalendarLayer(input.calendarLayer, input.module || 'manual'),
     location: normalizedLocation,
+    arriveByAt: input.arriveByAt || null,
     eventReminderEnabled: !!input.eventReminderEnabled,
     eventReminderLeadMinutes:
       typeof input.eventReminderLeadMinutes === 'number' && Number.isFinite(input.eventReminderLeadMinutes)
@@ -588,33 +635,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
 
   if (userId) {
     const timezoneName = guessUserTimeZone();
-    void supabaseCalendarSync
-      .from('calendar_events')
-      .insert({
-        id: remoteId,
-        title: row.title,
-        description: row.description || null,
-        location_text: row.location || null,
-        event_reminder_enabled: !!row.eventReminderEnabled,
-        event_reminder_lead_minutes: row.eventReminderLeadMinutes ?? 0,
-        travel_from_address: row.travelFromAddress || null,
-        travel_mode: row.travelMode || 'driving',
-        travel_duration_minutes: row.travelDurationMinutes,
-        traffic_duration_minutes: row.trafficDurationMinutes,
-        leave_by: row.recommendedLeaveAt || null,
-        leave_reminder_enabled: !!row.leaveReminderEnabled,
-        leave_reminder_lead_minutes: row.leaveReminderLeadMinutes || 10,
-        starts_at: row.startsAt,
-        ends_at: row.endsAt || null,
-        all_day: row.allDay,
-        module: row.module,
-        source: 'manual',
-        calendar_layer: row.calendarLayer || 'family',
-        timezone_name: timezoneName,
-        recurrence_rule: null,
-        is_deleted: false,
-        deleted_at: null,
-      })
+    void insertManualEventRemote(remoteId, row, timezoneName)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to sync manual event to Supabase:', error.message || error);
       })
@@ -629,6 +650,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
     description: row.description,
     calendarLayer: row.calendarLayer || 'family',
     location: row.location,
+    arriveByAt: row.arriveByAt,
     eventReminderEnabled: row.eventReminderEnabled,
     eventReminderLeadMinutes: row.eventReminderLeadMinutes,
     travelFromAddress: row.travelFromAddress,
@@ -670,6 +692,7 @@ export function updateManualCalendarEvent(
     module: input.module || 'manual',
     calendarLayer: normalizeStoredCalendarLayer(input.calendarLayer, input.module || 'manual'),
     location: normalizedLocation,
+    arriveByAt: input.arriveByAt || null,
     eventReminderEnabled: !!input.eventReminderEnabled,
     eventReminderLeadMinutes:
       typeof input.eventReminderLeadMinutes === 'number' && Number.isFinite(input.eventReminderLeadMinutes)
@@ -703,33 +726,7 @@ export function updateManualCalendarEvent(
   const remoteId = remoteIdFromLocalId(eventId);
   if (userId && remoteId) {
     const timezoneName = guessUserTimeZone();
-    void supabaseCalendarSync
-      .from('calendar_events')
-      .upsert({
-        id: remoteId,
-        owner_id: userId,
-        title: updated.title,
-        description: updated.description || null,
-        location_text: updated.location || null,
-        event_reminder_enabled: !!updated.eventReminderEnabled,
-        event_reminder_lead_minutes: updated.eventReminderLeadMinutes ?? 0,
-        travel_from_address: updated.travelFromAddress || null,
-        travel_mode: updated.travelMode || 'driving',
-        travel_duration_minutes: updated.travelDurationMinutes,
-        traffic_duration_minutes: updated.trafficDurationMinutes,
-        leave_by: updated.recommendedLeaveAt || null,
-        leave_reminder_enabled: !!updated.leaveReminderEnabled,
-        leave_reminder_lead_minutes: updated.leaveReminderLeadMinutes || 10,
-        starts_at: updated.startsAt,
-        ends_at: updated.endsAt || null,
-        all_day: updated.allDay,
-        module: updated.module,
-        source: 'manual',
-        calendar_layer: updated.calendarLayer || 'family',
-        timezone_name: timezoneName,
-        is_deleted: false,
-        deleted_at: null,
-      }, { onConflict: 'id' })
+    void upsertManualEventRemote(remoteId, updated, timezoneName, userId)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to update manual event in Supabase:', error.message || error);
       })
@@ -744,6 +741,7 @@ export function updateManualCalendarEvent(
     description: updated.description,
     calendarLayer: updated.calendarLayer || 'family',
     location: updated.location,
+    arriveByAt: updated.arriveByAt,
     eventReminderEnabled: updated.eventReminderEnabled,
     eventReminderLeadMinutes: updated.eventReminderLeadMinutes,
     travelFromAddress: updated.travelFromAddress,

@@ -154,7 +154,14 @@ function eventTimeLabel(event: CalendarEvent): string {
   const start = parseISO(event.startsAt);
   if (event.allDay) return 'All day';
   const startLabel = format(start, 'h:mm a');
-  if (event.recommendedLeaveAt) return `Arrive by ${startLabel}`;
+  const hasSeparateArriveBy = Boolean(event.arriveByAt);
+  const arriveByAt = event.arriveByAt || (event.recommendedLeaveAt ? event.startsAt : null);
+  if (arriveByAt) {
+    const arriveLabel = format(parseISO(arriveByAt), 'h:mm a');
+    if (!hasSeparateArriveBy) return `Arrive by ${arriveLabel}`;
+    if (!event.endsAt) return `Arrive by ${arriveLabel} • Starts ${startLabel}`;
+    return `Arrive by ${arriveLabel} • ${startLabel} - ${format(parseISO(event.endsAt), 'h:mm a')}`;
+  }
   if (!event.endsAt) return startLabel;
   return `${startLabel} - ${format(parseISO(event.endsAt), 'h:mm a')}`;
 }
@@ -269,6 +276,8 @@ export default function CalendarPlannerPage() {
   const [draftTravelMinutes, setDraftTravelMinutes] = useState<number | null>(null);
   const [draftTrafficMinutes, setDraftTrafficMinutes] = useState<number | null>(null);
   const [draftLeaveByIso, setDraftLeaveByIso] = useState<string | null>(null);
+  const [draftArriveByEnabled, setDraftArriveByEnabled] = useState(false);
+  const [draftArriveByTime, setDraftArriveByTime] = useState('');
   const [draftEventReminderEnabled, setDraftEventReminderEnabled] = useState(false);
   const [draftEventReminderLeadMinutes, setDraftEventReminderLeadMinutes] = useState('0');
   const [draftLeaveReminderEnabled, setDraftLeaveReminderEnabled] = useState(false);
@@ -589,6 +598,8 @@ export default function CalendarPlannerPage() {
     setEditingEventSource(null);
     setDraftDate(format(selectedDate, 'yyyy-MM-dd'));
     setDraftTime('18:00');
+    setDraftArriveByEnabled(false);
+    setDraftArriveByTime('');
     setDraftEndTime('');
     setDraftAllDay(false);
     const firstEnabledPreset = filterPresets.find((preset) => preset.enabled);
@@ -630,6 +641,9 @@ export default function CalendarPlannerPage() {
     setDraftDate(event.allDay ? allDayDraftDateFromStartsAt(event.startsAt) : format(start, 'yyyy-MM-dd'));
     setDraftAllDay(!!event.allDay);
     setDraftTime(event.allDay ? '18:00' : format(start, 'HH:mm'));
+    const arriveByIso = event.arriveByAt || (event.recommendedLeaveAt ? event.startsAt : null);
+    setDraftArriveByEnabled(Boolean(arriveByIso) && !event.allDay);
+    setDraftArriveByTime(arriveByIso && !event.allDay ? format(parseISO(arriveByIso), 'HH:mm') : '');
     setDraftEndTime(event.allDay || !end ? '' : format(end, 'HH:mm'));
     setDraftModule(event.source === 'manual' ? event.module : 'manual');
     setDraftCalendarLayer(
@@ -684,7 +698,8 @@ export default function CalendarPlannerPage() {
       setDraftTravelError('Add both leaving-from address and location to estimate travel time.');
       return;
     }
-    const departureIso = withTime(parseISO(`${draftDate}T00:00:00`), draftTime || '18:00').toISOString();
+    const arrivalTargetTime = draftArriveByEnabled ? (draftArriveByTime || draftTime || '18:00') : (draftTime || '18:00');
+    const departureIso = withTime(parseISO(`${draftDate}T00:00:00`), arrivalTargetTime).toISOString();
     setDraftTravelLoading(true);
     setDraftTravelError(null);
     try {
@@ -738,6 +753,10 @@ export default function CalendarPlannerPage() {
     );
 
     const baseStartDate = draftAllDay ? withTime(day, '12:00') : withTime(day, draftTime || '18:00');
+    const arriveByDate =
+      !draftAllDay && draftArriveByEnabled
+        ? withTime(day, draftArriveByTime || draftTime || '18:00')
+        : null;
     const baseEndDate = !draftAllDay && draftEndTime ? withTime(day, draftEndTime) : null;
     if (!draftAllDay && baseEndDate && baseEndDate.getTime() <= baseStartDate.getTime()) {
       toast({ title: 'End time must be after start time', variant: 'destructive' });
@@ -749,7 +768,7 @@ export default function CalendarPlannerPage() {
         : null;
     const leaveLeadMs =
       draftLeaveByIso && Number.isFinite(parseISO(draftLeaveByIso).getTime())
-        ? Math.max(0, baseStartDate.getTime() - parseISO(draftLeaveByIso).getTime())
+        ? Math.max(0, (arriveByDate || baseStartDate).getTime() - parseISO(draftLeaveByIso).getTime())
         : null;
 
     const buildPayloadForStart = (startDate: Date) => ({
@@ -758,6 +777,10 @@ export default function CalendarPlannerPage() {
       module: draftModule,
       calendarLayer: selectedLayer,
       location: draftLocation.trim() || undefined,
+      arriveByAt:
+        arriveByDate
+          ? withTime(parseISO(`${format(startDate, 'yyyy-MM-dd')}T00:00:00`), draftArriveByTime || draftTime || '18:00').toISOString()
+          : null,
       eventReminderEnabled: draftEventReminderEnabled,
       eventReminderLeadMinutes,
       travelFromAddress: selectedTravelFromAddress,
@@ -765,7 +788,15 @@ export default function CalendarPlannerPage() {
       travelDurationMinutes: draftTravelMinutes,
       trafficDurationMinutes: draftTrafficMinutes,
       recommendedLeaveAt:
-        leaveLeadMs !== null ? new Date(startDate.getTime() - leaveLeadMs).toISOString() : null,
+        leaveLeadMs !== null
+          ? new Date(
+              (
+                arriveByDate
+                  ? withTime(parseISO(`${format(startDate, 'yyyy-MM-dd')}T00:00:00`), draftArriveByTime || draftTime || '18:00')
+                  : startDate
+              ).getTime() - leaveLeadMs,
+            ).toISOString()
+          : null,
       leaveReminderEnabled: draftLeaveReminderEnabled,
       leaveReminderLeadMinutes,
       startsAt: startDate.toISOString(),
@@ -1637,23 +1668,47 @@ export default function CalendarPlannerPage() {
               <Switch checked={draftAllDay} onCheckedChange={setDraftAllDay} />
             </div>
             {!draftAllDay && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">
-                    {draftLocation ? 'Arrive by / start time' : 'Start time'}
-                  </label>
-                  <Input
-                    type="time"
-                    value={draftTime}
-                    onChange={(e) => {
-                      setDraftTime(e.target.value);
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <span className="text-sm">Arrive by time</span>
+                  <Switch
+                    checked={draftArriveByEnabled}
+                    onCheckedChange={(checked) => {
+                      setDraftArriveByEnabled(checked);
+                      if (checked && !draftArriveByTime) setDraftArriveByTime(draftTime || '18:00');
                       resetDraftTravelEstimate();
                     }}
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">End (optional)</label>
-                  <Input type="time" value={draftEndTime} onChange={(e) => setDraftEndTime(e.target.value)} />
+                {draftArriveByEnabled && (
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Arrive by</label>
+                    <Input
+                      type="time"
+                      value={draftArriveByTime}
+                      onChange={(e) => {
+                        setDraftArriveByTime(e.target.value);
+                        resetDraftTravelEstimate();
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Start time</label>
+                    <Input
+                      type="time"
+                      value={draftTime}
+                      onChange={(e) => {
+                        setDraftTime(e.target.value);
+                        resetDraftTravelEstimate();
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">End (optional)</label>
+                    <Input type="time" value={draftEndTime} onChange={(e) => setDraftEndTime(e.target.value)} />
+                  </div>
                 </div>
               </div>
             )}
@@ -1837,14 +1892,16 @@ export default function CalendarPlannerPage() {
               </div>
               {draftAllDay && <p className="text-xs text-muted-foreground">Set an arrival time to estimate commute.</p>}
               {draftTravelError && <p className="text-xs text-destructive">{draftTravelError}</p>}
-              {!draftAllDay && draftLocation && (
+              {!draftAllDay && (
                 <p className="text-xs text-muted-foreground">
-                  Set the time you want to arrive, then Home Harmony will calculate when to leave.
+                  {draftArriveByEnabled
+                    ? 'Set the time you want to arrive, then Home Harmony will calculate when to leave.'
+                    : 'Turn on Arrive by time if you want leave-by planning or a separate arrival deadline.'}
                 </p>
               )}
               {draftLeaveByIso && (
                 <p className="text-xs text-muted-foreground">
-                  Arrive by {format(withTime(parseISO(`${draftDate}T00:00:00`), draftTime || '18:00'), 'h:mm a')}.{' '}
+                  Arrive by {format(withTime(parseISO(`${draftDate}T00:00:00`), (draftArriveByEnabled ? draftArriveByTime : draftTime) || '18:00'), 'h:mm a')}.{' '}
                   Estimated drive: {draftTrafficMinutes || draftTravelMinutes} min
                   {draftTrafficMinutes && draftTravelMinutes && draftTrafficMinutes > draftTravelMinutes
                     ? ` (${draftTrafficMinutes - draftTravelMinutes} min traffic delay)`
@@ -1952,9 +2009,14 @@ function EventRow({
           </div>
           {event.description && !compact && <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{event.description}</p>}
           {event.location && !compact && <p className="mt-1 text-xs text-muted-foreground">Location: {event.location}</p>}
+          {!compact && event.arriveByAt && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Arrive by {format(parseISO(event.arriveByAt), 'h:mm a')}
+            </p>
+          )}
           {!compact && event.recommendedLeaveAt && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Arrive by {format(parseISO(event.startsAt), event.allDay ? 'MMM d' : 'h:mm a')}
+              Arrive by {format(parseISO(event.arriveByAt || event.startsAt), event.allDay ? 'MMM d' : 'h:mm a')}
               {' · '}
               Leave by {format(parseISO(event.recommendedLeaveAt), 'h:mm a')}
               {event.trafficDurationMinutes
