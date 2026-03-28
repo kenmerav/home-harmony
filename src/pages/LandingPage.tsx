@@ -9,6 +9,7 @@ import {
   Hero,
   HowItWorks,
   ModulesSection,
+  PricingSection,
   ProofBar,
   SeoFooterLinks,
   SignupSection,
@@ -69,6 +70,9 @@ export default function LandingPage() {
             <Button variant="ghost" onClick={() => scrollToSection('testimonials')} aria-label="View customer stories">
               Stories
             </Button>
+            <Button variant="ghost" onClick={() => scrollToSection('pricing')} aria-label="View pricing">
+              Pricing
+            </Button>
           </nav>
 
           <div className="flex items-center gap-2">
@@ -100,6 +104,7 @@ export default function LandingPage() {
         <ModulesSection startHref={startFreeHref} />
         <HowItWorks />
         <Testimonials />
+        <PricingSection startHref={startFreeHref} />
         <SignupSection startHref={startFreeHref} />
         <SeoFooterLinks />
       </main>

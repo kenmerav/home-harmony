@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Check, ChevronRight, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatUsd, HOME_HARMONY_PRICING, yearlyEquivalentMonthly, yearlySavingsAmount } from '@/lib/pricing';
 
 interface HeroProps {
   startHref: string;
@@ -14,6 +15,10 @@ interface ModulesSectionProps {
 }
 
 interface SignupSectionProps {
+  startHref: string;
+}
+
+interface PricingSectionProps {
   startHref: string;
 }
 
@@ -214,6 +219,12 @@ const signupPerks = [
   'Invite your family with no extra setup',
 ];
 
+const pricingHighlights = [
+  'One subscription for the whole household',
+  'Meals, calendar, grocery, chores, tasks, workouts, and nutrition included',
+  '14-day free trial before billing starts',
+];
+
 const seoFooterGroups = [
   {
     title: 'Product',
@@ -295,8 +306,8 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
           </div>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link to={startHref}>
-              <Button size="lg" aria-label="Start Free - no card needed">
-                Start Free - No Card Needed
+              <Button size="lg" aria-label="Start free trial">
+                Start Free Trial
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -446,8 +457,8 @@ export function ModulesSection({ startHref }: ModulesSectionProps) {
 
         <div className="mt-8 flex justify-center">
           <Link to={startHref}>
-            <Button size="lg" aria-label="Start Free">
-              Start Free
+            <Button size="lg" aria-label="Start free trial">
+              Start Free Trial
             </Button>
           </Link>
         </div>
@@ -516,6 +527,71 @@ export function Testimonials() {
   );
 }
 
+export function PricingSection({ startHref }: PricingSectionProps) {
+  return (
+    <section id="pricing" className="scroll-mt-24 border-y border-border/60 bg-card/40 py-16 md:py-20">
+      <div className="mx-auto max-w-6xl px-4 md:px-6">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Pricing</p>
+          <h2 className="mt-3 font-display text-4xl leading-tight md:text-5xl">
+            Simple pricing for the whole home.
+          </h2>
+          <p className="mt-4 text-base text-muted-foreground md:text-lg">
+            Start with a {HOME_HARMONY_PRICING.trialDays}-day free trial, then choose the pace that fits your family.
+          </p>
+        </div>
+
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          <article className="rounded-2xl border border-border bg-background p-6">
+            <p className="text-sm font-semibold text-muted-foreground">Monthly</p>
+            <h3 className="mt-2 font-display text-4xl">{formatUsd(HOME_HARMONY_PRICING.monthly)}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">per month after your trial</p>
+            <p className="mt-4 text-sm text-muted-foreground">
+              Great if you want to get started with the lowest upfront commitment.
+            </p>
+          </article>
+
+          <article className="rounded-2xl border border-primary bg-primary/5 p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-primary">Yearly</p>
+              <span className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">Best Value</span>
+            </div>
+            <h3 className="mt-2 font-display text-4xl">{formatUsd(HOME_HARMONY_PRICING.yearly)}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {formatUsd(yearlyEquivalentMonthly())}/month billed yearly
+            </p>
+            <p className="mt-4 text-sm text-muted-foreground">
+              Save {formatUsd(yearlySavingsAmount())} each year and keep your household system running without interruption.
+            </p>
+          </article>
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-border bg-background p-6">
+          <ul className="grid gap-3 md:grid-cols-3">
+            {pricingHighlights.map((item) => (
+              <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link to={startHref}>
+              <Button size="lg">Start Free Trial</Button>
+            </Link>
+            <Link to="/billing">
+              <Button variant="outline" size="lg">View Billing Details</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function SignupSection({ startHref }: SignupSectionProps) {
   return (
     <section id="signup" className="scroll-mt-24 border-y border-border/60 bg-foreground py-16 text-background md:py-20">
@@ -531,7 +607,7 @@ export function SignupSection({ startHref }: SignupSectionProps) {
             <span className="italic text-primary">Starting today.</span>
           </h2>
           <p className="mt-4 max-w-xl text-sm text-background/70 md:text-base">
-            Free to start. Core modules included. Invite your family and build your first working weekly plan.
+            Start with a {HOME_HARMONY_PRICING.trialDays}-day free trial. Then keep your whole home running on one simple plan.
           </p>
 
           <ul className="mt-6 space-y-2.5">
@@ -548,7 +624,9 @@ export function SignupSection({ startHref }: SignupSectionProps) {
 
         <div className="rounded-2xl border border-border/60 bg-background p-6 text-foreground shadow-xl md:p-8">
           <h3 className="font-display text-3xl">Set up your home hub</h3>
-          <p className="mt-2 text-sm text-muted-foreground">Join 12,000+ families. Start free and onboard in minutes.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Join 12,000+ families. Start free, onboard in minutes, then continue for {formatUsd(HOME_HARMONY_PRICING.monthly)}/month or {formatUsd(HOME_HARMONY_PRICING.yearly)}/year.
+          </p>
 
           <div className="mt-6 space-y-3">
             <Link to={startHref} className="block">
@@ -590,7 +668,7 @@ export function SignupSection({ startHref }: SignupSectionProps) {
             </Link>
 
             <p className="text-center text-xs text-muted-foreground">
-              Free to start. No credit card. By signing up, you agree to terms and privacy policy.
+              {HOME_HARMONY_PRICING.trialDays}-day free trial. By signing up, you agree to terms and privacy policy.
             </p>
           </div>
         </div>

@@ -18,11 +18,13 @@ serve(async (req) => {
 
   try {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const stripePriceId = Deno.env.get("STRIPE_PRICE_ID");
+    const defaultStripePriceId = Deno.env.get("STRIPE_PRICE_ID");
+    const monthlyStripePriceId = Deno.env.get("STRIPE_PRICE_ID_MONTHLY");
+    const yearlyStripePriceId = Deno.env.get("STRIPE_PRICE_ID_YEARLY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-    if (!stripeSecretKey || !stripePriceId || !supabaseUrl || !supabaseAnonKey) {
+    if (!stripeSecretKey || !supabaseUrl || !supabaseAnonKey) {
       return json({ error: "Missing required env vars" }, 500);
     }
 
@@ -39,6 +41,15 @@ serve(async (req) => {
     const payload = await req.json().catch(() => ({}));
     const successUrl = payload.successUrl || `${new URL(req.url).origin}/billing?checkout=success`;
     const cancelUrl = payload.cancelUrl || `${new URL(req.url).origin}/billing?checkout=cancel`;
+    const interval = payload.interval === "yearly" ? "yearly" : "monthly";
+    const stripePriceId =
+      interval === "yearly"
+        ? yearlyStripePriceId || defaultStripePriceId
+        : monthlyStripePriceId || defaultStripePriceId;
+
+    if (!stripePriceId) {
+      return json({ error: `Missing Stripe price ID for ${interval} billing.` }, 500);
+    }
 
     const { data: existing } = await supabase
       .from("subscriptions")
@@ -53,9 +64,11 @@ serve(async (req) => {
     params.set("line_items[0][price]", stripePriceId);
     params.set("line_items[0][quantity]", "1");
     params.set("subscription_data[trial_period_days]", "14");
+    params.set("subscription_data[metadata][billing_interval]", interval);
     params.set("subscription_data[metadata][user_id]", authData.user.id);
     params.set("allow_promotion_codes", "true");
     params.set("client_reference_id", authData.user.id);
+    params.set("metadata[billing_interval]", interval);
     params.set("metadata[user_id]", authData.user.id);
     if (existing?.stripe_customer_id) {
       params.set("customer", existing.stripe_customer_id);
