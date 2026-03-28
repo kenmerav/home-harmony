@@ -1729,13 +1729,14 @@ export default function CalendarPage() {
                           <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">
                             Recipients for this filter
                           </p>
-                          <Input
-                            placeholder="+16155551234, +16155550999"
+                          <Textarea
+                            placeholder={'+16155551234\n+16155550999'}
+                            rows={3}
                             value={value}
                             onChange={(e) => updateModuleRecipientsInput(moduleName, e.target.value)}
                           />
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Add one or more numbers, separated by commas. Example: mom + dad.
+                            Put each phone number on its own line. Example: mom on one row, dad on the next.
                           </p>
                         </div>
                       </div>
