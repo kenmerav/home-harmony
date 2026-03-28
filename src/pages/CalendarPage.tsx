@@ -140,7 +140,7 @@ const moduleMeta: Record<CalendarEventModule, { label: string; badgeClass: strin
   workouts: { label: 'Workouts', badgeClass: 'border-rose-200 bg-rose-100/70 text-rose-800' },
   reminders: { label: 'Reminders', badgeClass: 'border-slate-200 bg-slate-100/80 text-slate-700' },
 };
-const visibleModuleFilters: CalendarEventModule[] = ['meals', 'tasks', 'chores', 'workouts', 'reminders'];
+const visibleModuleFilters: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
 const FILTER_COLOR_SWATCHES = [
   '#5A8F72',
   '#8A78E8',

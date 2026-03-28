@@ -84,7 +84,7 @@ type PlannerMode = 'month' | 'twoWeek';
 type DepartureSource = 'home' | 'work' | 'other' | `saved:${string}`;
 
 const BUILT_IN_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
-const VISIBLE_FILTER_MODULES: CalendarEventModule[] = ['meals', 'tasks', 'chores', 'workouts', 'reminders'];
+const VISIBLE_FILTER_MODULES: CalendarEventModule[] = ['manual', 'meals', 'tasks', 'chores', 'workouts', 'reminders'];
 const FILTER_COLOR_SWATCHES = [
   '#5A8F72',
   '#8A78E8',
