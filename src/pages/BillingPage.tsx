@@ -9,7 +9,6 @@ import {
   BillingInterval,
   formatUsd,
   HOME_HARMONY_PRICING,
-  yearlyEquivalentMonthly,
   yearlySavingsAmount,
 } from '@/lib/pricing';
 
@@ -39,6 +38,7 @@ export default function BillingPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('yearly');
   const navigate = useNavigate();
+  const hasBillingAccess = isSubscribed || Boolean(subscription?.priceId);
 
   if (!BILLING_ENABLED) {
     return (
@@ -163,7 +163,7 @@ export default function BillingPage() {
                   <h2 className="mt-1 font-display text-3xl">Yearly</h2>
                   <p className="mt-3 text-4xl font-semibold">{formatUsd(HOME_HARMONY_PRICING.yearly)}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {formatUsd(yearlyEquivalentMonthly())}/month billed yearly
+                    Save {formatUsd(yearlySavingsAmount())} compared with paying monthly
                   </p>
                 </div>
                 <div className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
@@ -210,9 +210,15 @@ export default function BillingPage() {
         </div>
 
         <div className="mt-8 flex flex-wrap gap-3">
-          <Button variant="outline" onClick={openPortal} disabled={loadingPortal}>
-            {loadingPortal ? 'Opening portal...' : 'Manage billing'}
-          </Button>
+          {hasBillingAccess ? (
+            <Button variant="outline" onClick={openPortal} disabled={loadingPortal}>
+              {loadingPortal ? 'Opening portal...' : 'Manage billing'}
+            </Button>
+          ) : (
+            <Button variant="outline" disabled>
+              Billing portal unlocks after you start your trial
+            </Button>
+          )}
           <Button variant="ghost" onClick={refreshSubscription}>Refresh status</Button>
         </div>
 
