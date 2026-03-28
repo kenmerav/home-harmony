@@ -22,6 +22,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -2027,11 +2028,13 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Reminder recipients (optional)</label>
-              <Input
+              <Textarea
                 value={filterPresetDraftRecipients}
                 onChange={(event) => setFilterPresetDraftRecipients(event.target.value)}
-                placeholder="+16155551234, +16155550999"
+                placeholder={'+16155551234\n+16155550999'}
+                rows={3}
               />
+              <p className="text-xs text-muted-foreground">Put each phone number on its own line.</p>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Color</label>
