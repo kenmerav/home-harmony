@@ -1555,13 +1555,14 @@ export default function CalendarPlannerPage() {
             {editingModule && isSmsFilterModule(editingModule) ? (
               <div className="space-y-1">
                 <label className="text-sm font-medium">Reminder recipients</label>
-                <Input
+                <Textarea
                   value={editingModuleRecipients}
                   onChange={(event) => setEditingModuleRecipients(event.target.value)}
-                  placeholder="+16155551234, +16155550999"
+                  placeholder={'+16155551234\n+16155550999'}
+                  rows={3}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Numbers in this field get reminder texts for {getModuleLabel(editingModule)}.
+                  Put each phone number on its own line for {getModuleLabel(editingModule)} reminders.
                 </p>
               </div>
             ) : (
