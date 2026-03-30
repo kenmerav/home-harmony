@@ -7,7 +7,7 @@ import { resetDemoStore } from '@/lib/demoStore';
 import { claimReferral } from '@/lib/api/referrals';
 import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
-import { BILLING_ENABLED } from '@/lib/billing';
+import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
 import { setMacroGameStorageScope } from '@/lib/macroGame';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
@@ -123,6 +123,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSubscriptionLoading(false);
       return;
     }
+    if (isBillingExemptEmail(user.email)) {
+      setSubscription({
+        status: 'active',
+        currentPeriodEnd: null,
+        trialEndsAt: null,
+        priceId: 'complimentary-lifetime-access',
+      });
+      setSubscriptionLoading(false);
+      return;
+    }
     if (!BILLING_ENABLED) {
       setSubscription({
         status: 'active',
@@ -180,7 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsDemoUser(false);
       setUser(data.session?.user ?? null);
       setProfileLoading(Boolean(data.session?.user));
-      setSubscriptionLoading(Boolean(data.session?.user) && BILLING_ENABLED);
+      setSubscriptionLoading(Boolean(data.session?.user) && BILLING_ENABLED && !isBillingExemptEmail(data.session?.user?.email));
       setLoading(false);
     };
     init();
@@ -189,7 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsDemoUser(false);
       setUser(session?.user ?? null);
       setProfileLoading(Boolean(session?.user));
-      setSubscriptionLoading(Boolean(session?.user) && BILLING_ENABLED);
+      setSubscriptionLoading(Boolean(session?.user) && BILLING_ENABLED && !isBillingExemptEmail(session?.user?.email));
       setLoading(false);
     });
 
@@ -245,7 +255,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
     const isProfileComplete = Boolean(profile?.onboardingCompletedAt || profileFieldComplete);
     const status = subscription?.status || 'inactive';
-    const isSubscribed = !BILLING_ENABLED || status === 'active' || status === 'trialing';
+    const isBillingExempt = !isDemoUser && isBillingExemptEmail(user?.email);
+    const isSubscribed = !BILLING_ENABLED || isBillingExempt || status === 'active' || status === 'trialing';
     const userEmail = user?.email?.trim().toLowerCase() || '';
     const isAdmin = !isDemoUser && userEmail === ADMIN_EMAIL;
 
