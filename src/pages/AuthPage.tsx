@@ -36,8 +36,6 @@ export default function AuthPage() {
   const intent = search.get('intent');
   const ab = search.get('ab');
 
-  const from = (location.state as { from?: string } | null)?.from || (onboardingIntent ? '/onboarding?force=1' : '/app');
-
   useEffect(() => {
     if (!referralCode) return;
     stashPendingReferralCode(referralCode);
@@ -82,7 +80,6 @@ export default function AuthPage() {
           },
           `signin_success:${new Date().toISOString().slice(0, 10)}:${source || 'direct'}:${intent || 'none'}`,
         );
-        navigate(from, { replace: true });
       } else if (mode === 'signup') {
         await signUp(email, password, {
           fullName,
