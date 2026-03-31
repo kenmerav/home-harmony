@@ -47,6 +47,7 @@ export default function BillingPage() {
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('yearly');
+  const [promoCode, setPromoCode] = useState('');
   const navigate = useNavigate();
   const hasBillingAccess = isSubscribed || Boolean(subscription?.priceId);
 
@@ -79,6 +80,7 @@ export default function BillingPage() {
         headers,
         body: {
           interval,
+          promoCode: promoCode.trim() || undefined,
           successUrl: `${window.location.origin}/billing?checkout=success`,
           cancelUrl: `${window.location.origin}/billing?checkout=cancel`,
         },
@@ -207,6 +209,22 @@ export default function BillingPage() {
             </button>
 
             <div className="rounded-2xl border border-border bg-muted/30 p-5">
+              {!isSubscribed && (
+                <div className="mb-4 space-y-1">
+                  <label className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    Promo code
+                  </label>
+                  <Input
+                    placeholder="Enter code"
+                    value={promoCode}
+                    onChange={(event) => setPromoCode(event.target.value)}
+                    autoCapitalize="characters"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If you have a free-forever invite code, enter it here before starting checkout.
+                  </p>
+                </div>
+              )}
               {!isSubscribed ? (
                 <Button className="w-full" onClick={() => void startCheckout(selectedInterval)} disabled={loadingCheckout}>
                   {loadingCheckout
