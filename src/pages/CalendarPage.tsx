@@ -16,6 +16,7 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ReminderEventEditDialog, canEditReminderEvent } from '@/components/calendar/ReminderEventEditDialog';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Calendar } from '@/components/ui/calendar';
@@ -414,6 +415,7 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingReminderEvent, setEditingReminderEvent] = useState<CalendarEvent | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
@@ -1043,6 +1045,21 @@ export default function CalendarPage() {
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
     setAddDialogOpen(true);
+  };
+
+  const openEventEditor = (event: CalendarEvent) => {
+    if (event.source === 'reminder') {
+      if (!canEditReminderEvent(event)) {
+        toast({
+          title: 'Edit this in its source module',
+          description: 'This reminder is managed from its own source settings.',
+        });
+        return;
+      }
+      setEditingReminderEvent(event);
+      return;
+    }
+    openEditDialog(event);
   };
 
   const openDayDetail = (day: Date) => {
@@ -1830,7 +1847,7 @@ export default function CalendarPage() {
                         badgeLabel={getEventBadgeLabel(event)}
                         event={event}
                         googleEnabled={googlePrefs.enabled}
-                        onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                        onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                         onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                       />
                     ))}
@@ -1859,7 +1876,7 @@ export default function CalendarPage() {
                               badgeLabel={getEventBadgeLabel(event)}
                               event={event}
                               googleEnabled={googlePrefs.enabled}
-                              onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                              onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                               onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                             />
                           ))}
@@ -1884,7 +1901,7 @@ export default function CalendarPage() {
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     compact
-                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                    onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                     onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                   />
                 ))}
@@ -2167,7 +2184,7 @@ export default function CalendarPage() {
                     badgeLabel={getEventBadgeLabel(event)}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                    onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                     onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                   />
                 ))}
@@ -2176,6 +2193,17 @@ export default function CalendarPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReminderEventEditDialog
+        event={editingReminderEvent}
+        open={Boolean(editingReminderEvent)}
+        onOpenChange={(open) => {
+          if (!open) setEditingReminderEvent(null);
+        }}
+        onSaved={() => {
+          void refreshEvents();
+        }}
+      />
 
       <Dialog
         open={addDialogOpen}

@@ -16,6 +16,7 @@ import {
 } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ReminderEventEditDialog, canEditReminderEvent } from '@/components/calendar/ReminderEventEditDialog';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Badge } from '@/components/ui/badge';
@@ -243,6 +244,7 @@ export default function CalendarPlannerPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [editingReminderEvent, setEditingReminderEvent] = useState<CalendarEvent | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterPresetDialogOpen, setFilterPresetDialogOpen] = useState(false);
@@ -676,6 +678,21 @@ export default function CalendarPlannerPage() {
     setDraftLeaveReminderLeadMinutes(String(event.leaveReminderLeadMinutes || 10));
     setDraftTravelError(null);
     setAddDialogOpen(true);
+  };
+
+  const openEventEditor = (event: CalendarEvent) => {
+    if (event.source === 'reminder') {
+      if (!canEditReminderEvent(event)) {
+        toast({
+          title: 'Edit this in its source module',
+          description: 'This reminder is managed from its own source settings.',
+        });
+        return;
+      }
+      setEditingReminderEvent(event);
+      return;
+    }
+    openEditDialog(event);
   };
 
   const openDayDetail = (day: Date) => {
@@ -1270,7 +1287,7 @@ export default function CalendarPlannerPage() {
                     badgeLabel={getEventBadgeLabel(event)}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                    onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                     onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                   />
                 ))}
@@ -1330,7 +1347,7 @@ export default function CalendarPlannerPage() {
                   event={event}
                   googleEnabled={googlePrefs.enabled}
                   compact
-                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                  onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                   onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                 />
               ))}
@@ -1430,7 +1447,7 @@ export default function CalendarPlannerPage() {
                     badgeLabel={getEventBadgeLabel(event)}
                     event={event}
                     googleEnabled={googlePrefs.enabled}
-                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                    onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
                     onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                   />
                 ))}
@@ -1439,6 +1456,17 @@ export default function CalendarPlannerPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReminderEventEditDialog
+        event={editingReminderEvent}
+        open={Boolean(editingReminderEvent)}
+        onOpenChange={(open) => {
+          if (!open) setEditingReminderEvent(null);
+        }}
+        onSaved={() => {
+          void refreshEvents();
+        }}
+      />
 
       <Dialog open={filterDialogOpen} onOpenChange={setFilterDialogOpen}>
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
