@@ -160,6 +160,28 @@ export function updateTaskFromCalendarRelatedId(
   return true;
 }
 
+export function deleteTaskFromCalendarRelatedId(relatedId: string, userId?: string | null): boolean {
+  const normalizedRelatedId = String(relatedId || '').trim();
+  if (!normalizedRelatedId) return false;
+
+  const tasks = loadTasks(userId);
+  const targetIndex = tasks.findIndex((task) => {
+    const baseId = `task-${task.id}`;
+    return normalizedRelatedId === baseId || normalizedRelatedId.startsWith(`${baseId}-`);
+  });
+
+  if (targetIndex < 0) return false;
+
+  tasks.splice(targetIndex, 1);
+  saveTasks(tasks, userId);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:task-state-updated'));
+  }
+
+  return true;
+}
+
 export function taskOccursOnDate(task: HouseTask, targetDate: Date): boolean {
   const target = dateOnly(targetDate);
   const anchor = getAnchorDate(task);

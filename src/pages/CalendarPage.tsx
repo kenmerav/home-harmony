@@ -55,7 +55,6 @@ import {
   addManualCalendarEvent,
   CalendarEvent,
   CalendarEventModule,
-  deleteManualCalendarEvent,
   getGoogleCalendarPrefs,
   getManualCalendarEvents,
   GoogleCalendarPrefs,
@@ -63,6 +62,7 @@ import {
   updateManualCalendarEvent,
 } from '@/lib/calendarStore';
 import { syncDerivedCalendarEvents } from '@/lib/calendarFeed';
+import { canDeleteCalendarEvent, deleteCalendarEventFromSource } from '@/lib/calendarEventActions';
 import {
   CalendarFilterPreset,
   CalendarFilterPresetColor,
@@ -1306,10 +1306,24 @@ export default function CalendarPage() {
     toast({ title: 'Calendar export ready', description: `Exported ${monthEvents.length} events.` });
   };
 
-  const removeManualEvent = (eventId: string) => {
-    deleteManualCalendarEvent(eventId, user?.id);
-    toast({ title: 'Event removed' });
-    void refreshEvents();
+  const removeCalendarEvent = async (event: CalendarEvent) => {
+    try {
+      const result = await deleteCalendarEventFromSource(event, user?.id);
+      toast({
+        title: result.title,
+        description: result.description,
+        variant: result.removed ? 'default' : 'destructive',
+      });
+      if (result.removed) {
+        void refreshEvents();
+      }
+    } catch (error) {
+      toast({
+        title: 'Could not remove item',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const setFilter = (module: CalendarEventModule, enabled: boolean) => {
@@ -1817,7 +1831,7 @@ export default function CalendarPage() {
                         event={event}
                         googleEnabled={googlePrefs.enabled}
                         onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                        onDelete={event.source === 'manual' ? removeManualEvent : undefined}
+                        onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                       />
                     ))}
                   </div>
@@ -1846,7 +1860,7 @@ export default function CalendarPage() {
                               event={event}
                               googleEnabled={googlePrefs.enabled}
                               onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                              onDelete={event.source === 'manual' ? removeManualEvent : undefined}
+                              onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                             />
                           ))}
                         </div>
@@ -1864,15 +1878,15 @@ export default function CalendarPage() {
             ) : (
               <div className="space-y-2">
                 {upcomingEvents.map((event) => (
-                <EventRow
-                  key={event.id}
-                  badgeLabel={getEventBadgeLabel(event)}
-                  event={event}
-                  googleEnabled={googlePrefs.enabled}
-                  compact
-                  onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                  onDelete={event.source === 'manual' ? removeManualEvent : undefined}
-                />
+                  <EventRow
+                    key={event.id}
+                    badgeLabel={getEventBadgeLabel(event)}
+                    event={event}
+                    googleEnabled={googlePrefs.enabled}
+                    compact
+                    onEdit={event.source === 'reminder' ? undefined : openEditDialog}
+                    onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
+                  />
                 ))}
               </div>
             )}
@@ -2154,7 +2168,7 @@ export default function CalendarPage() {
                     event={event}
                     googleEnabled={googlePrefs.enabled}
                     onEdit={event.source === 'reminder' ? undefined : openEditDialog}
-                    onDelete={event.source === 'manual' ? removeManualEvent : undefined}
+                    onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
                   />
                 ))}
               </div>
@@ -2524,7 +2538,7 @@ function EventRow({
   googleEnabled: boolean;
   compact?: boolean;
   onEdit?: (event: CalendarEvent) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (event: CalendarEvent) => void;
 }) {
   const canEdit = Boolean(onEdit);
   const handleRowEdit = () => {
@@ -2622,7 +2636,7 @@ function EventRow({
               className="h-8 w-8"
               onClick={(clickEvent) => {
                 clickEvent.stopPropagation();
-                onDelete(event.id);
+                void onDelete(event);
               }}
               aria-label={`Delete ${event.title}`}
             >
