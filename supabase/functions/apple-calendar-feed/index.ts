@@ -126,7 +126,6 @@ async function resolveUserIdFromToken(
 
 function mapRowsToFeedEvents(rows: CalendarEventRow[]): IcsFeedEvent[] {
   return rows
-    .filter((row) => !(row.is_deleted || row.deleted_at))
     .map((row) => ({
       id: row.id,
       title: row.title,
@@ -139,6 +138,7 @@ function mapRowsToFeedEvents(rows: CalendarEventRow[]): IcsFeedEvent[] {
       layer: row.calendar_layer || "family",
       updatedAt: row.updated_at,
       deletedAt: row.deleted_at,
+      cancelled: !!(row.is_deleted || row.deleted_at),
     }));
 }
 

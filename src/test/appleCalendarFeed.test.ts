@@ -57,6 +57,29 @@ describe('apple calendar feed utilities', () => {
     expect(ics).toContain('DTEND;VALUE=DATE:20260313');
   });
 
+  it('emits cancelled events so subscribed calendars can clear deleted items', () => {
+    const ics = buildIcsCalendar(
+      [
+        {
+          id: 'deleted-1',
+          title: 'Old Dummy Event',
+          startDatetime: '2026-03-12T18:00:00.000Z',
+          endDatetime: '2026-03-12T19:00:00.000Z',
+          allDay: false,
+          layer: 'family',
+          updatedAt: '2026-03-10T16:00:00.000Z',
+          deletedAt: '2026-03-11T14:15:00.000Z',
+          cancelled: true,
+        },
+      ],
+      'Home Harmony - All Events',
+    );
+
+    expect(ics).toContain('UID:deleted-1@homeharmonyhq');
+    expect(ics).toContain('STATUS:CANCELLED');
+    expect(ics).toContain('DTSTAMP:20260311T141500Z');
+  });
+
   it('parses tokenized feed path and validates layers', () => {
     const token = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-';
     const parsed = parseFeedPath(`/functions/v1/apple-calendar-feed/calendar/${token}/meals.ics`);

@@ -25,6 +25,7 @@ export interface IcsFeedEvent {
   layer?: string | null;
   updatedAt?: string | null;
   deletedAt?: string | null;
+  cancelled?: boolean;
 }
 
 const FEED_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
@@ -166,12 +167,11 @@ export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): 
   ];
 
   for (const event of sorted) {
-    if (event.deletedAt) continue;
     const start = new Date(event.startDatetime);
     if (!Number.isFinite(start.getTime())) continue;
 
     const timezone = isValidTimeZone(event.timezone) ? event.timezone : null;
-    const updatedAt = event.updatedAt ? new Date(event.updatedAt) : new Date();
+    const updatedAt = event.deletedAt ? new Date(event.deletedAt) : event.updatedAt ? new Date(event.updatedAt) : new Date();
     const dtstamp = Number.isFinite(updatedAt.getTime()) ? toUtcToken(updatedAt) : toUtcToken(new Date());
 
     lines.push('BEGIN:VEVENT');
@@ -206,6 +206,7 @@ export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): 
     lines.push(`SUMMARY:${escapeIcsText(event.title)}`);
     if (event.description) lines.push(`DESCRIPTION:${escapeIcsText(event.description)}`);
     if (event.location) lines.push(`LOCATION:${escapeIcsText(event.location)}`);
+    if (event.cancelled || event.deletedAt) lines.push('STATUS:CANCELLED');
     lines.push(`CATEGORIES:${escapeIcsText(sanitizeLayer(event.layer))}`);
     lines.push('END:VEVENT');
   }
