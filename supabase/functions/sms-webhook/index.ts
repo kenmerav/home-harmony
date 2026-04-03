@@ -1537,6 +1537,6 @@ serve(async (req) => {
     return twiml("I didn't catch that. Reply HELP for examples.");
   } catch (error) {
     console.error("sms-webhook error:", error);
-    return new Response("Internal server error", { status: 500 });
+    return twiml("I hit an error while processing that text. Please try again in a moment.");
   }
 });
