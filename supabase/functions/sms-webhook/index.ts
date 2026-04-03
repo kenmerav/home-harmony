@@ -67,6 +67,7 @@ type MacroProfile = {
   id: string;
   name: string;
   memberType?: string;
+  aliases?: string[];
 };
 
 type MacroMealLog = {
@@ -420,6 +421,26 @@ async function loadProfileSettingsDocument(
   return { ...(raw as Record<string, unknown>) };
 }
 
+async function loadProfileSettingsContext(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ document: Record<string, unknown>; fullName: string | null }> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("onboarding_settings,full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const raw = data?.onboarding_settings;
+  const document =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const fullName = typeof data?.full_name === "string" && data.full_name.trim() ? data.full_name.trim() : null;
+  return { document, fullName };
+}
+
 async function saveProfileSettingsDocument(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -432,20 +453,55 @@ async function saveProfileSettingsDocument(
   if (error) throw error;
 }
 
-function macroProfilesFromDocument(document: Record<string, unknown>): MacroProfile[] {
-  const raw = getDocumentValue(document, ["appPreferences", "macroGame", "profiles"]);
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+function firstNameFromFullName(fullName: string | null | undefined): string | null {
+  const trimmed = String(fullName || "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  const [firstName] = trimmed.split(" ");
+  return firstName ? titleCaseWords(firstName) : null;
+}
 
-  return Object.entries(raw as Record<string, unknown>)
+function macroProfilesFromDocument(
+  document: Record<string, unknown>,
+  options?: { accountFullName?: string | null },
+): MacroProfile[] {
+  const raw = getDocumentValue(document, ["appPreferences", "macroGame", "profiles"]);
+  const accountFirstName = firstNameFromFullName(options?.accountFullName);
+  const fallbackPrimaryProfile = accountFirstName
+    ? {
+        id: "me",
+        name: accountFirstName,
+        memberType: "adult",
+        aliases: ["me", accountFirstName],
+      satisfies MacroProfile
+    : null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallbackPrimaryProfile ? [fallbackPrimaryProfile] : [];
+
+  const profiles = Object.entries(raw as Record<string, unknown>)
     .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value))
     .map(([id, value]) => {
       const row = value as Record<string, unknown>;
+      const fallbackName = id === "me" && accountFirstName ? accountFirstName : titleCaseWords(id);
+      const resolvedName =
+        typeof row.name === "string" && row.name.trim()
+          ? row.name.trim()
+          : fallbackName;
+      const aliases = new Set<string>();
+      aliases.add(id);
+      if (id === "me") aliases.add("me");
+      if (accountFirstName && id === "me") aliases.add(accountFirstName);
       return {
         id,
-        name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : titleCaseWords(id),
+        name: resolvedName,
         memberType: typeof row.memberType === "string" ? row.memberType : undefined,
+        aliases: Array.from(aliases),
       };
     });
+
+  if (fallbackPrimaryProfile && !profiles.some((profile) => profile.id === "me")) {
+    profiles.unshift(fallbackPrimaryProfile);
+  }
+
+  return profiles;
 }
 
 function normalizeMacroActivityState(input: unknown): MacroActivityState {
@@ -828,13 +884,21 @@ function resolvePersonByName(
   const normalized = normalizeEntityName(requestedName);
   if (!normalized) return null;
 
-  const direct = profiles.find((profile) => normalizeEntityName(profile.name) === normalized || normalizeEntityName(profile.id) === normalized);
+  const direct = profiles.find((profile) =>
+    normalizeEntityName(profile.name) === normalized
+    || normalizeEntityName(profile.id) === normalized
+    || (profile.aliases || []).some((alias) => normalizeEntityName(alias) === normalized),
+  );
   if (direct) return direct;
 
   const fuzzy = profiles.filter((profile) => {
     const profileName = normalizeEntityName(profile.name);
     const profileId = normalizeEntityName(profile.id);
-    return profileName.includes(normalized) || normalized.includes(profileName) || profileId.includes(normalized);
+    const aliasMatch = (profile.aliases || []).some((alias) => {
+      const aliasKey = normalizeEntityName(alias);
+      return aliasKey.includes(normalized) || normalized.includes(aliasKey);
+    });
+    return profileName.includes(normalized) || normalized.includes(profileName) || profileId.includes(normalized) || aliasMatch;
   });
 
   return fuzzy.length === 1 ? fuzzy[0] : null;
@@ -1493,8 +1557,8 @@ serve(async (req) => {
     const waterIntent = parseWaterLogIntent(body);
     if (waterIntent) {
       try {
-        const document = await loadProfileSettingsDocument(supabase, pref.user_id);
-        const profiles = macroProfilesFromDocument(document);
+        const { document, fullName } = await loadProfileSettingsContext(supabase, pref.user_id);
+        const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
         const person = resolvePersonByName(profiles, waterIntent.personName);
         if (!person) {
           return twiml(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
@@ -1514,8 +1578,8 @@ serve(async (req) => {
     })();
     if (mealLogIntents && mealLogIntents.length) {
       try {
-        const document = await loadProfileSettingsDocument(supabase, pref.user_id);
-        const profiles = macroProfilesFromDocument(document);
+        const { document, fullName } = await loadProfileSettingsContext(supabase, pref.user_id);
+        const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
         const person = resolvePersonByName(profiles, mealLogIntents[0].personName);
         if (!person) {
           return twiml(`I couldn't find ${mealLogIntents[0].personName}. Reply with the exact dashboard name, like Ken or Katie.`);
