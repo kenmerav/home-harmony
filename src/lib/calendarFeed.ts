@@ -20,7 +20,7 @@ import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
-import { getManualCalendarEvents, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
+import { fetchManualCalendarEventsInRange, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
 import { supabase } from '@/integrations/supabase/client';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
@@ -607,7 +607,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     });
   }
 
-  nextEvents.push(...getManualCalendarEvents(userId));
+  nextEvents.push(...await fetchManualCalendarEventsInRange(rangeStart, addDays(rangeEnd, 1), userId));
   nextEvents.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1));
   void syncDerivedCalendarEvents(userId, rangeStart, rangeEnd, nextEvents);
   return nextEvents;

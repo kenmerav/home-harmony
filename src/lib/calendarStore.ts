@@ -95,6 +95,30 @@ interface StoredManualEvent {
   updatedAt: string;
 }
 
+interface RemoteManualEventRow {
+  id: string;
+  title: string;
+  description?: string | null;
+  module?: string | null;
+  calendar_layer?: string | null;
+  location_text?: string | null;
+  arrive_by?: string | null;
+  event_reminder_enabled?: boolean | null;
+  event_reminder_lead_minutes?: number | null;
+  travel_from_address?: string | null;
+  travel_mode?: string | null;
+  travel_duration_minutes?: number | null;
+  traffic_duration_minutes?: number | null;
+  leave_by?: string | null;
+  leave_reminder_enabled?: boolean | null;
+  leave_reminder_lead_minutes?: number | null;
+  starts_at: string;
+  ends_at?: string | null;
+  all_day: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 type CalendarSyncError = { message?: string } | null;
 
 type SupabaseCalendarSyncClient = {
@@ -312,6 +336,127 @@ function remoteIdFromLocalId(localId: string): string | null {
   if (!localId.startsWith('manual-')) return null;
   const remoteId = localId.slice('manual-'.length);
   return remoteId || null;
+}
+
+function manualEventFromRemoteRow(row: RemoteManualEventRow): CalendarEvent | null {
+  const moduleValue = String(row.module || 'manual').toLowerCase();
+  const module: CalendarEventModule =
+    moduleValue === 'meals'
+    || moduleValue === 'tasks'
+    || moduleValue === 'chores'
+    || moduleValue === 'workouts'
+    || moduleValue === 'reminders'
+    || moduleValue === 'manual'
+      ? (moduleValue as CalendarEventModule)
+      : 'manual';
+
+  if (!row.id || !row.title || !row.starts_at) return null;
+
+  return {
+    id: `manual-${row.id}`,
+    title: row.title,
+    description: row.description || undefined,
+    calendarLayer: normalizeStoredCalendarLayer(row.calendar_layer, module),
+    location: row.location_text || undefined,
+    arriveByAt: row.arrive_by || null,
+    eventReminderEnabled: !!row.event_reminder_enabled,
+    eventReminderLeadMinutes:
+      typeof row.event_reminder_lead_minutes === 'number' && Number.isFinite(row.event_reminder_lead_minutes)
+        ? row.event_reminder_lead_minutes
+        : 0,
+    travelFromAddress: row.travel_from_address || undefined,
+    travelMode: row.travel_mode === 'driving' ? 'driving' : 'driving',
+    travelDurationMinutes:
+      typeof row.travel_duration_minutes === 'number' && Number.isFinite(row.travel_duration_minutes)
+        ? row.travel_duration_minutes
+        : null,
+    trafficDurationMinutes:
+      typeof row.traffic_duration_minutes === 'number' && Number.isFinite(row.traffic_duration_minutes)
+        ? row.traffic_duration_minutes
+        : null,
+    recommendedLeaveAt: row.leave_by || null,
+    leaveReminderEnabled: !!row.leave_reminder_enabled,
+    leaveReminderLeadMinutes:
+      typeof row.leave_reminder_lead_minutes === 'number' && Number.isFinite(row.leave_reminder_lead_minutes)
+        ? row.leave_reminder_lead_minutes
+        : 10,
+    startsAt: normalizeAllDayStartsAt(row.starts_at, !!row.all_day),
+    endsAt: row.ends_at || undefined,
+    allDay: !!row.all_day,
+    source: 'manual',
+    module,
+    readonly: false,
+  };
+}
+
+async function fetchRemoteManualEventsInRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  userId?: string | null,
+): Promise<CalendarEvent[]> {
+  if (!userId || userId === 'demo-user') return [];
+
+  const selectColumns =
+    'id,title,description,module,calendar_layer,location_text,arrive_by,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_mode,travel_duration_minutes,traffic_duration_minutes,leave_by,leave_reminder_enabled,leave_reminder_lead_minutes,starts_at,ends_at,all_day,created_at,updated_at';
+
+  let query = supabase
+    .from('calendar_events')
+    .select(selectColumns)
+    .eq('owner_id', userId)
+    .eq('source', 'manual')
+    .eq('is_deleted', false)
+    .gte('starts_at', rangeStart.toISOString())
+    .lt('starts_at', rangeEnd.toISOString())
+    .order('starts_at', { ascending: true });
+
+  let { data, error } = await query;
+
+  if (isMissingArriveByColumn(error as CalendarSyncError)) {
+    const legacyColumns =
+      'id,title,description,module,calendar_layer,location_text,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_mode,travel_duration_minutes,traffic_duration_minutes,leave_by,leave_reminder_enabled,leave_reminder_lead_minutes,starts_at,ends_at,all_day,created_at,updated_at';
+    const legacyResult = await supabase
+      .from('calendar_events')
+      .select(legacyColumns)
+      .eq('owner_id', userId)
+      .eq('source', 'manual')
+      .eq('is_deleted', false)
+      .gte('starts_at', rangeStart.toISOString())
+      .lt('starts_at', rangeEnd.toISOString())
+      .order('starts_at', { ascending: true });
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
+
+  if (error) {
+    console.error('Failed loading remote manual calendar rows:', error.message || error);
+    return [];
+  }
+
+  return ((data || []) as RemoteManualEventRow[])
+    .map((row) => manualEventFromRemoteRow(row))
+    .filter((row): row is CalendarEvent => Boolean(row));
+}
+
+export async function fetchManualCalendarEventsInRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  userId?: string | null,
+): Promise<CalendarEvent[]> {
+  const localEvents = getManualCalendarEvents(userId).filter((event) => {
+    const startsAt = new Date(event.startsAt);
+    return Number.isFinite(startsAt.getTime()) && startsAt >= rangeStart && startsAt < rangeEnd;
+  });
+  const remoteEvents = await fetchRemoteManualEventsInRange(rangeStart, rangeEnd, userId);
+
+  const merged = new Map<string, CalendarEvent>();
+  remoteEvents.forEach((event) => {
+    merged.set(event.id, event);
+  });
+  localEvents.forEach((event) => {
+    merged.set(event.id, event);
+  });
+
+  return Array.from(merged.values()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
 const defaultGooglePrefs: GoogleCalendarPrefs = {

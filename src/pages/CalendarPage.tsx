@@ -56,8 +56,8 @@ import {
   addManualCalendarEvent,
   CalendarEvent,
   CalendarEventModule,
+  fetchManualCalendarEventsInRange,
   getGoogleCalendarPrefs,
-  getManualCalendarEvents,
   GoogleCalendarPrefs,
   setGoogleCalendarPrefs,
   updateManualCalendarEvent,
@@ -738,7 +738,7 @@ export default function CalendarPage() {
         });
       }
 
-      nextEvents.push(...getManualCalendarEvents(user?.id));
+      nextEvents.push(...await fetchManualCalendarEventsInRange(rangeStart, addDays(rangeEnd, 1), user?.id));
 
       nextEvents.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1));
       void syncDerivedCalendarEvents(user?.id, rangeStart, rangeEnd, nextEvents);
