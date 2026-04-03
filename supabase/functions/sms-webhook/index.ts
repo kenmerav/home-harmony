@@ -466,13 +466,13 @@ function macroProfilesFromDocument(
 ): MacroProfile[] {
   const raw = getDocumentValue(document, ["appPreferences", "macroGame", "profiles"]);
   const accountFirstName = firstNameFromFullName(options?.accountFullName);
-  const fallbackPrimaryProfile = accountFirstName
+  const fallbackPrimaryProfile: MacroProfile | null = accountFirstName
     ? {
         id: "me",
         name: accountFirstName,
         memberType: "adult",
         aliases: ["me", accountFirstName],
-      satisfies MacroProfile
+      }
     : null;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallbackPrimaryProfile ? [fallbackPrimaryProfile] : [];
 
