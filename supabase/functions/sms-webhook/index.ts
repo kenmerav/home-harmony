@@ -786,6 +786,41 @@ function parseMealLogIntent(body: string): MealLogIntent | null {
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function splitMealRecipeNames(value: string): string[] {
+  return value
+    .split(/\s*(?:,| and )\s*/i)
+    .map((item) => trimTrailingPunctuation(item))
+    .filter(Boolean);
+}
+
+function parseNaturalMealLogIntents(body: string): MealLogIntent[] | null {
+  const normalized = trimTrailingPunctuation(body);
+  const match = normalized.match(
+    /^add\s+(.+?)\s+to\s+(.+?)(?:['’]s)?\s+meal\s+log(?:\s+for\s+(?:breakfast|lunch|dinner|snack|snacks|drinks?))?(?:\s+(?:this|today|tonight|this morning|this afternoon|this evening).*)?$/i,
+  );
+  if (!match) return null;
+
+  const recipeListRaw = trimTrailingPunctuation(match[1] || "");
+  const personName = trimTrailingPunctuation(match[2] || "");
+  if (!recipeListRaw || !personName) return null;
+
+  const leadingPossessivePattern = new RegExp(`^${escapeRegExp(personName)}(?:['’]s)?\\s+`, "i");
+  const intents = splitMealRecipeNames(recipeListRaw)
+    .map((recipeName) => trimTrailingPunctuation(recipeName.replace(leadingPossessivePattern, "")))
+    .filter(Boolean)
+    .map((recipeName) => ({
+      servings: 1,
+      recipeName,
+      personName,
+    }));
+
+  return intents.length ? intents : null;
+}
+
 function resolvePersonByName(
   profiles: MacroProfile[],
   requestedName: string,
@@ -1445,7 +1480,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -1473,27 +1508,35 @@ serve(async (req) => {
       }
     }
 
-    const mealLogIntent = parseMealLogIntent(body);
-    if (mealLogIntent) {
+    const mealLogIntents = parseNaturalMealLogIntents(body) || (() => {
+      const singleIntent = parseMealLogIntent(body);
+      return singleIntent ? [singleIntent] : null;
+    })();
+    if (mealLogIntents && mealLogIntents.length) {
       try {
         const document = await loadProfileSettingsDocument(supabase, pref.user_id);
         const profiles = macroProfilesFromDocument(document);
-        const person = resolvePersonByName(profiles, mealLogIntent.personName);
+        const person = resolvePersonByName(profiles, mealLogIntents[0].personName);
         if (!person) {
-          return twiml(`I couldn't find ${mealLogIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+          return twiml(`I couldn't find ${mealLogIntents[0].personName}. Reply with the exact dashboard name, like Ken or Katie.`);
         }
 
-        const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
-        if (!recipe && ambiguousMatches.length > 0) {
-          return twiml(`I found a few recipes that could match: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
-        }
-        if (!recipe) {
-          return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
+        const loggedLabels: string[] = [];
+        for (const mealLogIntent of mealLogIntents) {
+          const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
+          if (!recipe && ambiguousMatches.length > 0) {
+            return twiml(`I found a few recipes that could match ${mealLogIntent.recipeName}: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
+          }
+          if (!recipe) {
+            return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
+          }
+
+          await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
+          const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
+          loggedLabels.push(`${servingsLabel} of ${recipe.name}`);
         }
 
-        await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
-        const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
-        return twiml(`Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`);
+        return twiml(`Logged ${loggedLabels.join(" and ")} for ${person.name}.`);
       } catch (error) {
         console.error("sms meal log failed:", error);
         return twiml("I could not save that meal log right now. Please try again in a moment.");
