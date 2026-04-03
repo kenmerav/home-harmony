@@ -158,6 +158,7 @@ type InboundSmsPreferenceRow = {
   include_modules: unknown;
   module_recipients: Record<string, unknown> | null;
   phone_e164: string | null;
+  updated_at?: string | null;
 };
 
 const MEAL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
@@ -1030,15 +1031,17 @@ async function findSmsPreferenceForInboundNumber(
 
   const { data: directData, error: directError } = await supabase
     .from("sms_preferences")
-    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164")
+    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164,updated_at")
     .eq("phone_e164", normalizedFrom)
-    .maybeSingle();
+    .eq("enabled", true)
+    .order("updated_at", { ascending: false });
   if (directError) throw directError;
-  if (directData) return directData as InboundSmsPreferenceRow;
+  const exactMatches = (directData || []) as InboundSmsPreferenceRow[];
+  if (exactMatches.length > 0) return exactMatches[0];
 
   const { data: candidates, error: candidateError } = await supabase
     .from("sms_preferences")
-    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164")
+    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164,updated_at")
     .eq("enabled", true);
   if (candidateError) throw candidateError;
 
@@ -1049,8 +1052,9 @@ async function findSmsPreferenceForInboundNumber(
     return Object.values(moduleRecipients).some((numbers) => numbers.includes(normalizedFrom));
   });
 
-  if (matches.length === 1) return matches[0];
-  return null;
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  return matches[0];
 }
 
 async function generateMealsForWeekBySms(
