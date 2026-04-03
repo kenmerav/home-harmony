@@ -799,7 +799,7 @@ async function addCalendarEventBySms(
     description: null,
     location_text: null,
     event_reminder_enabled: false,
-    event_reminder_lead_minutes: 0,
+    event_reminder_lead_minutes: 5,
     travel_from_address: null,
     travel_mode: "driving",
     travel_duration_minutes: null,
@@ -1383,49 +1383,69 @@ serve(async (req) => {
 
     const waterIntent = parseWaterLogIntent(body);
     if (waterIntent) {
-      const document = await loadProfileSettingsDocument(supabase, pref.user_id);
-      const profiles = macroProfilesFromDocument(document);
-      const person = resolvePersonByName(profiles, waterIntent.personName);
-      if (!person) {
-        return twiml(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
-      }
+      try {
+        const document = await loadProfileSettingsDocument(supabase, pref.user_id);
+        const profiles = macroProfilesFromDocument(document);
+        const person = resolvePersonByName(profiles, waterIntent.personName);
+        if (!person) {
+          return twiml(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+        }
 
-      await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, waterIntent.ounces);
-      return twiml(`Logged ${waterIntent.ounces} oz of water for ${person.name}.`);
+        await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, waterIntent.ounces);
+        return twiml(`Logged ${waterIntent.ounces} oz of water for ${person.name}.`);
+      } catch (error) {
+        console.error("sms water log failed:", error);
+        return twiml("I could not save that water log right now. Please try again in a moment.");
+      }
     }
 
     const mealLogIntent = parseMealLogIntent(body);
     if (mealLogIntent) {
-      const document = await loadProfileSettingsDocument(supabase, pref.user_id);
-      const profiles = macroProfilesFromDocument(document);
-      const person = resolvePersonByName(profiles, mealLogIntent.personName);
-      if (!person) {
-        return twiml(`I couldn't find ${mealLogIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
-      }
+      try {
+        const document = await loadProfileSettingsDocument(supabase, pref.user_id);
+        const profiles = macroProfilesFromDocument(document);
+        const person = resolvePersonByName(profiles, mealLogIntent.personName);
+        if (!person) {
+          return twiml(`I couldn't find ${mealLogIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+        }
 
-      const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
-      if (!recipe && ambiguousMatches.length > 0) {
-        return twiml(`I found a few recipes that could match: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
-      }
-      if (!recipe) {
-        return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
-      }
+        const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
+        if (!recipe && ambiguousMatches.length > 0) {
+          return twiml(`I found a few recipes that could match: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
+        }
+        if (!recipe) {
+          return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
+        }
 
-      await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
-      const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
-      return twiml(`Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`);
+        await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
+        const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
+        return twiml(`Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`);
+      } catch (error) {
+        console.error("sms meal log failed:", error);
+        return twiml("I could not save that meal log right now. Please try again in a moment.");
+      }
     }
 
     const groceryIntent = parseGroceryAddIntent(body);
     if (groceryIntent) {
-      const reply = await addGroceryItemBySms(supabase, pref.user_id, timezone, groceryIntent);
-      return twiml(reply);
+      try {
+        const reply = await addGroceryItemBySms(supabase, pref.user_id, timezone, groceryIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms grocery add failed:", error);
+        return twiml("I could not add that grocery item right now. Please try again in a moment.");
+      }
     }
 
     const calendarIntent = parseCalendarAddIntent(body, timezone);
     if (calendarIntent) {
-      const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
-      return twiml(reply);
+      try {
+        const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms calendar add failed:", error);
+        return twiml("I could not add that calendar event right now. Please check the date and time format and try again.");
+      }
     }
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
