@@ -1477,6 +1477,44 @@ async function buildMealsReply(
   return formatWeekMeals(label, meals);
 }
 
+async function buildTonightDinnerReply(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  preferredDinnerTime: string,
+): Promise<string> {
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const weekOf = weekOfIso(today);
+  const day = DAY_NAME_BY_WEEKDAY[today.weekday];
+  const { data, error } = await supabase
+    .from("planned_meals")
+    .select("id, recipes(name)")
+    .eq("owner_id", userId)
+    .eq("week_of", weekOf)
+    .eq("day", day)
+    .eq("is_skipped", false);
+
+  if (error) throw error;
+
+  const dinnerNames = (data || [])
+    .map((row) =>
+      typeof row.recipes === "object" && row.recipes && "name" in row.recipes
+        ? String((row.recipes as { name?: string }).name || "").trim()
+        : "",
+    )
+    .filter(Boolean);
+
+  if (!dinnerNames.length) {
+    return "No dinner is planned for tonight yet.";
+  }
+
+  const dinnerTime = DateTime.fromISO(`${today.toISODate()}T00:00:00`, { zone: timezone }).set(parseTimeToHourMinute(preferredDinnerTime));
+  const names = dinnerNames.join(" and ");
+  return dinnerNames.length === 1
+    ? `Tonight's dinner is ${names} at ${timeLabel(dinnerTime)}.`
+    : `Tonight's dinners are ${names} at ${timeLabel(dinnerTime)}.`;
+}
+
 serve(async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
@@ -1647,6 +1685,7 @@ serve(async (req) => {
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
     const wantsToday = hasAnyKeyword(body, ["today"]);
+    const wantsTonight = hasAnyKeyword(body, ["tonight"]);
     const wantsNextWeek = hasAnyKeyword(body, ["next week", "coming week"]);
     const wantsThisWeek = hasAnyKeyword(body, ["this week", "this weeks"]);
     const asksMeals = hasAnyKeyword(body, ["meal", "meals", "dinner", "menu", "breakfast", "lunch"]);
@@ -1690,6 +1729,11 @@ serve(async (req) => {
 
     if (asksMeals && wantsNextWeek) {
       const reply = await buildMealsReply(supabase, pref.user_id, timezone, true);
+      return twiml(reply);
+    }
+
+    if (asksMeals && (wantsTonight || body.includes("for dinner"))) {
+      const reply = await buildTonightDinnerReply(supabase, pref.user_id, timezone, preferredDinnerTime);
       return twiml(reply);
     }
 
