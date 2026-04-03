@@ -14,12 +14,17 @@ export type BodyUnitSystem = 'imperial' | 'metric';
 const STORAGE_KEY = 'homehub.macroGameState.v1';
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const MACRO_GAME_PROFILES_SETTINGS_PATH = ['appPreferences', 'macroGame', 'profiles'];
+const MACRO_GAME_ACTIVITY_SETTINGS_PATH = ['appPreferences', 'macroGame', 'activity'];
 
 let currentStorageScopeUserId: string | null = null;
 let hydratedProfilesScopeKey: string | null = null;
 let lastPersistedProfilesSnapshot: string | null = null;
 let profilePersistTimer: number | null = null;
+let hydratedActivityScopeKey: string | null = null;
+let lastPersistedActivitySnapshot: string | null = null;
+let activityPersistTimer: number | null = null;
 let profileHydrationToken = 0;
+let activityHydrationToken = 0;
 
 interface StoredMealLog extends Omit<MealLog, 'createdAt'> {
   createdAt: string;
@@ -322,15 +327,94 @@ function normalizeProfiles(
   return mergedProfiles;
 }
 
+function normalizeStoredMealLogs(input: unknown): StoredMealLog[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => {
+      const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : crypto.randomUUID();
+      const recipeName =
+        typeof item.recipeName === 'string' && item.recipeName.trim()
+          ? item.recipeName.trim()
+          : 'Meal';
+      const person = typeof item.person === 'string' && item.person.trim() ? item.person.trim() : 'me';
+      const date = typeof item.date === 'string' && item.date.trim() ? item.date.trim() : dayKey();
+      const servingsValue = Number(item.servings);
+      const macros =
+        item.macros && typeof item.macros === 'object' && !Array.isArray(item.macros)
+          ? (item.macros as Record<string, unknown>)
+          : {};
+      const createdAtRaw =
+        typeof item.createdAt === 'string' && item.createdAt.trim()
+          ? item.createdAt
+          : new Date().toISOString();
+
+      return {
+        id,
+        recipeId: typeof item.recipeId === 'string' && item.recipeId.trim() ? item.recipeId.trim() : undefined,
+        recipeName,
+        date,
+        person,
+        servings: Number.isFinite(servingsValue) && servingsValue > 0 ? servingsValue : 1,
+        macros: {
+          calories: Number.isFinite(Number(macros.calories)) ? Math.max(0, Number(macros.calories)) : 0,
+          protein_g: Number.isFinite(Number(macros.protein_g)) ? Math.max(0, Number(macros.protein_g)) : 0,
+          carbs_g: Number.isFinite(Number(macros.carbs_g)) ? Math.max(0, Number(macros.carbs_g)) : 0,
+          fat_g: Number.isFinite(Number(macros.fat_g)) ? Math.max(0, Number(macros.fat_g)) : 0,
+          fiber_g: Number.isFinite(Number(macros.fiber_g)) ? Math.max(0, Number(macros.fiber_g)) : undefined,
+        },
+        isQuickAdd: !!item.isQuickAdd,
+        createdAt: createdAtRaw,
+      };
+    })
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+function normalizeTrackers(
+  input: unknown,
+): Record<string, Partial<Record<string, DayTracker>>> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, Partial<Record<string, DayTracker>>>>(
+    (dates, [dateKey, trackerValue]) => {
+      if (!isDateKey(dateKey) || !trackerValue || typeof trackerValue !== 'object' || Array.isArray(trackerValue)) {
+        return dates;
+      }
+
+      const normalizedPeople = Object.entries(trackerValue as Record<string, unknown>).reduce<
+        Partial<Record<string, DayTracker>>
+      >((people, [personId, dayTracker]) => {
+        if (!dayTracker || typeof dayTracker !== 'object' || Array.isArray(dayTracker) || !personId.trim()) {
+          return people;
+        }
+        const trackerRecord = dayTracker as Record<string, unknown>;
+        people[personId] = {
+          waterOz: Number.isFinite(Number(trackerRecord.waterOz)) ? Math.max(0, Number(trackerRecord.waterOz)) : 0,
+          alcoholDrinks:
+            Number.isFinite(Number(trackerRecord.alcoholDrinks))
+              ? Math.max(0, Number(trackerRecord.alcoholDrinks))
+              : 0,
+        };
+        return people;
+      }, {});
+
+      if (Object.keys(normalizedPeople).length > 0) {
+        dates[dateKey] = normalizedPeople;
+      }
+      return dates;
+    },
+    {},
+  );
+}
+
 function normalizeStoredState(input: Partial<StoredState> | null | undefined): StoredState {
   const seed = initialState();
   return {
-    mealLogs: Array.isArray(input?.mealLogs) ? (input?.mealLogs as StoredMealLog[]) : seed.mealLogs,
+    mealLogs: normalizeStoredMealLogs(input?.mealLogs),
     profiles: normalizeProfiles(input?.profiles, seed.profiles),
-    trackers:
-      input?.trackers && typeof input.trackers === 'object'
-        ? (input.trackers as StoredState['trackers'])
-        : {},
+    trackers: normalizeTrackers(input?.trackers),
   };
 }
 
@@ -362,6 +446,13 @@ function serializeProfiles(profiles: Record<string, PersonGameProfile>): string 
   return JSON.stringify(normalizeProfiles(profiles, initialState().profiles));
 }
 
+function serializeActivity(state: Pick<StoredState, 'mealLogs' | 'trackers'>): string {
+  return JSON.stringify({
+    mealLogs: normalizeStoredMealLogs(state.mealLogs),
+    trackers: normalizeTrackers(state.trackers),
+  });
+}
+
 function mergeProfilesPreferRemote(
   localProfiles: Record<string, PersonGameProfile>,
   remoteProfiles: Record<string, PersonGameProfile>,
@@ -374,11 +465,50 @@ function mergeProfilesPreferRemote(
   return normalizeProfiles(merged, seedProfiles);
 }
 
+function mergeActivityPreferRemote(
+  localState: Pick<StoredState, 'mealLogs' | 'trackers'>,
+  remoteState: Pick<StoredState, 'mealLogs' | 'trackers'>,
+): Pick<StoredState, 'mealLogs' | 'trackers'> {
+  const mergedLogs = new Map<string, StoredMealLog>();
+  normalizeStoredMealLogs(localState.mealLogs).forEach((log) => {
+    mergedLogs.set(log.id, log);
+  });
+  normalizeStoredMealLogs(remoteState.mealLogs).forEach((log) => {
+    mergedLogs.set(log.id, log);
+  });
+
+  const mergedTrackers = normalizeTrackers(localState.trackers);
+  Object.entries(normalizeTrackers(remoteState.trackers)).forEach(([date, personTrackers]) => {
+    mergedTrackers[date] = {
+      ...(mergedTrackers[date] || {}),
+      ...personTrackers,
+    };
+  });
+
+  return {
+    mealLogs: Array.from(mergedLogs.values()).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
+    trackers: mergedTrackers,
+  };
+}
+
 async function loadRemoteProfiles(userId: string): Promise<Record<string, PersonGameProfile> | null> {
   const document = await loadProfileSettingsDocument(userId);
   const storedProfiles = getProfileSettingsValue(document, MACRO_GAME_PROFILES_SETTINGS_PATH);
   if (typeof storedProfiles === 'undefined') return null;
   return normalizeProfiles(storedProfiles, initialState().profiles);
+}
+
+async function loadRemoteActivity(
+  userId: string,
+): Promise<Pick<StoredState, 'mealLogs' | 'trackers'> | null> {
+  const document = await loadProfileSettingsDocument(userId);
+  const storedActivity = getProfileSettingsValue(document, MACRO_GAME_ACTIVITY_SETTINGS_PATH);
+  if (typeof storedActivity === 'undefined') return null;
+  const normalized = normalizeStoredState(storedActivity as Partial<StoredState>);
+  return {
+    mealLogs: normalized.mealLogs,
+    trackers: normalized.trackers,
+  };
 }
 
 async function persistProfilesToAccount(
@@ -389,6 +519,24 @@ async function persistProfilesToAccount(
   await updateProfileSettingsValue(userId, MACRO_GAME_PROFILES_SETTINGS_PATH, normalizedProfiles);
   if (currentStorageScopeUserId === userId) {
     lastPersistedProfilesSnapshot = serializeProfiles(normalizedProfiles);
+  }
+}
+
+async function persistActivityToAccount(
+  userId: string,
+  state: Pick<StoredState, 'mealLogs' | 'trackers'>,
+): Promise<void> {
+  const normalized = normalizeStoredState({
+    profiles: initialState().profiles,
+    mealLogs: state.mealLogs,
+    trackers: state.trackers,
+  });
+  await updateProfileSettingsValue(userId, MACRO_GAME_ACTIVITY_SETTINGS_PATH, {
+    mealLogs: normalized.mealLogs,
+    trackers: normalized.trackers,
+  });
+  if (currentStorageScopeUserId === userId) {
+    lastPersistedActivitySnapshot = serializeActivity(normalized);
   }
 }
 
@@ -412,6 +560,30 @@ function scheduleProfilesPersist(state: StoredState) {
     if (latestSnapshot === lastPersistedProfilesSnapshot) return;
     void persistProfilesToAccount(scopedUserId, latestState.profiles).catch((error) => {
       console.error('Failed to save dashboard profiles:', error);
+    });
+  }, 500);
+}
+
+function scheduleActivityPersist(state: StoredState) {
+  if (!currentStorageScopeUserId) return;
+  if (hydratedActivityScopeKey !== macroScopeKey(currentStorageScopeUserId)) return;
+
+  const snapshot = serializeActivity(state);
+  if (snapshot === lastPersistedActivitySnapshot) return;
+  if (typeof window === 'undefined') return;
+
+  if (activityPersistTimer !== null) {
+    window.clearTimeout(activityPersistTimer);
+  }
+
+  const scopedUserId = currentStorageScopeUserId;
+  activityPersistTimer = window.setTimeout(() => {
+    activityPersistTimer = null;
+    const latestState = readState(scopedUserId);
+    const latestSnapshot = serializeActivity(latestState);
+    if (latestSnapshot === lastPersistedActivitySnapshot) return;
+    void persistActivityToAccount(scopedUserId, latestState).catch((error) => {
+      console.error('Failed to save nutrition activity:', error);
     });
   }, 500);
 }
@@ -442,6 +614,7 @@ function writeState(
   window.localStorage.setItem(macroStateKey(scopedUserId), JSON.stringify(normalizeStoredState(state)));
   if (!options?.skipRemotePersist) {
     scheduleProfilesPersist(state);
+    scheduleActivityPersist(state);
   }
   dispatchMacroStateUpdated();
 }
@@ -496,26 +669,88 @@ export async function hydrateMacroGameProfilesFromAccount(userId?: string | null
   }
 }
 
+export async function hydrateMacroGameActivityFromAccount(userId?: string | null): Promise<void> {
+  if (!userId) return;
+
+  const scopeKey = macroScopeKey(userId);
+  const hydrationToken = ++activityHydrationToken;
+  const localState = readState(userId);
+  const localSnapshot = serializeActivity(localState);
+
+  try {
+    const remoteActivity = await loadRemoteActivity(userId);
+    if (activityHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+
+    const currentState = readState(userId);
+    const currentSnapshot = serializeActivity(currentState);
+    const localChangedDuringLoad = currentSnapshot !== localSnapshot;
+
+    let nextActivity: Pick<StoredState, 'mealLogs' | 'trackers'> = {
+      mealLogs: currentState.mealLogs,
+      trackers: currentState.trackers,
+    };
+    let nextSnapshot = currentSnapshot;
+
+    if (localChangedDuringLoad) {
+      await persistActivityToAccount(userId, nextActivity);
+    } else if (remoteActivity) {
+      nextActivity = mergeActivityPreferRemote(currentState, remoteActivity);
+      nextSnapshot = serializeActivity(nextActivity);
+      if (nextSnapshot !== currentSnapshot) {
+        writeState({ ...currentState, ...nextActivity }, { userId, skipRemotePersist: true });
+      }
+      if (nextSnapshot !== serializeActivity(remoteActivity)) {
+        await persistActivityToAccount(userId, nextActivity);
+      } else {
+        lastPersistedActivitySnapshot = nextSnapshot;
+      }
+    } else {
+      await persistActivityToAccount(userId, nextActivity);
+    }
+
+    if (activityHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+
+    hydratedActivityScopeKey = scopeKey;
+    lastPersistedActivitySnapshot = nextSnapshot;
+    dispatchMacroStateUpdated();
+  } catch (error) {
+    console.error('Failed to hydrate nutrition activity:', error);
+    if (activityHydrationToken !== hydrationToken || currentStorageScopeUserId !== userId) return;
+    hydratedActivityScopeKey = scopeKey;
+    lastPersistedActivitySnapshot = null;
+    dispatchMacroStateUpdated();
+  }
+}
+
 export function setMacroGameStorageScope(userId?: string | null) {
   currentStorageScopeUserId = userId || null;
   hydratedProfilesScopeKey = null;
+  hydratedActivityScopeKey = null;
 
   if (typeof window !== 'undefined' && profilePersistTimer !== null) {
     window.clearTimeout(profilePersistTimer);
     profilePersistTimer = null;
   }
+  if (typeof window !== 'undefined' && activityPersistTimer !== null) {
+    window.clearTimeout(activityPersistTimer);
+    activityPersistTimer = null;
+  }
 
   const state = readState(currentStorageScopeUserId);
   if (!currentStorageScopeUserId) {
     hydratedProfilesScopeKey = macroScopeKey(null);
+    hydratedActivityScopeKey = macroScopeKey(null);
     lastPersistedProfilesSnapshot = serializeProfiles(state.profiles);
+    lastPersistedActivitySnapshot = serializeActivity(state);
     dispatchMacroStateUpdated();
     return;
   }
 
   lastPersistedProfilesSnapshot = null;
+  lastPersistedActivitySnapshot = null;
   dispatchMacroStateUpdated();
   void hydrateMacroGameProfilesFromAccount(currentStorageScopeUserId);
+  void hydrateMacroGameActivityFromAccount(currentStorageScopeUserId);
 }
 
 function dayKey(date = new Date()) {

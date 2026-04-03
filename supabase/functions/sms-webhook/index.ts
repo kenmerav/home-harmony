@@ -45,6 +45,93 @@ type PlannedMealRow = {
   is_locked: boolean | null;
 };
 
+type MacroProfile = {
+  id: string;
+  name: string;
+  memberType?: string;
+};
+
+type MacroMealLog = {
+  id: string;
+  recipeId?: string;
+  recipeName: string;
+  date: string;
+  person: string;
+  servings: number;
+  macros: {
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g?: number;
+  };
+  isQuickAdd: boolean;
+  createdAt: string;
+};
+
+type MacroDayTracker = {
+  waterOz: number;
+  alcoholDrinks: number;
+};
+
+type MacroActivityState = {
+  mealLogs: MacroMealLog[];
+  trackers: Record<string, Record<string, MacroDayTracker>>;
+};
+
+type GroceryManualItem = {
+  id: string;
+  name: string;
+  quantity: string;
+  category: "produce" | "meat" | "dairy" | "pantry" | "other";
+  createdAt: string;
+};
+
+type GroceryWeekState = {
+  checkedKeys: string[];
+  manualItems: GroceryManualItem[];
+};
+
+type StoredGroceryListState = {
+  recurringItems: GroceryManualItem[];
+  weekStates: Record<string, GroceryWeekState>;
+};
+
+type CalendarAddIntent = {
+  title: string;
+  layer: string;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+};
+
+type GroceryAddIntent = {
+  name: string;
+  quantity: string;
+  weekly: boolean;
+};
+
+type WaterLogIntent = {
+  personName: string;
+  ounces: number;
+};
+
+type MealLogIntent = {
+  personName: string;
+  recipeName: string;
+  servings: number;
+};
+
+type RecipeLookupRow = {
+  id: string;
+  name: string;
+  calories: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  fiber_g: number | null;
+};
+
 const MEAL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 type MealDay = (typeof MEAL_DAYS)[number];
 
@@ -140,6 +227,24 @@ function normalizeToken(value: string): string {
   return value.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeEntityName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function trimTrailingPunctuation(value: string): string {
+  return value.trim().replace(/[.!?,;:]+$/g, "").trim();
+}
+
 function isMealDay(value: string | null | undefined): value is MealDay {
   if (!value) return false;
   return MEAL_DAYS.includes(String(value).toLowerCase() as MealDay);
@@ -209,6 +314,613 @@ function randomRecipe(
     return fallbackPool[Math.floor(Math.random() * fallbackPool.length)] || null;
   }
   return recipes[0] || null;
+}
+
+function getDocumentValue(document: Record<string, unknown>, path: string[]): unknown {
+  let current: unknown = document;
+  for (const segment of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function setDocumentValue(document: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
+  if (path.length === 0) {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? { ...(value as Record<string, unknown>) }
+      : {};
+  }
+
+  const next = { ...document };
+  let cursor = next as Record<string, unknown>;
+
+  path.forEach((segment, index) => {
+    const isLeaf = index === path.length - 1;
+    if (isLeaf) {
+      cursor[segment] = value;
+      return;
+    }
+    const existing = cursor[segment];
+    const nested =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    cursor[segment] = nested;
+    cursor = nested;
+  });
+
+  return next;
+}
+
+async function loadProfileSettingsDocument(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("onboarding_settings")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const raw = data?.onboarding_settings;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  return { ...(raw as Record<string, unknown>) };
+}
+
+async function saveProfileSettingsDocument(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  document: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ onboarding_settings: document })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+function macroProfilesFromDocument(document: Record<string, unknown>): MacroProfile[] {
+  const raw = getDocumentValue(document, ["appPreferences", "macroGame", "profiles"]);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+
+  return Object.entries(raw as Record<string, unknown>)
+    .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value))
+    .map(([id, value]) => {
+      const row = value as Record<string, unknown>;
+      return {
+        id,
+        name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : titleCaseWords(id),
+        memberType: typeof row.memberType === "string" ? row.memberType : undefined,
+      };
+    });
+}
+
+function normalizeMacroActivityState(input: unknown): MacroActivityState {
+  const record = input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {};
+
+  const mealLogs = Array.isArray(record.mealLogs)
+    ? record.mealLogs
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+        .map((item) => ({
+          id: typeof item.id === "string" && item.id.trim() ? item.id.trim() : crypto.randomUUID(),
+          recipeId: typeof item.recipeId === "string" && item.recipeId.trim() ? item.recipeId.trim() : undefined,
+          recipeName: typeof item.recipeName === "string" && item.recipeName.trim() ? item.recipeName.trim() : "Meal",
+          date: typeof item.date === "string" && item.date.trim() ? item.date.trim() : "",
+          person: typeof item.person === "string" && item.person.trim() ? item.person.trim() : "me",
+          servings: Number.isFinite(Number(item.servings)) && Number(item.servings) > 0 ? Number(item.servings) : 1,
+          macros: {
+            calories: Number.isFinite(Number((item.macros as Record<string, unknown> | undefined)?.calories))
+              ? Math.max(0, Number((item.macros as Record<string, unknown>).calories))
+              : 0,
+            protein_g: Number.isFinite(Number((item.macros as Record<string, unknown> | undefined)?.protein_g))
+              ? Math.max(0, Number((item.macros as Record<string, unknown>).protein_g))
+              : 0,
+            carbs_g: Number.isFinite(Number((item.macros as Record<string, unknown> | undefined)?.carbs_g))
+              ? Math.max(0, Number((item.macros as Record<string, unknown>).carbs_g))
+              : 0,
+            fat_g: Number.isFinite(Number((item.macros as Record<string, unknown> | undefined)?.fat_g))
+              ? Math.max(0, Number((item.macros as Record<string, unknown>).fat_g))
+              : 0,
+          },
+          isQuickAdd: !!item.isQuickAdd,
+          createdAt:
+            typeof item.createdAt === "string" && item.createdAt.trim()
+              ? item.createdAt.trim()
+              : new Date().toISOString(),
+        }))
+    : [];
+
+  const trackersInput = record.trackers && typeof record.trackers === "object" && !Array.isArray(record.trackers)
+    ? (record.trackers as Record<string, unknown>)
+    : {};
+
+  const trackers = Object.entries(trackersInput).reduce<Record<string, Record<string, MacroDayTracker>>>(
+    (dates, [dateKey, trackerValue]) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !trackerValue || typeof trackerValue !== "object" || Array.isArray(trackerValue)) {
+        return dates;
+      }
+      const people = Object.entries(trackerValue as Record<string, unknown>).reduce<Record<string, MacroDayTracker>>(
+        (nextPeople, [personId, stats]) => {
+          if (!stats || typeof stats !== "object" || Array.isArray(stats) || !personId.trim()) return nextPeople;
+          const statRecord = stats as Record<string, unknown>;
+          nextPeople[personId] = {
+            waterOz: Number.isFinite(Number(statRecord.waterOz)) ? Math.max(0, Number(statRecord.waterOz)) : 0,
+            alcoholDrinks:
+              Number.isFinite(Number(statRecord.alcoholDrinks))
+                ? Math.max(0, Number(statRecord.alcoholDrinks))
+                : 0,
+          };
+          return nextPeople;
+        },
+        {},
+      );
+      if (Object.keys(people).length > 0) {
+        dates[dateKey] = people;
+      }
+      return dates;
+    },
+    {},
+  );
+
+  return { mealLogs, trackers };
+}
+
+function normalizeGroceryState(input: unknown): StoredGroceryListState {
+  const record = input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {};
+
+  const normalizeItem = (item: unknown): GroceryManualItem | null => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const row = item as Record<string, unknown>;
+    const name = typeof row.name === "string" ? row.name.trim().replace(/\s+/g, " ") : "";
+    if (!name) return null;
+    const category = typeof row.category === "string" ? row.category : "other";
+    return {
+      id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(),
+      name,
+      quantity:
+        typeof row.quantity === "string" && row.quantity.trim()
+          ? row.quantity.trim().replace(/\s+/g, " ")
+          : "1x",
+      category:
+        category === "produce" || category === "meat" || category === "dairy" || category === "pantry"
+          ? category
+          : "other",
+      createdAt:
+        typeof row.createdAt === "string" && row.createdAt.trim()
+          ? row.createdAt.trim()
+          : new Date().toISOString(),
+    };
+  };
+
+  const recurringItems = Array.isArray(record.recurringItems)
+    ? record.recurringItems.map((item) => normalizeItem(item)).filter((item): item is GroceryManualItem => !!item)
+    : [];
+
+  const weekStatesInput = record.weekStates && typeof record.weekStates === "object" && !Array.isArray(record.weekStates)
+    ? (record.weekStates as Record<string, unknown>)
+    : {};
+
+  const weekStates = Object.entries(weekStatesInput).reduce<Record<string, GroceryWeekState>>((weeks, [weekKey, value]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey) || !value || typeof value !== "object" || Array.isArray(value)) {
+      return weeks;
+    }
+    const row = value as Record<string, unknown>;
+    const manualItems = Array.isArray(row.manualItems)
+      ? row.manualItems.map((item) => normalizeItem(item)).filter((item): item is GroceryManualItem => !!item)
+      : [];
+    const checkedKeys = Array.isArray(row.checkedKeys)
+      ? [...new Set(row.checkedKeys.filter((item): item is string => typeof item === "string" && item.trim()).map((item) => item.trim()))]
+      : [];
+    weeks[weekKey] = {
+      checkedKeys,
+      manualItems,
+    };
+    return weeks;
+  }, {});
+
+  return {
+    recurringItems,
+    weekStates,
+  };
+}
+
+function startOfWeekIso(localDate: DateTime): string {
+  return localDate.minus({ days: localDate.weekday - 1 }).toISODate() || "";
+}
+
+function guessGroceryCategory(name: string): GroceryManualItem["category"] {
+  const lower = name.toLowerCase();
+  const produce = ["lettuce", "tomato", "onion", "garlic", "pepper", "broccoli", "carrot", "potato", "lemon", "lime", "mushroom", "spinach", "cucumber", "avocado", "zucchini"];
+  const meat = ["chicken", "beef", "pork", "salmon", "fish", "steak", "sausage", "turkey", "shrimp", "bacon"];
+  const dairy = ["cheese", "milk", "cream", "butter", "yogurt", "egg"];
+  const pantry = ["sauce", "oil", "salt", "pepper", "seasoning", "flour", "sugar", "rice", "pasta", "soy", "honey", "vinegar", "broth", "stock"];
+  if (produce.some((item) => lower.includes(item))) return "produce";
+  if (meat.some((item) => lower.includes(item))) return "meat";
+  if (dairy.some((item) => lower.includes(item))) return "dairy";
+  if (pantry.some((item) => lower.includes(item))) return "pantry";
+  return "other";
+}
+
+function parseUsDate(dateText: string, timezone: string): DateTime | null {
+  const normalized = trimTrailingPunctuation(dateText).toLowerCase();
+  const now = DateTime.now().setZone(timezone);
+
+  if (normalized === "today") return now.startOf("day");
+  if (normalized === "tomorrow") return now.plus({ days: 1 }).startOf("day");
+
+  const mdMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (mdMatch) {
+    const month = Number.parseInt(mdMatch[1] || "", 10);
+    const day = Number.parseInt(mdMatch[2] || "", 10);
+    const yearRaw = mdMatch[3];
+    const year = yearRaw
+      ? Number.parseInt(yearRaw.length === 2 ? `20${yearRaw}` : yearRaw, 10)
+      : now.year;
+    let parsed = DateTime.fromObject({ year, month, day }, { zone: timezone }).startOf("day");
+    if (!parsed.isValid) return null;
+    if (!yearRaw && parsed < now.startOf("day")) {
+      parsed = parsed.plus({ years: 1 });
+    }
+    return parsed;
+  }
+
+  const natural = DateTime.fromFormat(normalized, "LLLL d", { zone: timezone });
+  if (natural.isValid) {
+    let parsed = natural.set({ year: now.year }).startOf("day");
+    if (parsed < now.startOf("day")) {
+      parsed = parsed.plus({ years: 1 });
+    }
+    return parsed;
+  }
+
+  return null;
+}
+
+function parseTimeForZone(timeText: string, date: DateTime, timezone: string): DateTime | null {
+  const normalized = trimTrailingPunctuation(timeText).toLowerCase().replace(/\./g, "");
+  const formats = ["h:mm a", "h a", "h:mma", "ha", "H:mm", "H"];
+
+  for (const format of formats) {
+    const parsed = DateTime.fromFormat(normalized, format, { zone: timezone });
+    if (!parsed.isValid) continue;
+    return date.set({ hour: parsed.hour, minute: parsed.minute, second: 0, millisecond: 0 });
+  }
+
+  return null;
+}
+
+function normalizeCalendarLayerName(value: string): string {
+  const trimmed = trimTrailingPunctuation(value).replace(/\s+/g, " ");
+  const normalized = trimmed.toLowerCase();
+  if (!trimmed) return "family";
+  if (normalized === "family" || normalized === "manual") return "family";
+  return titleCaseWords(trimmed);
+}
+
+function parseCalendarAddIntent(body: string, timezone: string): CalendarAddIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const patterns = [
+    /^add\s+(.+?)\s+for\s+(.+?)\s+at\s+(.+?)\s+on\s+(.+)$/i,
+    /^add\s+(.+?)\s+for\s+(.+?)\s+on\s+(.+?)\s+at\s+(.+)$/i,
+    /^add\s+(.+?)\s+for\s+(.+?)\s+(today|tomorrow)\s+at\s+(.+)$/i,
+    /^add\s+(.+?)\s+for\s+(.+?)\s+on\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    const title = trimTrailingPunctuation(match[1] || "");
+    const layer = normalizeCalendarLayerName(match[2] || "");
+    const third = trimTrailingPunctuation(match[3] || "");
+    const fourth = trimTrailingPunctuation(match[4] || "");
+    if (!title || !layer) return null;
+
+    let dateText = third;
+    let timeText = fourth;
+    if (pattern === patterns[0] || pattern === patterns[2]) {
+      dateText = fourth;
+      timeText = third;
+    }
+
+    const date = parseUsDate(dateText, timezone);
+    if (!date) return null;
+
+    if (!timeText) {
+      const allDayStart = date.set({ hour: 12, minute: 0, second: 0, millisecond: 0 });
+      return {
+        title,
+        layer,
+        startsAt: allDayStart.toUTC().toISO() || "",
+        endsAt: null,
+        allDay: true,
+      };
+    }
+
+    const startsAt = parseTimeForZone(timeText, date, timezone);
+    if (!startsAt) return null;
+    return {
+      title,
+      layer,
+      startsAt: startsAt.toUTC().toISO() || "",
+      endsAt: startsAt.plus({ hours: 1 }).toUTC().toISO() || null,
+      allDay: false,
+    };
+  }
+
+  return null;
+}
+
+function parseGroceryAddIntent(body: string): GroceryAddIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  if (!/^add\s+/i.test(normalized) || !/\bto\s+(?:the\s+)?grocery(?:\s+list)?\b/i.test(normalized)) {
+    return null;
+  }
+
+  const weekly = /\b(?:every week|weekly)\b/i.test(normalized);
+  const name = normalized
+    .replace(/^add\s+/i, "")
+    .replace(/\b(?:every week|weekly)\b/gi, "")
+    .replace(/\s+to\s+(?:the\s+)?grocery(?:\s+list)?$/i, "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!name) return null;
+  return {
+    name,
+    quantity: "1x",
+    weekly,
+  };
+}
+
+function parseWaterLogIntent(body: string): WaterLogIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const patterns = [
+    /^add\s+water\s+log\s+to\s+(.+?)\s+drank\s+(\d+(?:\.\d+)?)\s*oz$/i,
+    /^log\s+(\d+(?:\.\d+)?)\s*oz\s+water\s+for\s+(.+)$/i,
+    /^(.+?)\s+drank\s+(\d+(?:\.\d+)?)\s*oz\s+water$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    if (pattern === patterns[1]) {
+      return {
+        personName: trimTrailingPunctuation(match[2] || ""),
+        ounces: Math.max(1, Math.round(Number(match[1]))),
+      };
+    }
+    return {
+      personName: trimTrailingPunctuation(match[1] || ""),
+      ounces: Math.max(1, Math.round(Number(match[2]))),
+    };
+  }
+
+  return null;
+}
+
+function parseMealLogIntent(body: string): MealLogIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const explicitServings = normalized.match(/^log\s+(\d+(?:\.\d+)?)\s+servings?\s+of\s+(.+?)\s+for\s+(.+)$/i);
+  if (explicitServings) {
+    return {
+      servings: Math.max(0.25, Number(explicitServings[1])),
+      recipeName: trimTrailingPunctuation(explicitServings[2] || ""),
+      personName: trimTrailingPunctuation(explicitServings[3] || ""),
+    };
+  }
+
+  const xServings = normalized.match(/^log\s+(.+?)\s+x(\d+(?:\.\d+)?)\s+for\s+(.+)$/i);
+  if (xServings) {
+    return {
+      servings: Math.max(0.25, Number(xServings[2])),
+      recipeName: trimTrailingPunctuation(xServings[1] || ""),
+      personName: trimTrailingPunctuation(xServings[3] || ""),
+    };
+  }
+
+  const basic = normalized.match(/^log\s+(.+?)\s+for\s+(.+)$/i);
+  if (!basic) return null;
+
+  return {
+    servings: 1,
+    recipeName: trimTrailingPunctuation(basic[1] || ""),
+    personName: trimTrailingPunctuation(basic[2] || ""),
+  };
+}
+
+function resolvePersonByName(
+  profiles: MacroProfile[],
+  requestedName: string,
+): MacroProfile | null {
+  const normalized = normalizeEntityName(requestedName);
+  if (!normalized) return null;
+
+  const direct = profiles.find((profile) => normalizeEntityName(profile.name) === normalized || normalizeEntityName(profile.id) === normalized);
+  if (direct) return direct;
+
+  const fuzzy = profiles.filter((profile) => {
+    const profileName = normalizeEntityName(profile.name);
+    const profileId = normalizeEntityName(profile.id);
+    return profileName.includes(normalized) || normalized.includes(profileName) || profileId.includes(normalized);
+  });
+
+  return fuzzy.length === 1 ? fuzzy[0] : null;
+}
+
+async function addCalendarEventBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: CalendarAddIntent,
+): Promise<string> {
+  const payload: Record<string, unknown> = {
+    id: crypto.randomUUID(),
+    owner_id: userId,
+    title: intent.title,
+    description: null,
+    location_text: null,
+    event_reminder_enabled: false,
+    event_reminder_lead_minutes: 0,
+    travel_from_address: null,
+    travel_mode: "driving",
+    travel_duration_minutes: null,
+    traffic_duration_minutes: null,
+    leave_by: null,
+    leave_reminder_enabled: false,
+    leave_reminder_lead_minutes: 10,
+    starts_at: intent.startsAt,
+    ends_at: intent.endsAt,
+    all_day: intent.allDay,
+    module: "manual",
+    source: "manual",
+    calendar_layer: intent.layer,
+    timezone_name: timezone,
+    recurrence_rule: null,
+    is_deleted: false,
+    deleted_at: null,
+  };
+
+  const { error } = await supabase.from("calendar_events").insert(payload);
+  if (error) throw error;
+
+  const localStart = DateTime.fromISO(intent.startsAt, { zone: "utc" }).setZone(timezone);
+  const whenText = intent.allDay ? localStart.toFormat("LLL d") : localStart.toFormat("LLL d 'at' h:mm a");
+  return `Added ${intent.title} to ${intent.layer} for ${whenText}.`;
+}
+
+async function addGroceryItemBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: GroceryAddIntent,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const item: GroceryManualItem = {
+    id: crypto.randomUUID(),
+    name: intent.name,
+    quantity: intent.quantity,
+    category: guessGroceryCategory(intent.name),
+    createdAt: new Date().toISOString(),
+  };
+
+  if (intent.weekly) {
+    groceryState.recurringItems = [...groceryState.recurringItems, item];
+  } else {
+    const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+    const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [] };
+    groceryState.weekStates[weekOf] = {
+      ...currentWeek,
+      manualItems: [...currentWeek.manualItems, item],
+    };
+  }
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "groceryList"], groceryState);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+
+  return intent.weekly
+    ? `${intent.name} will now show up on your grocery list every week.`
+    : `${intent.name} is now on this week’s grocery list.`;
+}
+
+async function addWaterLogBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  personId: string,
+  ounces: number,
+): Promise<void> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const dateKey = DateTime.now().setZone(timezone).toISODate() || "";
+  const dayTrackers = activity.trackers[dateKey] || {};
+  const current = dayTrackers[personId] || { waterOz: 0, alcoholDrinks: 0 };
+  activity.trackers[dateKey] = {
+    ...dayTrackers,
+    [personId]: {
+      ...current,
+      waterOz: Math.max(0, current.waterOz + ounces),
+    },
+  };
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], activity);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+}
+
+async function addMealLogBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  personId: string,
+  recipe: RecipeLookupRow,
+  servings: number,
+): Promise<void> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const dateKey = DateTime.now().setZone(timezone).toISODate() || "";
+  activity.mealLogs.push({
+    id: crypto.randomUUID(),
+    recipeId: recipe.id,
+    recipeName: recipe.name,
+    date: dateKey,
+    person: personId,
+    servings,
+    macros: {
+      calories: Math.round((recipe.calories || 0) * servings),
+      protein_g: Math.round((recipe.protein_g || 0) * servings),
+      carbs_g: Math.round((recipe.carbs_g || 0) * servings),
+      fat_g: Math.round((recipe.fat_g || 0) * servings),
+      ...(Number.isFinite(Number(recipe.fiber_g)) ? { fiber_g: Math.round(Number(recipe.fiber_g || 0) * servings) } : {}),
+    },
+    isQuickAdd: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], activity);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+}
+
+async function findRecipeForMealLog(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  recipeName: string,
+): Promise<{ recipe: RecipeLookupRow | null; ambiguousMatches: string[] }> {
+  const { data, error } = await supabase
+    .from("recipes")
+    .select("id,name,calories,protein_g,carbs_g,fat_g,fiber_g")
+    .eq("owner_id", userId);
+  if (error) throw error;
+
+  const recipes = (data || []) as RecipeLookupRow[];
+  const normalizedQuery = normalizeToken(recipeName);
+  if (!normalizedQuery) return { recipe: null, ambiguousMatches: [] };
+
+  const exact = recipes.filter((recipe) => normalizeToken(recipe.name) === normalizedQuery);
+  if (exact.length === 1) return { recipe: exact[0], ambiguousMatches: [] };
+  if (exact.length > 1) return { recipe: null, ambiguousMatches: exact.slice(0, 3).map((item) => item.name) };
+
+  const contains = recipes.filter((recipe) => normalizeToken(recipe.name).includes(normalizedQuery));
+  if (contains.length === 1) return { recipe: contains[0], ambiguousMatches: [] };
+  if (contains.length > 1) return { recipe: null, ambiguousMatches: contains.slice(0, 3).map((item) => item.name) };
+
+  const reverseContains = recipes.filter((recipe) => normalizedQuery.includes(normalizeToken(recipe.name)));
+  if (reverseContains.length === 1) return { recipe: reverseContains[0], ambiguousMatches: [] };
+  if (reverseContains.length > 1) {
+    return { recipe: null, ambiguousMatches: reverseContains.slice(0, 3).map((item) => item.name) };
+  }
+
+  return { recipe: null, ambiguousMatches: [] };
 }
 
 async function generateMealsForWeekBySms(
@@ -603,7 +1315,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- What do I have tomorrow?\n- What do I have next week?\n- What meals do we have this week?\n- What meals next week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -612,6 +1324,53 @@ serve(async (req) => {
       ? pref.include_modules.map((value: unknown) => String(value).toLowerCase())
       : ["meals", "manual"];
     const preferredDinnerTime = String(pref.preferred_dinner_time || "18:00").slice(0, 5);
+
+    const waterIntent = parseWaterLogIntent(body);
+    if (waterIntent) {
+      const document = await loadProfileSettingsDocument(supabase, pref.user_id);
+      const profiles = macroProfilesFromDocument(document);
+      const person = resolvePersonByName(profiles, waterIntent.personName);
+      if (!person) {
+        return twiml(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+      }
+
+      await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, waterIntent.ounces);
+      return twiml(`Logged ${waterIntent.ounces} oz of water for ${person.name}.`);
+    }
+
+    const mealLogIntent = parseMealLogIntent(body);
+    if (mealLogIntent) {
+      const document = await loadProfileSettingsDocument(supabase, pref.user_id);
+      const profiles = macroProfilesFromDocument(document);
+      const person = resolvePersonByName(profiles, mealLogIntent.personName);
+      if (!person) {
+        return twiml(`I couldn't find ${mealLogIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+      }
+
+      const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
+      if (!recipe && ambiguousMatches.length > 0) {
+        return twiml(`I found a few recipes that could match: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
+      }
+      if (!recipe) {
+        return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
+      }
+
+      await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
+      const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
+      return twiml(`Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`);
+    }
+
+    const groceryIntent = parseGroceryAddIntent(body);
+    if (groceryIntent) {
+      const reply = await addGroceryItemBySms(supabase, pref.user_id, timezone, groceryIntent);
+      return twiml(reply);
+    }
+
+    const calendarIntent = parseCalendarAddIntent(body, timezone);
+    if (calendarIntent) {
+      const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
+      return twiml(reply);
+    }
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
     const wantsToday = hasAnyKeyword(body, ["today"]);
