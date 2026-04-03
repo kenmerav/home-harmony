@@ -1496,7 +1496,8 @@ serve(async (req) => {
         return twiml(reply);
       } catch (error) {
         console.error("sms calendar add failed:", error);
-        return twiml("I could not add that calendar event right now. Please check the date and time format and try again.");
+        const detail = error instanceof Error ? error.message : "unknown error";
+        return twiml(`I could not add that calendar event right now: ${detail}`);
       }
     }
 
@@ -1589,6 +1590,7 @@ serve(async (req) => {
     return twiml("I didn't catch that. Reply HELP for examples.");
   } catch (error) {
     console.error("sms-webhook error:", error);
-    return twiml("I hit an error while processing that text. Please try again in a moment.");
+    const detail = error instanceof Error ? error.message : "unknown error";
+    return twiml(`I hit an error while processing that text: ${detail}`);
   }
 });
