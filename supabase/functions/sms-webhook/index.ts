@@ -14,6 +14,24 @@ function twiml(message: string, status = 200) {
   });
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const details = typeof record.details === "string" ? record.details.trim() : "";
+    const hint = typeof record.hint === "string" ? record.hint.trim() : "";
+    const pieces = [message, details, hint].filter(Boolean);
+    if (pieces.length > 0) return pieces.join(" | ");
+    try {
+      return JSON.stringify(record);
+    } catch {
+      return "unknown error";
+    }
+  }
+  return typeof error === "string" && error.trim() ? error.trim() : "unknown error";
+}
+
 function normalizeKeyword(input: string): string {
   return input.trim().toLowerCase();
 }
@@ -1496,7 +1514,7 @@ serve(async (req) => {
         return twiml(reply);
       } catch (error) {
         console.error("sms calendar add failed:", error);
-        const detail = error instanceof Error ? error.message : "unknown error";
+        const detail = describeUnknownError(error);
         return twiml(`I could not add that calendar event right now: ${detail}`);
       }
     }
@@ -1590,7 +1608,7 @@ serve(async (req) => {
     return twiml("I didn't catch that. Reply HELP for examples.");
   } catch (error) {
     console.error("sms-webhook error:", error);
-    const detail = error instanceof Error ? error.message : "unknown error";
+    const detail = describeUnknownError(error);
     return twiml(`I hit an error while processing that text: ${detail}`);
   }
 });
