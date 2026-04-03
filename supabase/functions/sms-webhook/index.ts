@@ -819,12 +819,64 @@ async function addCalendarEventBySms(
     deleted_at: null,
   };
 
-  const { error } = await supabase.from("calendar_events").insert(payload);
-  if (error) throw error;
+  const payloadVariants: Record<string, unknown>[] = [
+    payload,
+    (() => {
+      const {
+        location_text: _locationText,
+        event_reminder_enabled: _eventReminderEnabled,
+        event_reminder_lead_minutes: _eventReminderLeadMinutes,
+        travel_from_address: _travelFromAddress,
+        travel_mode: _travelMode,
+        travel_duration_minutes: _travelDurationMinutes,
+        traffic_duration_minutes: _trafficDurationMinutes,
+        leave_by: _leaveBy,
+        leave_reminder_enabled: _leaveReminderEnabled,
+        leave_reminder_lead_minutes: _leaveReminderLeadMinutes,
+        recurrence_rule: _recurrenceRule,
+        deleted_at: _deletedAt,
+        ...legacyPayload
+      } = payload;
+      return legacyPayload;
+    })(),
+    (() => {
+      const {
+        calendar_layer: _calendarLayer,
+        timezone_name: _timezoneName,
+        is_deleted: _isDeleted,
+        ...basePayload
+      } = payload;
+      const {
+        location_text: _locationText,
+        event_reminder_enabled: _eventReminderEnabled,
+        event_reminder_lead_minutes: _eventReminderLeadMinutes,
+        travel_from_address: _travelFromAddress,
+        travel_mode: _travelMode,
+        travel_duration_minutes: _travelDurationMinutes,
+        traffic_duration_minutes: _trafficDurationMinutes,
+        leave_by: _leaveBy,
+        leave_reminder_enabled: _leaveReminderEnabled,
+        leave_reminder_lead_minutes: _leaveReminderLeadMinutes,
+        recurrence_rule: _recurrenceRule,
+        deleted_at: _deletedAt,
+        ...oldestPayload
+      } = basePayload;
+      return oldestPayload;
+    })(),
+  ];
 
-  const localStart = DateTime.fromISO(intent.startsAt, { zone: "utc" }).setZone(timezone);
-  const whenText = intent.allDay ? localStart.toFormat("LLL d") : localStart.toFormat("LLL d 'at' h:mm a");
-  return `Added ${intent.title} to ${intent.layer} for ${whenText}.`;
+  let lastError: unknown = null;
+  for (const candidate of payloadVariants) {
+    const { error } = await supabase.from("calendar_events").insert(candidate);
+    if (!error) {
+      const localStart = DateTime.fromISO(intent.startsAt, { zone: "utc" }).setZone(timezone);
+      const whenText = intent.allDay ? localStart.toFormat("LLL d") : localStart.toFormat("LLL d 'at' h:mm a");
+      return `Added ${intent.title} to ${intent.layer} for ${whenText}.`;
+    }
+    lastError = error;
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Could not save calendar event.");
 }
 
 async function addGroceryItemBySms(
