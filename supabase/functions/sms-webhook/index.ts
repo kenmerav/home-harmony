@@ -724,7 +724,8 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     if (!match) continue;
 
     const title = trimTrailingPunctuation(match[1] || "");
-    const layer = normalizeCalendarLayerName(match[2] || "");
+    const rawLayer = trimTrailingPunctuation(match[2] || "");
+    let layer = normalizeCalendarLayerName(rawLayer);
     const third = trimTrailingPunctuation(match[3] || "");
     const fourth = trimTrailingPunctuation(match[4] || "");
     if (!title || !layer) return null;
@@ -734,6 +735,20 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     if (pattern === patterns[0] || pattern === patterns[2]) {
       dateText = fourth;
       timeText = third;
+    }
+
+    if (pattern === patterns[3]) {
+      const layerWithTime = rawLayer.match(/^(.+?)\s+at\s+(.+)$/i);
+      if (layerWithTime) {
+        layer = normalizeCalendarLayerName(layerWithTime[1] || "");
+        timeText = trimTrailingPunctuation(layerWithTime[2] || "");
+      } else {
+        const dateWithTime = third.match(/^(.+?)\s+at\s+(.+)$/i);
+        if (dateWithTime) {
+          dateText = trimTrailingPunctuation(dateWithTime[1] || "");
+          timeText = trimTrailingPunctuation(dateWithTime[2] || "");
+        }
+      }
     }
 
     const date = parseUsDate(dateText, timezone);
