@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
-import { verifyTwilioSignature } from "../_shared/twilio.ts";
+import { normalizePhone, verifyTwilioSignature } from "../_shared/twilio.ts";
 
 function twiml(message: string, status = 200) {
   const escaped = message
@@ -132,6 +132,16 @@ type RecipeLookupRow = {
   fiber_g: number | null;
 };
 
+type InboundSmsPreferenceRow = {
+  user_id: string;
+  enabled: boolean;
+  timezone: string | null;
+  preferred_dinner_time: string | null;
+  include_modules: unknown;
+  module_recipients: Record<string, unknown> | null;
+  phone_e164: string | null;
+};
+
 const MEAL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 type MealDay = (typeof MEAL_DAYS)[number];
 
@@ -225,6 +235,24 @@ function formatRangeAgenda(label: string, grouped: Array<{ date: DateTime; event
 
 function normalizeToken(value: string): string {
   return value.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizePhoneList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .filter((item) => typeof item === "string")
+      .map((item) => normalizePhone(String(item || "")))
+      .filter((item) => item.length > 0),
+  )];
+}
+
+function normalizeRecipientMap(input: unknown): Record<string, string[]> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, string[]>>((map, [moduleName, recipients]) => {
+    map[moduleName] = normalizePhoneList(recipients);
+    return map;
+  }, {});
 }
 
 function normalizeEntityName(value: string): string {
@@ -923,6 +951,38 @@ async function findRecipeForMealLog(
   return { recipe: null, ambiguousMatches: [] };
 }
 
+async function findSmsPreferenceForInboundNumber(
+  supabase: ReturnType<typeof createClient>,
+  from: string,
+): Promise<InboundSmsPreferenceRow | null> {
+  const normalizedFrom = normalizePhone(from);
+  if (!normalizedFrom) return null;
+
+  const { data: directData, error: directError } = await supabase
+    .from("sms_preferences")
+    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164")
+    .eq("phone_e164", normalizedFrom)
+    .maybeSingle();
+  if (directError) throw directError;
+  if (directData) return directData as InboundSmsPreferenceRow;
+
+  const { data: candidates, error: candidateError } = await supabase
+    .from("sms_preferences")
+    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164")
+    .eq("enabled", true);
+  if (candidateError) throw candidateError;
+
+  const matches = ((candidates || []) as InboundSmsPreferenceRow[]).filter((row) => {
+    const primary = normalizePhone(String(row.phone_e164 || ""));
+    if (primary === normalizedFrom) return true;
+    const moduleRecipients = normalizeRecipientMap(row.module_recipients);
+    return Object.values(moduleRecipients).some((numbers) => numbers.includes(normalizedFrom));
+  });
+
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
 async function generateMealsForWeekBySms(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -1274,11 +1334,7 @@ serve(async (req) => {
 
     if (!from) return twiml("We could not identify your number.");
 
-    const { data: pref } = await supabase
-      .from("sms_preferences")
-      .select("user_id,enabled,timezone,preferred_dinner_time,include_modules")
-      .eq("phone_e164", from)
-      .maybeSingle();
+    const pref = await findSmsPreferenceForInboundNumber(supabase, from);
 
     if (!pref) {
       return twiml("This number is not linked to a Home Harmony account yet.");
