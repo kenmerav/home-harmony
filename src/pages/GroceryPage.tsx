@@ -79,6 +79,7 @@ interface ParsedIngredient {
 }
 
 const EXCLUDE_PREPPED_MEAL_PREP_KEY = 'homehub.grocery.exclude-prepped-meal-prep.v1';
+const GROCERY_SCROLL_POSITION_KEY = 'homehub.grocery.scroll-position.v1';
 
 function loadExcludePreppedMealPrepPreference(): boolean {
   if (typeof window === 'undefined') return true;
@@ -551,6 +552,28 @@ export default function GroceryPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.sessionStorage.getItem(GROCERY_SCROLL_POSITION_KEY);
+    if (!raw) return;
+    const scrollTop = Number.parseInt(raw, 10);
+    if (!Number.isFinite(scrollTop) || scrollTop < 0) return;
+
+    const restore = () => window.scrollTo({ top: scrollTop, behavior: 'auto' });
+    restore();
+    window.requestAnimationFrame(restore);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saveScrollPosition = () => {
+      window.sessionStorage.setItem(GROCERY_SCROLL_POSITION_KEY, String(window.scrollY || 0));
+    };
+
+    window.addEventListener('pagehide', saveScrollPosition);
+    return () => window.removeEventListener('pagehide', saveScrollPosition);
+  }, []);
+
   const loadGroceryList = async () => {
     try {
       setLoading(true);
@@ -794,7 +817,13 @@ export default function GroceryPage() {
     });
   };
 
+  const saveGroceryScrollPosition = () => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(GROCERY_SCROLL_POSITION_KEY, String(window.scrollY || 0));
+  };
+
   const openStoreSearch = (itemName: string) => {
+    saveGroceryScrollPosition();
     const storeId = getStoreIdForItem(itemName);
     window.open(buildStoreSearchUrl(storeId, itemName), '_blank');
   };
@@ -1000,7 +1029,10 @@ export default function GroceryPage() {
                       key={store.id}
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank')}
+                      onClick={() => {
+                        saveGroceryScrollPosition();
+                        window.open(buildWeeklyAdUrl(store.id, weeklyAdZip), '_blank');
+                      }}
                     >
                       {store.label} ad
                       <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
