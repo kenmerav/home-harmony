@@ -490,6 +490,7 @@ export default function GroceryPage() {
   const [loading, setLoading] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [walmartOpen, setWalmartOpen] = useState(false);
   const [preferredStoreId, setPreferredStoreIdState] = useState('walmart');
   const [itemStoreOverrides, setItemStoreOverrides] = useState<Record<string, string>>({});
   const [orderReminder, setOrderReminder] = useState<GroceryOrderReminderSettings>({
@@ -780,10 +781,13 @@ export default function GroceryPage() {
 
   const checkedCount = items.filter(i => i.isChecked).length;
   const totalCount = items.length;
+  const remainingItems = useMemo(() => items.filter((item) => !item.isChecked), [items]);
+
+  const getStoreLabel = (storeId: string) =>
+    GROCERY_STORES.find((store) => store.id === storeId)?.label || 'Walmart';
 
   const copyList = () => {
-    const uncheckedItems = items
-      .filter(i => !i.isChecked)
+    const uncheckedItems = remainingItems
       .map(i => `${i.name} (${i.quantity})`)
       .join('\n');
     
@@ -794,9 +798,44 @@ export default function GroceryPage() {
     });
   };
 
+  const copyWalmartChecklist = () => {
+    const checklist = remainingItems
+      .map((item) => `${item.name}${item.quantity ? ` (${item.quantity})` : ''}`)
+      .join('\n');
+
+    navigator.clipboard.writeText(checklist);
+    toast({
+      title: 'Walmart checklist copied',
+      description: `${remainingItems.length} remaining item${remainingItems.length === 1 ? '' : 's'} copied.`,
+    });
+  };
+
   const openStoreSearch = (itemName: string) => {
     const storeId = getStoreIdForItem(itemName);
     window.open(buildStoreSearchUrl(storeId, itemName), '_blank');
+  };
+
+  const openWalmartSearch = (itemName: string) => {
+    window.open(buildStoreSearchUrl('walmart', itemName), '_blank');
+  };
+
+  const openAllWalmartSearches = () => {
+    if (remainingItems.length === 0) {
+      toast({
+        title: 'No remaining items',
+        description: 'Everything is already checked off.',
+      });
+      return;
+    }
+
+    remainingItems.forEach((item) => {
+      window.open(buildStoreSearchUrl('walmart', item.name), '_blank');
+    });
+
+    toast({
+      title: 'Opened Walmart searches',
+      description: `Opened ${remainingItems.length} Walmart search${remainingItems.length === 1 ? '' : 'es'} in new tabs.`,
+    });
   };
 
   const handleStoreOverrideChange = (itemName: string, storeId: string) => {
@@ -913,6 +952,15 @@ export default function GroceryPage() {
             <Button onClick={copyList} variant="outline" size="sm" disabled={totalCount === 0}>
               <Copy className="w-4 h-4 mr-2" />
               Copy List
+            </Button>
+            <Button
+              onClick={() => setWalmartOpen(true)}
+              variant="outline"
+              size="sm"
+              disabled={remainingItems.length === 0}
+            >
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Send to Walmart
             </Button>
           </div>
         }
@@ -1344,6 +1392,89 @@ export default function GroceryPage() {
               </Button>
               <Button onClick={saveGroceryPrefs}>Save</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={walmartOpen} onOpenChange={setWalmartOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">Send to Walmart</DialogTitle>
+            <DialogDescription>
+              Experimental for now. This does not add items directly to your Walmart cart yet. It gives you a clean review screen and opens Walmart searches for the remaining grocery items.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              {remainingItems.length === 0
+                ? 'Everything on this grocery list is already checked off.'
+                : `${remainingItems.length} remaining item${remainingItems.length === 1 ? '' : 's'} ready for Walmart review.`}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={openAllWalmartSearches} disabled={remainingItems.length === 0}>
+                <ShoppingCart className="w-4 h-4 mr-2" />
+                Open all Walmart searches
+              </Button>
+              <Button variant="outline" onClick={copyWalmartChecklist} disabled={remainingItems.length === 0}>
+                <Copy className="w-4 h-4 mr-2" />
+                Copy checklist
+              </Button>
+            </div>
+
+            {remainingItems.length > 0 ? (
+              <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+                {remainingItems.map((item) => {
+                  const assignedStoreId =
+                    itemStoreOverrides[toIngredientKey(item.name)] || preferredStoreId;
+                  const assignedStoreLabel = getStoreLabel(assignedStoreId);
+                  const assignedElsewhere = assignedStoreId !== 'walmart';
+
+                  return (
+                    <div key={`walmart-review-${item.id}`} className="rounded-xl border border-border p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm">
+                            {item.name} <span className="text-muted-foreground">({item.quantity})</span>
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            {item.sourceRecipes.map((source, index) => (
+                              <span key={`walmart-source-${item.id}-${source.label}`} className="inline-flex items-center gap-1.5">
+                                {source.recipe ? (
+                                  <button
+                                    type="button"
+                                    className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                    onClick={() => openRecipeFromGrocerySource(source.recipe)}
+                                  >
+                                    {source.label}
+                                  </button>
+                                ) : (
+                                  <span>{source.label}</span>
+                                )}
+                                {index < item.sourceRecipes.length - 1 ? <span>,</span> : null}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Assigned store: {assignedStoreLabel}
+                            {assignedElsewhere ? ' - this Walmart flow will still search Walmart for it.' : ''}
+                          </p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => openWalmartSearch(item.name)}>
+                          Search Walmart
+                          <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                Check off fewer items or add more groceries to try the Walmart flow.
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
