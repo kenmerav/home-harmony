@@ -65,10 +65,27 @@ interface DayTracker {
   alcoholDrinks: number;
 }
 
+export interface DashboardTodoItem {
+  id: string;
+  personId: AdultId;
+  text: string;
+  isCompleted: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+
 interface StoredState {
   mealLogs: StoredMealLog[];
   profiles: Record<string, PersonGameProfile>;
   trackers: Record<string, Partial<Record<string, DayTracker>>>;
+  todos: Record<string, DashboardTodoItem[]>;
+}
+
+function sortDashboardTodos(items: DashboardTodoItem[]): DashboardTodoItem[] {
+  return items.slice().sort((a, b) => {
+    if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+    return String(a.createdAt).localeCompare(String(b.createdAt));
+  });
 }
 
 export interface DashboardProfile {
@@ -277,6 +294,7 @@ function initialState(): StoredState {
       },
     },
     trackers: {},
+    todos: {},
   };
 }
 
@@ -409,12 +427,51 @@ function normalizeTrackers(
   );
 }
 
+function normalizeTodos(input: unknown): Record<string, DashboardTodoItem[]> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, DashboardTodoItem[]>>(
+    (people, [personId, todos]) => {
+      if (!personId.trim() || !Array.isArray(todos)) return people;
+      const normalized = todos
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+        .map((item) => {
+          const text = typeof item.text === 'string' ? item.text.trim().replace(/\s+/g, ' ') : '';
+          if (!text) return null;
+          return {
+            id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : crypto.randomUUID(),
+            personId,
+            text,
+            isCompleted: !!item.isCompleted,
+            createdAt:
+              typeof item.createdAt === 'string' && item.createdAt.trim()
+                ? item.createdAt
+                : new Date().toISOString(),
+            completedAt:
+              typeof item.completedAt === 'string' && item.completedAt.trim()
+                ? item.completedAt
+                : undefined,
+          } as DashboardTodoItem;
+        })
+        .filter((item): item is DashboardTodoItem => Boolean(item));
+      if (normalized.length > 0) {
+        people[personId] = sortDashboardTodos(normalized);
+      }
+      return people;
+    },
+    {},
+  );
+}
+
 function normalizeStoredState(input: Partial<StoredState> | null | undefined): StoredState {
   const seed = initialState();
   return {
     mealLogs: normalizeStoredMealLogs(input?.mealLogs),
     profiles: normalizeProfiles(input?.profiles, seed.profiles),
     trackers: normalizeTrackers(input?.trackers),
+    todos: normalizeTodos(input?.todos),
   };
 }
 
@@ -446,10 +503,11 @@ function serializeProfiles(profiles: Record<string, PersonGameProfile>): string 
   return JSON.stringify(normalizeProfiles(profiles, initialState().profiles));
 }
 
-function serializeActivity(state: Pick<StoredState, 'mealLogs' | 'trackers'>): string {
+function serializeActivity(state: Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'>): string {
   return JSON.stringify({
     mealLogs: normalizeStoredMealLogs(state.mealLogs),
     trackers: normalizeTrackers(state.trackers),
+    todos: normalizeTodos(state.todos),
   });
 }
 
@@ -466,9 +524,9 @@ function mergeProfilesPreferRemote(
 }
 
 function mergeActivityPreferRemote(
-  localState: Pick<StoredState, 'mealLogs' | 'trackers'>,
-  remoteState: Pick<StoredState, 'mealLogs' | 'trackers'>,
-): Pick<StoredState, 'mealLogs' | 'trackers'> {
+  localState: Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'>,
+  remoteState: Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'>,
+): Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'> {
   const mergedLogs = new Map<string, StoredMealLog>();
   normalizeStoredMealLogs(localState.mealLogs).forEach((log) => {
     mergedLogs.set(log.id, log);
@@ -485,9 +543,18 @@ function mergeActivityPreferRemote(
     };
   });
 
+  const mergedTodos = normalizeTodos(localState.todos);
+  Object.entries(normalizeTodos(remoteState.todos)).forEach(([personId, todos]) => {
+    const next = new Map<string, DashboardTodoItem>();
+    (mergedTodos[personId] || []).forEach((item) => next.set(item.id, item));
+    todos.forEach((item) => next.set(item.id, item));
+    mergedTodos[personId] = sortDashboardTodos(Array.from(next.values()));
+  });
+
   return {
     mealLogs: Array.from(mergedLogs.values()).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
     trackers: mergedTrackers,
+    todos: mergedTodos,
   };
 }
 
@@ -500,7 +567,7 @@ async function loadRemoteProfiles(userId: string): Promise<Record<string, Person
 
 async function loadRemoteActivity(
   userId: string,
-): Promise<Pick<StoredState, 'mealLogs' | 'trackers'> | null> {
+): Promise<Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'> | null> {
   const document = await loadProfileSettingsDocument(userId);
   const storedActivity = getProfileSettingsValue(document, MACRO_GAME_ACTIVITY_SETTINGS_PATH);
   if (typeof storedActivity === 'undefined') return null;
@@ -508,6 +575,7 @@ async function loadRemoteActivity(
   return {
     mealLogs: normalized.mealLogs,
     trackers: normalized.trackers,
+    todos: normalized.todos,
   };
 }
 
@@ -524,16 +592,18 @@ async function persistProfilesToAccount(
 
 async function persistActivityToAccount(
   userId: string,
-  state: Pick<StoredState, 'mealLogs' | 'trackers'>,
+  state: Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'>,
 ): Promise<void> {
   const normalized = normalizeStoredState({
     profiles: initialState().profiles,
     mealLogs: state.mealLogs,
     trackers: state.trackers,
+    todos: state.todos,
   });
   await updateProfileSettingsValue(userId, MACRO_GAME_ACTIVITY_SETTINGS_PATH, {
     mealLogs: normalized.mealLogs,
     trackers: normalized.trackers,
+    todos: normalized.todos,
   });
   if (currentStorageScopeUserId === userId) {
     lastPersistedActivitySnapshot = serializeActivity(normalized);
@@ -685,9 +755,10 @@ export async function hydrateMacroGameActivityFromAccount(userId?: string | null
     const currentSnapshot = serializeActivity(currentState);
     const localChangedDuringLoad = currentSnapshot !== localSnapshot;
 
-    let nextActivity: Pick<StoredState, 'mealLogs' | 'trackers'> = {
+    let nextActivity: Pick<StoredState, 'mealLogs' | 'trackers' | 'todos'> = {
       mealLogs: currentState.mealLogs,
       trackers: currentState.trackers,
+      todos: currentState.todos,
     };
     let nextSnapshot = currentSnapshot;
 
@@ -891,6 +962,7 @@ export function removeHouseholdProfile(personId: AdultId): DashboardProfile | nu
 
   delete state.profiles[personId];
   state.mealLogs = state.mealLogs.filter((log) => log.person !== personId);
+  delete state.todos[personId];
 
   Object.keys(state.trackers).forEach((date) => {
     const dayTrackers = state.trackers[date];
@@ -968,6 +1040,59 @@ export function addAlcohol(personId: AdultId, drinks: number, date = dayKey()) {
     ...current,
     alcoholDrinks: Math.max(0, current.alcoholDrinks + drinks),
   };
+  writeState(state);
+}
+
+export function getDashboardTodos(personId: AdultId): DashboardTodoItem[] {
+  const state = readState();
+  ensureProfile(state, personId);
+  return sortDashboardTodos(state.todos[personId] || []);
+}
+
+export function addDashboardTodo(personId: AdultId, text: string): DashboardTodoItem | null {
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  const state = readState();
+  ensureProfile(state, personId);
+  const todo: DashboardTodoItem = {
+    id: crypto.randomUUID(),
+    personId,
+    text: trimmed,
+    isCompleted: false,
+    createdAt: new Date().toISOString(),
+  };
+  state.todos[personId] = sortDashboardTodos([...(state.todos[personId] || []), todo]);
+  writeState(state);
+  return todo;
+}
+
+export function toggleDashboardTodo(personId: AdultId, todoId: string): DashboardTodoItem | null {
+  const state = readState();
+  ensureProfile(state, personId);
+  const current = state.todos[personId] || [];
+  let updated: DashboardTodoItem | null = null;
+  state.todos[personId] = sortDashboardTodos(current.map((item) => {
+    if (item.id !== todoId) return item;
+    updated = {
+      ...item,
+      isCompleted: !item.isCompleted,
+      completedAt: item.isCompleted ? undefined : new Date().toISOString(),
+    };
+    return updated;
+  }));
+  writeState(state);
+  return updated;
+}
+
+export function deleteDashboardTodo(personId: AdultId, todoId: string): void {
+  const state = readState();
+  ensureProfile(state, personId);
+  const next = (state.todos[personId] || []).filter((item) => item.id !== todoId);
+  if (next.length === 0) {
+    delete state.todos[personId];
+  } else {
+    state.todos[personId] = next;
+  }
   writeState(state);
 }
 

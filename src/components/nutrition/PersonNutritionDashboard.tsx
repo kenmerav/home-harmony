@@ -6,15 +6,30 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { MacroBar } from '@/components/ui/MacroBar';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
 import { mockMealPlan } from '@/data/mockData';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
-import { AdultId, addMealLog, getCurrentStreak, getDailyScore, getMealLogs, getProfiles, getWeekPoints, isDailyLogFullyLogged } from '@/lib/macroGame';
+import {
+  AdultId,
+  addDashboardTodo,
+  addMealLog,
+  deleteDashboardTodo,
+  getCurrentStreak,
+  getDailyScore,
+  getDashboardTodos,
+  getMealLogs,
+  getProfiles,
+  getWeekPoints,
+  isDailyLogFullyLogged,
+  toggleDashboardTodo,
+} from '@/lib/macroGame';
 import { DayOfWeek, MealLog } from '@/types';
-import { Check, Flame, Plus, Target, Trophy, TrendingUp } from 'lucide-react';
+import { Check, Flame, Plus, Target, Trash2, Trophy, TrendingUp } from 'lucide-react';
 import { MacroGoalDialog } from './MacroGoalDialog';
 
 interface PersonNutritionDashboardProps {
@@ -41,6 +56,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const [, setRefreshTick] = useState(0);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [liveMeals, setLiveMeals] = useState<DbPlannedMeal[]>([]);
+  const [todoDraft, setTodoDraft] = useState('');
   const currentDate = useCurrentDate();
   const todayKey = format(currentDate, 'yyyy-MM-dd');
   const currentDay = getCurrentDay(currentDate);
@@ -73,6 +89,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     );
   }
   const allLogs = getMealLogs();
+  const todos = getDashboardTodos(personId);
   const todaysLogs = allLogs.filter((log) => log.date === todayKey && log.person === personId);
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
@@ -174,6 +191,30 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const accentBarMuted = accent === 'primary' ? 'bg-primary/40' : 'bg-accent/40';
   const accentText = accent === 'primary' ? 'text-primary' : 'text-accent';
 
+  const handleAddTodo = () => {
+    const created = addDashboardTodo(personId, todoDraft);
+    if (!created) {
+      toast({ title: 'Add a to-do first', variant: 'destructive' });
+      return;
+    }
+    setTodoDraft('');
+    setRefreshTick((prev) => prev + 1);
+    toast({
+      title: 'To-do added',
+      description: `${created.text} is now on ${profile.name}'s dashboard.`,
+    });
+  };
+
+  const handleToggleTodo = (todoId: string) => {
+    toggleDashboardTodo(personId, todoId);
+    setRefreshTick((prev) => prev + 1);
+  };
+
+  const handleDeleteTodo = (todoId: string) => {
+    deleteDashboardTodo(personId, todoId);
+    setRefreshTick((prev) => prev + 1);
+  };
+
   return (
     <AppLayout>
       <PageHeader
@@ -264,6 +305,62 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
             </div>
           ) : (
             <p className="text-center py-6 text-muted-foreground">No meals logged today.</p>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="To-Do List"
+          subtitle="Personal tasks just for this adult dashboard"
+        >
+          <div className="flex gap-2">
+            <Input
+              value={todoDraft}
+              onChange={(event) => setTodoDraft(event.target.value)}
+              placeholder={`Add a to-do for ${profile.name}`}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleAddTodo();
+                }
+              }}
+            />
+            <Button onClick={handleAddTodo}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add
+            </Button>
+          </div>
+
+          {todos.length > 0 ? (
+            <div className="mt-4 space-y-2">
+              {todos.map((todo) => (
+                <div
+                  key={todo.id}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2"
+                >
+                  <Checkbox
+                    checked={todo.isCompleted}
+                    onCheckedChange={() => handleToggleTodo(todo.id)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={todo.isCompleted ? 'text-sm line-through text-muted-foreground' : 'text-sm'}>
+                      {todo.text}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handleDeleteTodo(todo.id)}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">
+              No to-dos yet for {profile.name}.
+            </p>
           )}
         </SectionCard>
 
