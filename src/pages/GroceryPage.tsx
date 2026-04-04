@@ -225,6 +225,12 @@ function parseIngredient(raw: string): ParsedIngredient {
   text = text.replace(/\s+/g, ' ').trim();
   text = text.replace(/^[-•\u2022]+/, '').trim();
 
+  // Treat lean ratios like "93/7 ground beef" as part of the ingredient name,
+  // not as a quantity that should become "93 items".
+  if (/^\d{2,3}\/\d{1,2}\s+(ground\s+)?(beef|turkey|chicken|pork)\b/i.test(text)) {
+    return { name: text, quantity: null, unit: null };
+  }
+
   const match = text.match(/^(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+)\s*([\p{L}%]+)?\s*(.*)$/u);
   if (!match) return { name: text, quantity: null, unit: null };
 
@@ -283,6 +289,18 @@ function cleanIngredientName(raw: string): string {
   }
   if (/^%+\s*milk$/i.test(name)) {
     return 'Milk';
+  }
+  if (/^\d{2,3}\/\d{1,2}\s+ground\s+beef$/i.test(name)) {
+    return 'Ground beef';
+  }
+  if (/^\d{2,3}\/\d{1,2}\s+ground\s+turkey$/i.test(name)) {
+    return 'Ground turkey';
+  }
+  if (/^\d{2,3}\/\d{1,2}\s+ground\s+chicken$/i.test(name)) {
+    return 'Ground chicken';
+  }
+  if (/^\d{2,3}\/\d{1,2}\s+ground\s+pork$/i.test(name)) {
+    return 'Ground pork';
   }
 
   return name;
