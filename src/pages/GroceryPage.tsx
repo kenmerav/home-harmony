@@ -4,7 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { GroceryCategory } from '@/types';
+import { GroceryCategory, Recipe } from '@/types';
 import { Copy, ExternalLink, ShoppingCart, Check, Settings2, Bell, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -45,6 +45,8 @@ import {
   WeeklyPlanningStatus,
 } from '@/lib/api/weeklyPlanningStatus';
 import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
+import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
+import { getRecipeImageUrl } from '@/data/recipeImages';
 import {
   Dialog,
   DialogContent,
@@ -62,7 +64,10 @@ interface GroceryItem {
   quantity: string;
   category: GroceryCategory;
   isChecked: boolean;
-  sourceRecipes: string[];
+  sourceRecipes: Array<{
+    label: string;
+    recipe: DbPlannedMeal['recipes'] | null;
+  }>;
   manualItemIds: string[];
   recurringItemIds: string[];
 }
@@ -388,9 +393,12 @@ function buildGroceryList(
     return created;
   };
 
-  const appendSource = (item: GroceryItem, label: string) => {
-    if (!item.sourceRecipes.includes(label)) {
-      item.sourceRecipes.push(label);
+  const appendSource = (item: GroceryItem, label: string, recipe?: DbPlannedMeal['recipes'] | null) => {
+    if (!item.sourceRecipes.some((entry) => entry.label === label)) {
+      item.sourceRecipes.push({
+        label,
+        recipe: recipe || null,
+      });
     }
   };
   
@@ -413,7 +421,7 @@ function buildGroceryList(
         if (existing.category === 'other') {
           existing.category = categorizeIngredient(cleanedName);
         }
-        appendSource(existing, mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name);
+        appendSource(existing, mealMultiplier === 2 ? `${recipe.name} (2x)` : recipe.name, recipe);
         if (parsed.quantity !== null && parsed.unit) {
           existing.qtyByUnit.set(parsed.unit, (existing.qtyByUnit.get(parsed.unit) || 0) + (parsed.quantity * mealMultiplier));
         } else {
@@ -494,6 +502,7 @@ export default function GroceryPage() {
   const [manualItemQuantity, setManualItemQuantity] = useState('');
   const [manualItemCategory, setManualItemCategory] = useState<GroceryCategory>('other');
   const [manualItemRepeatsWeekly, setManualItemRepeatsWeekly] = useState(false);
+  const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const { toast } = useToast();
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const currentWeekState = useMemo(
@@ -735,6 +744,34 @@ export default function GroceryPage() {
     }
     return acc;
   }, {} as Record<GroceryCategory, GroceryItem[]>);
+
+  const openRecipeFromGrocerySource = (recipe: NonNullable<DbPlannedMeal['recipes']>) => {
+    setViewingRecipe({
+      id: recipe.id,
+      name: recipe.name,
+      servings: recipe.servings,
+      estimatedCookMinutes: undefined,
+      imageUrl: getRecipeImageUrl(recipe.name),
+      isFavorite: false,
+      isKidFriendly: false,
+      isMealPrep: recipe.is_meal_prep,
+      ingredients: recipe.ingredients || [],
+      ingredientsRaw: recipe.ingredients_raw || (recipe.ingredients || []).join('\n'),
+      instructions: recipe.instructions || '',
+      macrosPerServing: {
+        calories: recipe.calories || 0,
+        protein_g: recipe.protein_g || 0,
+        carbs_g: recipe.carbs_g || 0,
+        fat_g: recipe.fat_g || 0,
+        ...(recipe.fiber_g !== null && recipe.fiber_g !== undefined ? { fiber_g: recipe.fiber_g } : {}),
+      },
+      defaultDay: (recipe.default_day as Recipe['defaultDay']) || undefined,
+      mealType: (recipe.meal_type as Recipe['mealType']) || 'dinner',
+      dishType: (recipe.course_type as Recipe['dishType']) || 'main',
+      isAnchored: !!recipe.is_anchored,
+      createdAt: new Date(recipe.created_at),
+    });
+  };
 
   const checkedCount = items.filter(i => i.isChecked).length;
   const totalCount = items.length;
@@ -1057,9 +1094,24 @@ export default function GroceryPage() {
                       )}>
                         {item.name} <span className="text-muted-foreground">({item.quantity})</span>
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.sourceRecipes.join(', ')}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        {item.sourceRecipes.map((source, index) => (
+                          <span key={`${item.id}-source-${source.label}`} className="inline-flex items-center gap-1.5">
+                            {source.recipe ? (
+                              <button
+                                type="button"
+                                className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                onClick={() => openRecipeFromGrocerySource(source.recipe)}
+                              >
+                                {source.label}
+                              </button>
+                            ) : (
+                              <span>{source.label}</span>
+                            )}
+                            {index < item.sourceRecipes.length - 1 ? <span>,</span> : null}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                     {(item.manualItemIds.length > 0 || item.recurringItemIds.length > 0) && (
                       <Button
@@ -1290,6 +1342,12 @@ export default function GroceryPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ViewRecipeDialog
+        recipe={viewingRecipe}
+        open={!!viewingRecipe}
+        onOpenChange={(open) => !open && setViewingRecipe(null)}
+      />
     </AppLayout>
   );
 }
