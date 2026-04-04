@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, startOfWeek } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -509,6 +509,7 @@ export default function GroceryPage() {
   const [manualItemCategory, setManualItemCategory] = useState<GroceryCategory>('other');
   const [manualItemRepeatsWeekly, setManualItemRepeatsWeekly] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
+  const restoredScrollRef = useRef(false);
   const { toast } = useToast();
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const currentWeekState = useMemo(
@@ -552,7 +553,7 @@ export default function GroceryPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
+  const restoreGroceryScrollPosition = () => {
     if (typeof window === 'undefined') return;
     const raw = window.sessionStorage.getItem(GROCERY_SCROLL_POSITION_KEY);
     if (!raw) return;
@@ -562,7 +563,19 @@ export default function GroceryPage() {
     const restore = () => window.scrollTo({ top: scrollTop, behavior: 'auto' });
     restore();
     window.requestAnimationFrame(restore);
+    window.setTimeout(restore, 150);
+  };
+
+  useEffect(() => {
+    restoreGroceryScrollPosition();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (restoredScrollRef.current) return;
+    restoredScrollRef.current = true;
+    restoreGroceryScrollPosition();
+  }, [loading]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -570,8 +583,24 @@ export default function GroceryPage() {
       window.sessionStorage.setItem(GROCERY_SCROLL_POSITION_KEY, String(window.scrollY || 0));
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveScrollPosition();
+      } else {
+        restoreGroceryScrollPosition();
+      }
+    };
+
+    const handlePageShow = () => restoreGroceryScrollPosition();
+
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', saveScrollPosition);
-    return () => window.removeEventListener('pagehide', saveScrollPosition);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', saveScrollPosition);
+    };
   }, []);
 
   const loadGroceryList = async () => {
