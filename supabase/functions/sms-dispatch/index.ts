@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fetchGoogleDriveTrafficEstimate } from "../_shared/traffic.ts";
-import { sendTwilioSms } from "../_shared/twilio.ts";
+import { normalizePhone, sendTwilioSms } from "../_shared/twilio.ts";
 
 type CalendarEvent = {
   id: string;
@@ -45,6 +45,7 @@ type SmsPreferenceRow = {
   module_recipients: Record<string, unknown> | null;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
+  updated_at?: string | null;
 };
 
 const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
@@ -243,6 +244,43 @@ function recipientListForModule(
 ): string[] {
   const moduleSpecific = moduleRecipients[moduleName] || [];
   return Array.from(new Set([...moduleSpecific, ...fallbackRecipients]));
+}
+
+function buildRecipientOwnershipMap(rows: SmsPreferenceRow[]): Map<string, string> {
+  const ownership = new Map<string, { userId: string; updatedAt: number }>();
+
+  for (const row of rows) {
+    const updatedAt = DateTime.fromISO(String(row.updated_at || "")).toMillis();
+    const sortValue = Number.isFinite(updatedAt) ? updatedAt : 0;
+    const recipients = recipientListForModules(
+      normalizeIncludeModules(row.include_modules),
+      normalizeRecipientMap(row.module_recipients),
+      row.phone_e164 || null,
+    )
+      .map((item) => normalizePhone(String(item || "")))
+      .filter((item) => item.length > 0);
+
+    for (const recipient of recipients) {
+      const existing = ownership.get(recipient);
+      if (!existing || sortValue >= existing.updatedAt) {
+        ownership.set(recipient, { userId: row.user_id, updatedAt: sortValue });
+      }
+    }
+  }
+
+  return new Map(Array.from(ownership.entries()).map(([phone, value]) => [phone, value.userId]));
+}
+
+function filterRecipientsForOwner(recipients: string[], userId: string, ownership: Map<string, string>): string[] {
+  return Array.from(
+    new Set(
+      recipients.filter((recipient) => {
+        const normalized = normalizePhone(String(recipient || ""));
+        if (!normalized) return false;
+        return ownership.get(normalized) === userId;
+      }),
+    ),
+  );
 }
 
 type OnboardingHealthSnapshot = {
@@ -571,21 +609,28 @@ serve(async (req) => {
       .eq("enabled", true);
     if (error) return json({ error: error.message }, 500);
 
+    const preferenceRows = (prefs || []) as SmsPreferenceRow[];
+    const recipientOwnership = buildRecipientOwnershipMap(preferenceRows);
+
     let usersProcessed = 0;
     let messagesSent = 0;
     const errors: string[] = [];
     let failedUsers = 0;
 
-    for (const row of (prefs || []) as SmsPreferenceRow[]) {
+    for (const row of preferenceRows) {
       try {
         usersProcessed += 1;
         const timezone = row.timezone || "America/New_York";
         const phone = String(row.phone_e164 || "").trim();
         const includeModules = normalizeIncludeModules(row.include_modules);
         const moduleRecipients = normalizeRecipientMap(row.module_recipients);
-        const digestRecipients = recipientListForModules(includeModules, moduleRecipients, phone || null).map((item) =>
-          String(item || "").trim(),
-        ).filter((item) => item.length > 0);
+        const digestRecipients = filterRecipientsForOwner(
+          recipientListForModules(includeModules, moduleRecipients, phone || null)
+            .map((item) => String(item || "").trim())
+            .filter((item) => item.length > 0),
+          row.user_id,
+          recipientOwnership,
+        );
         if (digestRecipients.length === 0) continue;
 
         const localNow = nowUtc.setZone(timezone);
@@ -883,7 +928,11 @@ serve(async (req) => {
                 if (!sendAtIso) continue;
 
                 const dedupeKey = `event:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
-                const eventRecipients = recipientListForModule(event.module, moduleRecipients, digestRecipients);
+                const eventRecipients = filterRecipientsForOwner(
+                  recipientListForModule(event.module, moduleRecipients, digestRecipients),
+                  row.user_id,
+                  recipientOwnership,
+                );
                 if (eventRecipients.length === 0) continue;
 
                 for (const recipient of eventRecipients) {
@@ -933,7 +982,11 @@ serve(async (req) => {
               const sendAtIso = sendAtUtc.toISO();
               if (!sendAtIso) continue;
 
-              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
+              const recipients = filterRecipientsForOwner(
+                recipientListForModule("manual", moduleRecipients, digestRecipients),
+                row.user_id,
+                recipientOwnership,
+              );
               if (!recipients.length) continue;
               for (const recipient of recipients) {
                 const dedupeKey = `manual-start:${row.user_id}:${event.id}:${event.startsAtUtc.toISO()}:${leadMinutes}:${recipient}`;
@@ -976,7 +1029,11 @@ serve(async (req) => {
 
             if (event.module === "manual" && manualUsesLeaveReminder) {
               const leadMinutes = normalizeLeadMinutes(event.leaveReminderLeadMinutes, 10);
-              const recipients = recipientListForModule("manual", moduleRecipients, digestRecipients);
+              const recipients = filterRecipientsForOwner(
+                recipientListForModule("manual", moduleRecipients, digestRecipients),
+                row.user_id,
+                recipientOwnership,
+              );
               if (!recipients.length) continue;
 
               const hasCommuteRouting = Boolean(
