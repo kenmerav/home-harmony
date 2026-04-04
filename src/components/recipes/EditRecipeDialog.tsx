@@ -30,27 +30,34 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
   const [isSaving, setIsSaving] = useState(false);
 
   const [name, setName] = useState('');
-  const [servings, setServings] = useState(4);
+  const [servings, setServings] = useState('4');
   const [mealType, setMealType] = useState('dinner');
   const [dishType, setDishType] = useState<'main' | 'side' | 'dessert'>('main');
-  const [calories, setCalories] = useState(0);
-  const [protein, setProtein] = useState(0);
-  const [carbs, setCarbs] = useState(0);
-  const [fat, setFat] = useState(0);
+  const [calories, setCalories] = useState('');
+  const [protein, setProtein] = useState('');
+  const [carbs, setCarbs] = useState('');
+  const [fat, setFat] = useState('');
   const [ingredientsText, setIngredientsText] = useState('');
   const [instructions, setInstructions] = useState('');
   const [isMealPrep, setIsMealPrep] = useState(false);
 
+  const normalizeIntegerInput = (value: string) => {
+    const digits = value.replace(/[^\d]/g, '');
+    if (!digits) return '';
+    const normalized = digits.replace(/^0+(?=\d)/, '');
+    return normalized || '0';
+  };
+
   useEffect(() => {
     if (recipe) {
       setName(recipe.name);
-      setServings(recipe.servings);
+      setServings(String(recipe.servings || 4));
       setMealType(recipe.mealType);
       setDishType(recipe.dishType || 'main');
-      setCalories(recipe.macrosPerServing.calories);
-      setProtein(recipe.macrosPerServing.protein_g);
-      setCarbs(recipe.macrosPerServing.carbs_g);
-      setFat(recipe.macrosPerServing.fat_g);
+      setCalories(String(recipe.macrosPerServing.calories ?? 0));
+      setProtein(String(recipe.macrosPerServing.protein_g ?? 0));
+      setCarbs(String(recipe.macrosPerServing.carbs_g ?? 0));
+      setFat(String(recipe.macrosPerServing.fat_g ?? 0));
       setIngredientsText(normalizeRecipeIngredients(recipe.ingredients).join('\n'));
       setInstructions(recipe.instructions || '');
       setIsMealPrep(!!recipe.isMealPrep);
@@ -63,15 +70,20 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
     setIsSaving(true);
     try {
       const ingredients = normalizeRecipeIngredients(ingredientsText.split('\n'));
+      const parsedServings = Number.parseInt(servings, 10);
+      const parsedCalories = Number.parseInt(calories, 10);
+      const parsedProtein = Number.parseInt(protein, 10);
+      const parsedCarbs = Number.parseInt(carbs, 10);
+      const parsedFat = Number.parseInt(fat, 10);
       const updated = await updateRecipe(recipe.id, {
         name,
-        servings,
+        servings: Number.isFinite(parsedServings) && parsedServings > 0 ? parsedServings : 1,
         meal_type: mealType,
         course_type: dishType,
-        calories,
-        protein_g: protein,
-        carbs_g: carbs,
-        fat_g: fat,
+        calories: Number.isFinite(parsedCalories) ? Math.max(0, parsedCalories) : 0,
+        protein_g: Number.isFinite(parsedProtein) ? Math.max(0, parsedProtein) : 0,
+        carbs_g: Number.isFinite(parsedCarbs) ? Math.max(0, parsedCarbs) : 0,
+        fat_g: Number.isFinite(parsedFat) ? Math.max(0, parsedFat) : 0,
         is_meal_prep: isMealPrep,
         ingredients,
         ingredients_raw: ingredientsText,
@@ -122,7 +134,14 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <Label htmlFor="recipe-servings">Servings</Label>
-              <Input id="recipe-servings" type="number" min={1} value={servings} onChange={e => setServings(Number(e.target.value))} />
+              <Input
+                id="recipe-servings"
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={servings}
+                onChange={e => setServings(normalizeIntegerInput(e.target.value))}
+              />
             </div>
             <div>
               <Label>Meal Type</Label>
@@ -162,19 +181,19 @@ export function EditRecipeDialog({ recipe, open, onOpenChange, onSaved, onDelete
             <div className="grid grid-cols-4 gap-2 mt-1">
               <div>
                 <Label htmlFor="cal" className="text-xs">Cal</Label>
-                <Input id="cal" type="number" min={0} value={calories} onChange={e => setCalories(Number(e.target.value))} />
+                <Input id="cal" type="number" min={0} inputMode="numeric" value={calories} onChange={e => setCalories(normalizeIntegerInput(e.target.value))} />
               </div>
               <div>
                 <Label htmlFor="prot" className="text-xs">Protein (g)</Label>
-                <Input id="prot" type="number" min={0} value={protein} onChange={e => setProtein(Number(e.target.value))} />
+                <Input id="prot" type="number" min={0} inputMode="numeric" value={protein} onChange={e => setProtein(normalizeIntegerInput(e.target.value))} />
               </div>
               <div>
                 <Label htmlFor="carb" className="text-xs">Carbs (g)</Label>
-                <Input id="carb" type="number" min={0} value={carbs} onChange={e => setCarbs(Number(e.target.value))} />
+                <Input id="carb" type="number" min={0} inputMode="numeric" value={carbs} onChange={e => setCarbs(normalizeIntegerInput(e.target.value))} />
               </div>
               <div>
                 <Label htmlFor="fatt" className="text-xs">Fat (g)</Label>
-                <Input id="fatt" type="number" min={0} value={fat} onChange={e => setFat(Number(e.target.value))} />
+                <Input id="fatt" type="number" min={0} inputMode="numeric" value={fat} onChange={e => setFat(normalizeIntegerInput(e.target.value))} />
               </div>
             </div>
           </div>
