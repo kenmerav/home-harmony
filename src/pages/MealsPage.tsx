@@ -658,7 +658,7 @@ export default function MealsPage() {
       : true,
   );
   const plannerRecipeTypeahead = plannerRecipeQuery.trim() ? plannerRecipeOptions.slice(0, 8) : [];
-  const chooseRecipeTypeahead = chooseRecipeQuery.trim() ? chooseRecipeOptions.slice(0, 8) : [];
+  const chooseRecipeTypeahead = chooseRecipeQuery.trim() ? chooseRecipeOptions : [];
   const manualRecipeTypeahead = manualRecipeQuery.trim() ? manualRecipeOptions.slice(0, 8) : [];
   const manualSelectedRecipe = recipeOptions.find((recipe) => recipe.id === manualRecipeId) || null;
   const manualHasExactSelection =
@@ -2611,7 +2611,7 @@ export default function MealsPage() {
                   placeholder="Search recipe title..."
                 />
                 {chooseRecipeTypeahead.length > 0 ? (
-                  <div className="rounded-md border border-border bg-background p-1">
+                  <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-background p-1">
                     {chooseRecipeTypeahead.map((recipe) => (
                       <button
                         key={`swap-typeahead-${recipe.id}`}
