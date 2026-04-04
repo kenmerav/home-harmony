@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Scale, Plus, Trash2, Calculator, Sparkles } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -1529,15 +1529,15 @@ export default function MealsPage() {
                           </Button>
                           <Button
                             variant={getMealMultiplier(meal.id) === 2 ? 'default' : 'ghost'}
-                            size="icon"
-                            className="h-8 w-8"
+                            size="sm"
+                            className="h-8 min-w-8 px-2 text-xs font-semibold"
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleDoubleMeal(meal.id);
                             }}
                             title="Double recipe for grocery list"
                           >
-                            <Scale className="w-4 h-4" />
+                            2x
                           </Button>
                           <Button
                             variant="ghost"
@@ -1674,7 +1674,7 @@ export default function MealsPage() {
           <span>Skipped</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Scale className="w-3.5 h-3.5" />
+          <span className="text-[11px] font-semibold leading-none">2x</span>
           <span>2x Grocery</span>
         </div>
         <div className="flex items-center gap-1.5">
