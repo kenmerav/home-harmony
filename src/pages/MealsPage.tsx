@@ -299,6 +299,7 @@ export default function MealsPage() {
   const weekLabel = format(weekStart, 'MMM d') + ' – ' + format(addDays(weekStart, 6), 'MMM d');
   const dashboardProfiles = listDashboardProfiles();
   const macroProfiles = getProfiles();
+  const plannerDashboard = dashboardProfiles.find((profile) => profile.id === plannerDashboardId) || dashboardProfiles[0] || null;
 
   const loadMeals = useCallback(async () => {
     try {
@@ -877,11 +878,15 @@ export default function MealsPage() {
     }
 
     const targetDates = Array.from(new Set(getPlannerTargetDates()));
+    const targetPersonId = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
+    const targetPersonName = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.name || null;
     for (const date of targetDates) {
       addPlannedFoodEntry(
         {
           date,
           mealType: plannerForm.mealType,
+          personId: targetPersonId,
+          personName: targetPersonName,
           name: plannerForm.name.trim(),
           servings,
           calories,
@@ -899,7 +904,7 @@ export default function MealsPage() {
       title: targetDates.length > 1 ? 'Planned meals added' : 'Planned meal added',
       description:
         targetDates.length > 1
-          ? `${plannerForm.name.trim()} was added to ${targetDates.length} days this week.`
+          ? `${plannerForm.name.trim()} was added to ${targetDates.length} days this week${targetPersonName ? ` for ${targetPersonName}` : ''}.`
           : options.prepareAnother
             ? 'Saved. You can add another recipe to this same slot now.'
           : undefined,
@@ -947,7 +952,14 @@ export default function MealsPage() {
     });
   }
 
-  const entriesByDate = plannerEntries.reduce<Record<string, PlannedFoodEntry[]>>((acc, entry) => {
+  const scopedPlannerEntries = plannerEntries.filter((entry) => {
+    if (entry.mealType === 'dinner') {
+      return !entry.personId;
+    }
+    return !entry.personId || entry.personId === plannerDashboardId;
+  });
+
+  const entriesByDate = scopedPlannerEntries.reduce<Record<string, PlannedFoodEntry[]>>((acc, entry) => {
     if (!acc[entry.date]) acc[entry.date] = [];
     acc[entry.date].push(entry);
     return acc;
@@ -1122,7 +1134,12 @@ export default function MealsPage() {
           deletePlannedFoodEntry(entriesForDate[1].id, user?.id);
         }
       } else {
-        deletePlannedFoodEntriesByDateAndMealType(rowDate.date, mealType, user?.id);
+        deletePlannedFoodEntriesByDateAndMealType(
+          rowDate.date,
+          mealType,
+          mealType === 'dinner' ? null : plannerDashboardId,
+          user?.id,
+        );
       }
 
       const pickedRecipe = pickSuggestedRecipeForMealType(filteredCandidatePool, usedRecipeIds);
@@ -1133,6 +1150,8 @@ export default function MealsPage() {
         {
           date: rowDate.date,
           mealType,
+          personId: mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId,
+          personName: mealType === 'dinner' ? null : plannerDashboard?.name || null,
           name: pickedRecipe.name,
           servings: 1,
           calories: Math.max(0, Math.round(pickedRecipe.calories || 0)),
@@ -1245,6 +1264,22 @@ export default function MealsPage() {
         >
           Weekly meal grid
         </Button>
+        {dashboardProfiles.length > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Adult dashboard</span>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={plannerDashboardId}
+              onChange={(event) => setPlannerDashboardId(event.target.value)}
+            >
+              {dashboardProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -1678,6 +1713,9 @@ export default function MealsPage() {
                   Macro Calculator
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Breakfast, lunch, snacks, desserts, and drinks are planned for the selected adult dashboard. Dinner stays shared for the household.
+              </p>
 
         <div className="grid gap-2 md:grid-cols-[220px_220px_1fr]">
           <div>

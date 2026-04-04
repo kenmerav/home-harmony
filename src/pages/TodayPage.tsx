@@ -74,6 +74,8 @@ interface LogMealCandidate {
   id: string;
   recipeId?: string;
   label: string;
+  personId?: string | null;
+  personName?: string | null;
   defaultServings: number;
   macrosPerServing: {
     calories: number;
@@ -325,7 +327,9 @@ export default function TodayPage() {
       next[category].push({
         id: `planned-${entry.id}`,
         recipeId: entry.sourceRecipeId || undefined,
-        label: entry.name,
+        label: entry.personName ? `${entry.name} - ${entry.personName}` : entry.name,
+        personId: entry.personId || null,
+        personName: entry.personName || null,
         defaultServings: servings,
         macrosPerServing: {
           calories: Math.max(0, Math.round(entry.calories / servings)),
@@ -435,7 +439,7 @@ export default function TodayPage() {
   };
 
   const logMeal = (person: string | 'all') => {
-    logMealCandidate(selectedLogMeal, person);
+    logMealCandidate(selectedLogMeal, selectedLogMeal?.personId || person);
   };
 
   const handleQuickAdd = () => {
@@ -778,6 +782,11 @@ export default function TodayPage() {
                     <p className="text-sm text-muted-foreground">
                       {Math.round(selectedLogMeal.macrosPerServing.calories)} cal/serving
                     </p>
+                    {selectedLogMeal.personName ? (
+                      <p className="text-xs text-muted-foreground">
+                        Planned for {selectedLogMeal.personName}
+                      </p>
+                    ) : null}
                     <MacroBar current={selectedLogMeal.macrosPerServing} compact />
                   </div>
                 </div>
@@ -814,22 +823,32 @@ export default function TodayPage() {
                 </div>
 
                 <div className="space-y-2 pt-1">
-                  <Button size="sm" className="w-full" onClick={() => logMeal('all')}>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => logMeal(selectedLogMeal.personId || 'all')}
+                  >
                     <Check className="w-4 h-4 mr-2" />
-                    {dashboards.length > 1 ? 'Log for all dashboards (+points)' : 'Log meal (+points)'}
+                    {selectedLogMeal.personName
+                      ? `Log for ${selectedLogMeal.personName} (+points)`
+                      : dashboards.length > 1
+                        ? 'Log for all dashboards (+points)'
+                        : 'Log meal (+points)'}
                   </Button>
-                  <div className="flex flex-wrap gap-2">
-                    {dashboards.map((dashboard) => (
-                      <Button
-                        key={dashboard.id}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => logMeal(dashboard.id)}
-                      >
-                        {dashboard.name}
-                      </Button>
-                    ))}
-                  </div>
+                  {!selectedLogMeal.personId && (
+                    <div className="flex flex-wrap gap-2">
+                      {dashboards.map((dashboard) => (
+                        <Button
+                          key={dashboard.id}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => logMeal(dashboard.id)}
+                        >
+                          {dashboard.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

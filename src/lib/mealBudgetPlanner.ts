@@ -4,6 +4,8 @@ export interface PlannedFoodEntry {
   id: string;
   date: string; // yyyy-MM-dd
   mealType: PlannedMealType;
+  personId?: string | null;
+  personName?: string | null;
   name: string;
   servings: number;
   calories: number;
@@ -18,6 +20,8 @@ export interface PlannedFoodEntry {
 interface PlannedFoodEntryInput {
   date: string;
   mealType: PlannedMealType;
+  personId?: string | null;
+  personName?: string | null;
   name: string;
   servings: number;
   calories: number;
@@ -50,6 +54,8 @@ function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
     id: String(input.id),
     date: String(input.date),
     mealType: input.mealType as PlannedMealType,
+    personId: typeof input.personId === 'string' && input.personId.trim() ? String(input.personId) : null,
+    personName: typeof input.personName === 'string' && input.personName.trim() ? String(input.personName).trim() : null,
     name: String(input.name),
     servings: Math.max(0.1, toFinite(input.servings, 1)),
     calories: Math.max(0, Math.round(toFinite(input.calories, 0))),
@@ -87,6 +93,7 @@ function sortEntries(entries: PlannedFoodEntry[]): PlannedFoodEntry[] {
     .sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       if (a.mealType !== b.mealType) return a.mealType.localeCompare(b.mealType);
+      if ((a.personId || '') !== (b.personId || '')) return (a.personId || '').localeCompare(b.personId || '');
       return a.createdAt.localeCompare(b.createdAt);
     });
 }
@@ -102,6 +109,8 @@ export function addPlannedFoodEntry(input: PlannedFoodEntryInput, userId?: strin
     id: crypto.randomUUID(),
     date: input.date,
     mealType: input.mealType,
+    personId: input.personId || null,
+    personName: input.personName?.trim() || null,
     name: input.name.trim(),
     servings: Math.max(0.1, input.servings),
     calories: Math.max(0, Math.round(input.calories)),
@@ -125,10 +134,19 @@ export function deletePlannedFoodEntry(entryId: string, userId?: string | null) 
 export function deletePlannedFoodEntriesByDateAndMealType(
   date: string,
   mealType: PlannedMealType,
+  personId?: string | null,
   userId?: string | null,
 ): number {
   const entries = readEntries(userId);
-  const next = entries.filter((entry) => !(entry.date === date && entry.mealType === mealType));
+  const normalizedPersonId = personId?.trim() || null;
+  const next = entries.filter(
+    (entry) =>
+      !(
+        entry.date === date &&
+        entry.mealType === mealType &&
+        (normalizedPersonId === null ? (entry.personId || null) === null : (entry.personId || null) === normalizedPersonId)
+      ),
+  );
   if (next.length === entries.length) return 0;
   writeEntries(sortEntries(next), userId);
   return entries.length - next.length;
