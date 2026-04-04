@@ -172,6 +172,16 @@ async function invokeCookbookImport(body: Record<string, unknown>) {
   );
 }
 
+function isEdgeTransportFailureMessage(errorMessage?: string): boolean {
+  const value = String(errorMessage || '').toLowerCase();
+  return (
+    value.includes('failed to send a request to the edge function') ||
+    value.includes('failed to fetch') ||
+    value.includes('networkerror') ||
+    value.includes('fetch failed')
+  );
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -440,6 +450,35 @@ export async function estimateRecipeNutrition(input: {
       return { success: false, error: 'Add a recipe name or ingredients first.' };
     }
 
+    const { data, error } = await supabase.functions.invoke('estimate-recipe-macros', {
+      body: {
+        name,
+        servings,
+        ingredients,
+        instructions,
+      },
+    });
+
+    if (!error) {
+      const response = data as EstimateRecipeNutritionResponse | null;
+      if (response?.success && response.macrosPerServing) {
+        return {
+          success: true,
+          macrosPerServing: {
+            calories: toInt(response.macrosPerServing.calories, 0),
+            protein_g: toInt(response.macrosPerServing.protein_g, 0),
+            carbs_g: toInt(response.macrosPerServing.carbs_g, 0),
+            fat_g: toInt(response.macrosPerServing.fat_g, 0),
+            ...(response.macrosPerServing.fiber_g !== undefined
+              ? { fiber_g: toInt(response.macrosPerServing.fiber_g, 0) }
+              : {}),
+          },
+        };
+      }
+    } else {
+      console.error('Edge function error (estimate-recipe-macros):', error);
+    }
+
     const fallbackPrompt = [
       'Estimate realistic calories and macros per serving for this existing recipe.',
       'Keep the recipe substantially the same and use the provided servings count.',
@@ -468,9 +507,19 @@ export async function estimateRecipeNutrition(input: {
       };
     }
 
+    const primaryError =
+      error?.message ||
+      ((data as EstimateRecipeNutritionResponse | null)?.error ?? '');
+    const fallbackError = generatedEstimate.error || '';
+    const bothTransportFailures =
+      isEdgeTransportFailureMessage(primaryError) &&
+      isEdgeTransportFailureMessage(fallbackError);
+
     return {
       success: false,
-      error: generatedEstimate.error || 'Could not estimate nutrition for this recipe.',
+      error: bothTransportFailures
+        ? 'Nutrition estimate service is not reachable right now. If you just added it, redeploy the estimate-recipe-macros and generate-recipe Supabase functions.'
+        : fallbackError || primaryError || 'Could not estimate nutrition for this recipe.',
     };
   } catch (error) {
     console.error('Error estimating recipe nutrition:', error);
