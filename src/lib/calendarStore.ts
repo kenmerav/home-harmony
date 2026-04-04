@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { estimateCookMinutes } from '@/lib/recipeTime';
-import { getDinnerReminderPrefs } from '@/lib/mealPrefs';
+import { getDinnerReminderPrefs, getDinnerTimeForDay } from '@/lib/mealPrefs';
+import { DayOfWeek } from '@/types';
 
 export type CalendarEventModule = 'manual' | 'meals' | 'tasks' | 'chores' | 'workouts' | 'reminders';
 export type CalendarEventSource = 'manual' | 'meal' | 'task' | 'chore' | 'workout' | 'reminder';
@@ -530,7 +531,6 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
   };
 
   const prefs = getDinnerReminderPrefs();
-  const dinnerTime = normalizeTime(prefs.preferredDinnerTime);
   const prepEnabled = !!prefs.enabled;
 
   const weekKeys = Array.from(new Set(meals.map((meal) => String(meal.week_of || '')).filter(Boolean)));
@@ -622,6 +622,8 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
     const prepRelatedId = `meal-prep:${meal.id}`;
     const title = String(meal.recipes?.name || '').trim();
     const hasMeal = !meal.is_skipped && !!title;
+    const normalizedDay = String(meal.day || '').toLowerCase() as DayOfWeek;
+    const dinnerTime = normalizeTime(getDinnerTimeForDay(normalizedDay, prefs));
     const startsAt = hasMeal ? mealStartDate(meal.week_of, meal.day, dinnerTime) : null;
 
     if (hasMeal && startsAt) {

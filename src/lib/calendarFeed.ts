@@ -14,7 +14,7 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
-import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
+import { getDinnerReminderPrefs, getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DayOfWeek } from '@/types';
@@ -537,7 +537,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     const mealDate = addDays(weekStart, dayToIndexMonday(day));
     if (!inRange(mealDate, rangeStart, rangeEnd)) return;
 
-    const mealStart = withTime(mealDate, dinnerPrefs.preferredDinnerTime || '18:00');
+    const mealStart = withTime(mealDate, getDinnerTimeForDay(day, dinnerPrefs));
     nextEvents.push({
       id: `meal-${meal.id}`,
       title: meal.recipes.name,

@@ -23,6 +23,7 @@ export interface PlanRules {
 export interface DinnerReminderPrefs {
   enabled: boolean;
   preferredDinnerTime: string;
+  dinnerTimesByDay: Record<DayOfWeek, string>;
 }
 
 export interface MenuRejuvenatePrefs {
@@ -44,6 +45,15 @@ const defaultRules: PlanRules = {
 const defaultDinnerReminderPrefs: DinnerReminderPrefs = {
   enabled: false,
   preferredDinnerTime: '18:00',
+  dinnerTimesByDay: {
+    monday: '18:00',
+    tuesday: '18:00',
+    wednesday: '18:00',
+    thursday: '18:00',
+    friday: '18:00',
+    saturday: '18:00',
+    sunday: '18:00',
+  },
 };
 
 const defaultMenuRejuvenatePrefs: MenuRejuvenatePrefs = {
@@ -175,23 +185,50 @@ export function setPlanRules(rules: PlanRules) {
 
 export function getDinnerReminderPrefs(): DinnerReminderPrefs {
   const raw = readJson<Partial<DinnerReminderPrefs>>(DINNER_REMINDER_KEY, {});
+  const preferredDinnerTime =
+    typeof raw.preferredDinnerTime === 'string' && /^\d{2}:\d{2}$/.test(raw.preferredDinnerTime)
+      ? raw.preferredDinnerTime
+      : defaultDinnerReminderPrefs.preferredDinnerTime;
+
+  const dinnerTimesByDay = ALL_DAYS.reduce<Record<DayOfWeek, string>>((acc, day) => {
+    const rawDayValue = raw.dinnerTimesByDay?.[day];
+    acc[day] =
+      typeof rawDayValue === 'string' && /^\d{2}:\d{2}$/.test(rawDayValue)
+        ? rawDayValue
+        : preferredDinnerTime;
+    return acc;
+  }, {} as Record<DayOfWeek, string>);
+
   return {
     enabled: !!raw.enabled,
-    preferredDinnerTime:
-      typeof raw.preferredDinnerTime === 'string' && /^\d{2}:\d{2}$/.test(raw.preferredDinnerTime)
-        ? raw.preferredDinnerTime
-        : defaultDinnerReminderPrefs.preferredDinnerTime,
+    preferredDinnerTime,
+    dinnerTimesByDay,
   };
 }
 
 export function setDinnerReminderPrefs(prefs: DinnerReminderPrefs) {
+  const preferredDinnerTime =
+    typeof prefs.preferredDinnerTime === 'string' && /^\d{2}:\d{2}$/.test(prefs.preferredDinnerTime)
+      ? prefs.preferredDinnerTime
+      : defaultDinnerReminderPrefs.preferredDinnerTime;
+  const dinnerTimesByDay = ALL_DAYS.reduce<Record<DayOfWeek, string>>((acc, day) => {
+    const rawDayValue = prefs.dinnerTimesByDay?.[day];
+    acc[day] =
+      typeof rawDayValue === 'string' && /^\d{2}:\d{2}$/.test(rawDayValue)
+        ? rawDayValue
+        : preferredDinnerTime;
+    return acc;
+  }, {} as Record<DayOfWeek, string>);
+
   writeJson(DINNER_REMINDER_KEY, {
     enabled: !!prefs.enabled,
-    preferredDinnerTime:
-      typeof prefs.preferredDinnerTime === 'string' && /^\d{2}:\d{2}$/.test(prefs.preferredDinnerTime)
-        ? prefs.preferredDinnerTime
-        : defaultDinnerReminderPrefs.preferredDinnerTime,
+    preferredDinnerTime,
+    dinnerTimesByDay,
   });
+}
+
+export function getDinnerTimeForDay(day: DayOfWeek, prefs = getDinnerReminderPrefs()): string {
+  return prefs.dinnerTimesByDay?.[day] || prefs.preferredDinnerTime || defaultDinnerReminderPrefs.preferredDinnerTime;
 }
 
 export function getMenuRejuvenatePrefs(): MenuRejuvenatePrefs {

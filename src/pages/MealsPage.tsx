@@ -38,6 +38,7 @@ import {
   DinnerReminderPrefs,
   MenuRejuvenatePrefs,
   getDinnerReminderPrefs,
+  getDinnerTimeForDay,
   getFavoriteIds,
   getKidFriendlyOverrides,
   getMealMultiplier,
@@ -226,6 +227,15 @@ export default function MealsPage() {
   const [dinnerReminderPrefs, setDinnerReminderPrefsState] = useState<DinnerReminderPrefs>({
     enabled: false,
     preferredDinnerTime: '18:00',
+    dinnerTimesByDay: {
+      monday: '18:00',
+      tuesday: '18:00',
+      wednesday: '18:00',
+      thursday: '18:00',
+      friday: '18:00',
+      saturday: '18:00',
+      sunday: '18:00',
+    },
   });
   const [menuRejuvenatePrefs, setMenuRejuvenatePrefsState] = useState<MenuRejuvenatePrefs>({
     enabled: false,
@@ -381,9 +391,10 @@ export default function MealsPage() {
     const today = dayFromDate(now);
     const todayMeal = meals.find((m) => m.day === today && !m.is_skipped && !!m.recipes);
     if (!todayMeal?.recipes) return;
+    const targetDinnerTime = getDinnerTimeForDay(today, dinnerReminderPrefs);
 
     const cookMinutes = estimateCookMinutes(todayMeal.recipes.instructions) ?? 30;
-    const [dinnerHour, dinnerMinute] = dinnerReminderPrefs.preferredDinnerTime
+    const [dinnerHour, dinnerMinute] = targetDinnerTime
       .split(':')
       .map((x) => Number.parseInt(x, 10) || 0);
     const dinnerTime = new Date(now);
@@ -399,7 +410,7 @@ export default function MealsPage() {
     markDinnerReminderShown(dateKey, todayMeal.id);
     toast({
       title: 'Dinner prep reminder',
-      description: `Start "${todayMeal.recipes.name}" now to hit your ${dinnerReminderPrefs.preferredDinnerTime} dinner time.`,
+      description: `Start "${todayMeal.recipes.name}" now to hit your ${targetDinnerTime} dinner time.`,
     });
   }, [dinnerReminderPrefs, meals, toast, weekOffset]);
 
@@ -2450,19 +2461,34 @@ export default function MealsPage() {
             </div>
             <div className="border border-border rounded-lg p-3 space-y-3">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Normal dinner time</p>
-                <Input
-                  type="time"
-                  value={dinnerReminderPrefs.preferredDinnerTime}
-                  onChange={(e) =>
-                    setDinnerReminderPrefsState((prev) => ({
-                      ...prev,
-                      preferredDinnerTime: e.target.value || '18:00',
-                    }))
-                  }
-                />
+                <p className="text-xs text-muted-foreground mb-2">Dinner time by day</p>
+                <div className="grid grid-cols-[88px_1fr] gap-2">
+                  {days.map((day) => (
+                    <Fragment key={`dinner-time-${day}`}>
+                      <span className="text-sm">{dayFullLabels[day]}</span>
+                      <Input
+                        type="time"
+                        value={dinnerReminderPrefs.dinnerTimesByDay[day] || '18:00'}
+                        onChange={(e) =>
+                          setDinnerReminderPrefsState((prev) => {
+                            const nextTime = e.target.value || '18:00';
+                            const nextDinnerTimesByDay = {
+                              ...prev.dinnerTimesByDay,
+                              [day]: nextTime,
+                            };
+                            return {
+                              ...prev,
+                              preferredDinnerTime: nextDinnerTimesByDay.monday || nextTime,
+                              dinnerTimesByDay: nextDinnerTimesByDay,
+                            };
+                          })
+                        }
+                      />
+                    </Fragment>
+                  ))}
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Used for meal calendar timing and tonight&apos;s dinner target.
+                  Used for meal calendar timing and each night&apos;s dinner target.
                 </p>
               </div>
               <label className="flex items-center gap-3">
@@ -2476,7 +2502,7 @@ export default function MealsPage() {
               </label>
               {dinnerReminderPrefs.enabled && (
                 <p className="text-xs text-muted-foreground">
-                  Reminder fires at dinner time minus estimated cook time.
+                  Reminder fires at that night&apos;s dinner time minus estimated cook time.
                 </p>
               )}
             </div>
