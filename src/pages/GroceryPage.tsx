@@ -80,6 +80,7 @@ interface ParsedIngredient {
 
 const EXCLUDE_PREPPED_MEAL_PREP_KEY = 'homehub.grocery.exclude-prepped-meal-prep.v1';
 const GROCERY_SCROLL_POSITION_KEY = 'homehub.grocery.scroll-position.v1';
+const GROCERY_SCROLL_ITEM_KEY = 'homehub.grocery.scroll-item.v1';
 
 function loadExcludePreppedMealPrepPreference(): boolean {
   if (typeof window === 'undefined') return true;
@@ -555,6 +556,22 @@ export default function GroceryPage() {
 
   const restoreGroceryScrollPosition = () => {
     if (typeof window === 'undefined') return;
+    const itemKey = window.sessionStorage.getItem(GROCERY_SCROLL_ITEM_KEY);
+    if (itemKey) {
+      const selector = `[data-grocery-item-key="${CSS.escape(itemKey)}"]`;
+      const anchor = document.querySelector<HTMLElement>(selector);
+      if (anchor) {
+        anchor.scrollIntoView({ block: 'center', behavior: 'auto' });
+        window.requestAnimationFrame(() => {
+          anchor.scrollIntoView({ block: 'center', behavior: 'auto' });
+        });
+        window.setTimeout(() => {
+          anchor.scrollIntoView({ block: 'center', behavior: 'auto' });
+        }, 150);
+        return;
+      }
+    }
+
     const raw = window.sessionStorage.getItem(GROCERY_SCROLL_POSITION_KEY);
     if (!raw) return;
     const scrollTop = Number.parseInt(raw, 10);
@@ -851,8 +868,15 @@ export default function GroceryPage() {
     window.sessionStorage.setItem(GROCERY_SCROLL_POSITION_KEY, String(window.scrollY || 0));
   };
 
-  const openStoreSearch = (itemName: string) => {
+  const openStoreSearch = (itemName: string, itemKey?: string) => {
     saveGroceryScrollPosition();
+    if (typeof window !== 'undefined') {
+      if (itemKey) {
+        window.sessionStorage.setItem(GROCERY_SCROLL_ITEM_KEY, itemKey);
+      } else {
+        window.sessionStorage.removeItem(GROCERY_SCROLL_ITEM_KEY);
+      }
+    }
     const storeId = getStoreIdForItem(itemName);
     window.open(buildStoreSearchUrl(storeId, itemName), '_blank');
   };
@@ -1143,6 +1167,7 @@ export default function GroceryPage() {
                 {categoryItems.map(item => (
                   <div 
                     key={item.id}
+                    data-grocery-item-key={item.key}
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 border-l-4 transition-gentle",
                       categoryColors[item.category],
@@ -1213,7 +1238,7 @@ export default function GroceryPage() {
                       variant="ghost" 
                       size="icon"
                       className="h-8 w-8 flex-shrink-0"
-                      onClick={() => openStoreSearch(item.name)}
+                      onClick={() => openStoreSearch(item.name, item.key)}
                     >
                       <ExternalLink className="w-4 h-4 text-muted-foreground" />
                     </Button>
