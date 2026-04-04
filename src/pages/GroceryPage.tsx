@@ -111,6 +111,11 @@ function splitCompositeIngredients(raw: string): string[] {
   if (quantityMatch && quantityMatch.index !== undefined && quantityMatch.index > 2) {
     const left = text.slice(0, quantityMatch.index).trim();
     const right = text.slice(quantityMatch.index + 1).trim();
+    const leftLooksLikeLeadingQuantityOnly = /^\d+(?:\.\d+)?(?:\s+\d+\/\d+)?\s+(?:lb|lbs|pound|pounds|oz|ounce|ounces|g|gram|grams|kg|cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons)\b$/i.test(left);
+    const rightLooksLikeLeanRatioMeat = /^\d{2,3}\/\d{1,2}\s+(ground\s+)?(beef|turkey|chicken|pork)\b/i.test(right);
+    if (leftLooksLikeLeadingQuantityOnly && rightLooksLikeLeanRatioMeat) {
+      return [text];
+    }
     if (left && right) return [...splitCompositeIngredients(left), ...splitCompositeIngredients(right)];
   }
 
