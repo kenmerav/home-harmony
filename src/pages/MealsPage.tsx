@@ -30,7 +30,7 @@ import {
   DbPlannedMeal,
   MealGenerationOptions,
 } from '@/lib/api/meals';
-import { normalizeRecipeInstructions } from '@/lib/recipeText';
+import { hasRecipeInstructions, normalizeRecipeInstructions } from '@/lib/recipeText';
 import { getRecipeImageUrl } from '@/data/recipeImages';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DbRecipe, fetchRecipes } from '@/lib/api/recipes';
@@ -115,6 +115,22 @@ const normalizeText = (s: string): string =>
     .replace(/[’'`]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+
+function recipeTitleMatchesQuery(recipeName: string, query: string): boolean {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return true;
+  const normalizedName = normalizeText(recipeName);
+  if (normalizedName.includes(normalizedQuery)) return true;
+  return normalizedQuery.split(' ').filter(Boolean).every((term) => normalizedName.includes(term));
+}
+
+function recipeNeedsInstructions(recipe: DbRecipe): boolean {
+  return !hasRecipeInstructions(recipe.instructions);
+}
+
+function recipePickerLabel(recipe: DbRecipe): string {
+  return recipeNeedsInstructions(recipe) ? `${recipe.name} - Needs instructions` : recipe.name;
+}
 
 function scoreRecipeForRequest(recipe: DbRecipe, request: string): number {
   const terms = normalizeText(request).split(' ').filter((t) => t.length > 1);
@@ -509,6 +525,15 @@ export default function MealsPage() {
           toast({ title: 'Type or pick a recipe first', variant: 'destructive' });
           return;
         }
+        const selectedRecipe = recipeOptions.find((recipe) => recipe.id === resolvedRecipeId);
+        if (selectedRecipe && recipeNeedsInstructions(selectedRecipe)) {
+          toast({
+            title: 'Recipe needs instructions',
+            description: `Add instructions to ${selectedRecipe.name} before choosing it.`,
+            variant: 'destructive',
+          });
+          return;
+        }
         const data = await updateMealRecipe(swapDialogMeal.id, resolvedRecipeId, swapDialogMeal.week_of);
         setMeals(data);
         toast({ title: 'Meal updated' });
@@ -521,6 +546,7 @@ export default function MealsPage() {
         const maxMinutes = Number.parseInt(requestMaxMinutes, 10);
         const candidates = allRecipes
           .filter((r) => r.id !== swapDialogMeal.recipe_id)
+          .filter((r) => !recipeNeedsInstructions(r))
           .filter((r) => !Number.isFinite(maxMinutes) || maxMinutes <= 0 || (estimateCookMinutes(r.instructions) ?? 9999) <= maxMinutes)
           .map((r) => ({ recipe: r, score: scoreRecipeForRequest(r, request) }))
           .filter((x) => x.score > 0)
@@ -617,17 +643,17 @@ export default function MealsPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
   const plannerRecipeOptions = recipeOptions.filter((recipe) =>
     plannerRecipeQuery.trim()
-      ? recipe.name.toLowerCase().includes(plannerRecipeQuery.trim().toLowerCase())
+      ? recipeTitleMatchesQuery(recipe.name, plannerRecipeQuery)
       : true,
   );
   const chooseRecipeOptions = recipeOptions.filter((recipe) =>
     chooseRecipeQuery.trim()
-      ? recipe.name.toLowerCase().includes(chooseRecipeQuery.trim().toLowerCase())
+      ? recipeTitleMatchesQuery(recipe.name, chooseRecipeQuery)
       : true,
   );
   const manualRecipeOptions = recipeOptions.filter((recipe) =>
     manualRecipeQuery.trim()
-      ? recipe.name.toLowerCase().includes(manualRecipeQuery.trim().toLowerCase())
+      ? recipeTitleMatchesQuery(recipe.name, manualRecipeQuery)
       : true,
   );
   const plannerRecipeTypeahead = plannerRecipeQuery.trim() ? plannerRecipeOptions.slice(0, 8) : [];
@@ -709,6 +735,14 @@ export default function MealsPage() {
       if (!recipeId) setPlannerRecipeQuery('');
       return;
     }
+    if (recipeNeedsInstructions(recipe)) {
+      toast({
+        title: 'Recipe needs instructions',
+        description: `Add instructions to ${recipe.name} before using it in your meal plan.`,
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setPlannerForm((prev) => ({
       ...prev,
@@ -725,12 +759,28 @@ export default function MealsPage() {
 
   const selectRecipeForSwap = (recipeId: string) => {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+    if (recipe && recipeNeedsInstructions(recipe)) {
+      toast({
+        title: 'Recipe needs instructions',
+        description: `Add instructions to ${recipe.name} before choosing it.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     setSelectedRecipeId(recipeId);
     if (recipe) setChooseRecipeQuery(recipe.name);
   };
 
   const selectRecipeForManual = (recipeId: string) => {
     const recipe = recipeOptions.find((entry) => entry.id === recipeId);
+    if (recipe && recipeNeedsInstructions(recipe)) {
+      toast({
+        title: 'Recipe needs instructions',
+        description: `Add instructions to ${recipe.name} before choosing it.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     setManualRecipeId(recipeId);
     if (recipe) setManualRecipeQuery(recipe.name);
   };
@@ -766,6 +816,15 @@ export default function MealsPage() {
   const applyManualMealForDay = async () => {
     if (!manualDialogDay || !manualRecipeId) {
       toast({ title: 'Choose a recipe first', variant: 'destructive' });
+      return;
+    }
+    const selectedRecipe = recipeOptions.find((recipe) => recipe.id === manualRecipeId);
+    if (selectedRecipe && recipeNeedsInstructions(selectedRecipe)) {
+      toast({
+        title: 'Recipe needs instructions',
+        description: `Add instructions to ${selectedRecipe.name} before using it in your meal plan.`,
+        variant: 'destructive',
+      });
       return;
     }
     try {
@@ -804,6 +863,17 @@ export default function MealsPage() {
     if (!Number.isFinite(calories) || calories < 0) {
       toast({ title: 'Add calories to project totals', variant: 'destructive' });
       return false;
+    }
+    if (plannerForm.recipeId) {
+      const selectedRecipe = recipeOptions.find((recipe) => recipe.id === plannerForm.recipeId);
+      if (selectedRecipe && recipeNeedsInstructions(selectedRecipe)) {
+        toast({
+          title: 'Recipe needs instructions',
+          description: `Add instructions to ${selectedRecipe.name} before planning it.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
     }
 
     const targetDates = Array.from(new Set(getPlannerTargetDates()));
@@ -1774,8 +1844,8 @@ export default function MealsPage() {
                   >
                     <option value="">Optional: choose from recipes</option>
                     {plannerRecipeOptions.map((recipe) => (
-                      <option key={recipe.id} value={recipe.id}>
-                        {recipe.name}
+                      <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
+                        {recipePickerLabel(recipe)}
                       </option>
                     ))}
                   </select>
@@ -1787,11 +1857,17 @@ export default function MealsPage() {
                       <button
                         key={`planner-typeahead-${recipe.id}`}
                         type="button"
-                        className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        className={cn(
+                          'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
+                          recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
+                        )}
                         onClick={() => selectRecipeForPlanner(recipe.id)}
+                        disabled={recipeNeedsInstructions(recipe)}
                       >
                         <span className="truncate">{recipe.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -2444,8 +2520,8 @@ export default function MealsPage() {
                         .slice()
                         .sort((a, b) => a.name.localeCompare(b.name))
                         .map((recipe) => (
-                          <option key={recipe.id} value={recipe.id}>
-                            {recipe.name}
+                          <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
+                            {recipePickerLabel(recipe)}
                           </option>
                         ))}
                     </select>
@@ -2485,10 +2561,12 @@ export default function MealsPage() {
                   onChange={(e) => {
                     const value = e.target.value;
                     setChooseRecipeQuery(value);
-                    const exact = recipeOptions.find((recipe) => recipe.name.toLowerCase() === value.trim().toLowerCase());
-                    if (exact) {
+                    const exact = recipeOptions.find((recipe) => normalizeText(recipe.name) === normalizeText(value.trim()));
+                    if (exact && !recipeNeedsInstructions(exact)) {
                       setSelectedRecipeId(exact.id);
                     } else if (!value.trim()) {
+                      setSelectedRecipeId('');
+                    } else {
                       setSelectedRecipeId('');
                     }
                   }}
@@ -2500,11 +2578,17 @@ export default function MealsPage() {
                       <button
                         key={`swap-typeahead-${recipe.id}`}
                         type="button"
-                        className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        className={cn(
+                          'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
+                          recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
+                        )}
                         onClick={() => selectRecipeForSwap(recipe.id)}
+                        disabled={recipeNeedsInstructions(recipe)}
                       >
                         <span className="truncate">{recipe.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -2517,8 +2601,8 @@ export default function MealsPage() {
                 >
                   <option value="">Select recipe...</option>
                   {chooseRecipeOptions.map((recipe) => (
-                    <option key={recipe.id} value={recipe.id}>
-                      {recipe.name}
+                    <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
+                      {recipePickerLabel(recipe)}
                     </option>
                   ))}
                 </select>
@@ -2680,11 +2764,17 @@ export default function MealsPage() {
                   <button
                     key={`grid-planner-typeahead-${recipe.id}`}
                     type="button"
-                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
+                      recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
+                    )}
                     onClick={() => selectRecipeForPlanner(recipe.id)}
+                    disabled={recipeNeedsInstructions(recipe)}
                   >
                     <span className="truncate">{recipe.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -2697,8 +2787,8 @@ export default function MealsPage() {
             >
               <option value="">Optional: choose from recipes</option>
               {plannerRecipeOptions.map((recipe) => (
-                <option key={recipe.id} value={recipe.id}>
-                  {recipe.name}
+                <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
+                  {recipePickerLabel(recipe)}
                 </option>
               ))}
             </select>
@@ -2781,8 +2871,8 @@ export default function MealsPage() {
               onChange={(event) => {
                 const value = event.target.value;
                 setManualRecipeQuery(value);
-                const exact = recipeOptions.find((recipe) => recipe.name.toLowerCase() === value.trim().toLowerCase());
-                if (exact) {
+                const exact = recipeOptions.find((recipe) => normalizeText(recipe.name) === normalizeText(value.trim()));
+                if (exact && !recipeNeedsInstructions(exact)) {
                   setManualRecipeId(exact.id);
                 } else {
                   setManualRecipeId('');
@@ -2817,11 +2907,17 @@ export default function MealsPage() {
                   <button
                     key={`manual-typeahead-${recipe.id}`}
                     type="button"
-                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
+                      recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
+                    )}
                     onClick={() => selectRecipeForManual(recipe.id)}
+                    disabled={recipeNeedsInstructions(recipe)}
                   >
                     <span className="truncate">{recipe.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{Math.round(recipe.calories || 0)} cal</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
+                    </span>
                   </button>
                 ))}
               </div>

@@ -39,7 +39,7 @@ import {
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
 import { EditRecipeDialog } from '@/components/recipes/EditRecipeDialog';
 import { estimateCookMinutes, formatCookTime } from '@/lib/recipeTime';
-import { normalizeRecipeInstructions } from '@/lib/recipeText';
+import { hasRecipeInstructions, normalizeRecipeInstructions } from '@/lib/recipeText';
 import { getRecipeImageUrl } from '@/data/recipeImages';
 import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } from '@/lib/mealPrefs';
 import { inferKidFriendly } from '@/lib/kidFriendly';
@@ -712,7 +712,22 @@ export default function RecipesPage() {
   };
 
   const filteredRecipes = recipes.filter(recipe => {
-    const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const normalizedQuery = searchQuery
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[’'`]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const normalizedName = recipe.name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[’'`]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const matchesSearch =
+      !normalizedQuery ||
+      normalizedName.includes(normalizedQuery) ||
+      normalizedQuery.split(' ').filter(Boolean).every((term) => normalizedName.includes(term));
     const matchesFavorite = !favoritesOnly || !!recipe.isFavorite;
     const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
     return matchesSearch && matchesFavorite && matchesKidFriendly;
@@ -2549,6 +2564,7 @@ function RecipeCard({
   onToggleFavorite: () => void;
   onToggleKidFriendly: () => void;
 }) {
+  const needsInstructions = !hasRecipeInstructions(recipe.instructions);
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden card-hover">
       {recipe.imageUrl && (
@@ -2604,10 +2620,15 @@ function RecipeCard({
             </span>
           </div>
         )}
-        <div className="mt-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
             {formatDishType(recipe.dishType)}
           </span>
+          {needsInstructions && (
+            <span className="inline-flex rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+              Needs instructions
+            </span>
+          )}
         </div>
       </div>
 

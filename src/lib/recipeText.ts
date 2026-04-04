@@ -22,6 +22,10 @@ export function normalizeRecipeInstructions(input?: string | null): string {
   return raw;
 }
 
+export function hasRecipeInstructions(input?: string | null): boolean {
+  return normalizeRecipeInstructions(input).trim().length > 0;
+}
+
 const quantityToken =
   '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
 
