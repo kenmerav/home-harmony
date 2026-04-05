@@ -75,7 +75,10 @@ export default function AppleCalendarConnectPage() {
   }, [loadUrls]);
 
   const feedRows = useMemo(
-    () => APPLE_FEED_LAYERS.map((layer) => ({ layer, label: layerLabel[layer], url: state?.feeds[layer] || '' })),
+    () =>
+      APPLE_FEED_LAYERS
+        .filter((layer) => layer !== 'chores')
+        .map((layer) => ({ layer, label: layerLabel[layer], url: state?.feeds[layer] || '' })),
     [state],
   );
 

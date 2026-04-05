@@ -3,7 +3,6 @@ export const FEED_LAYERS = [
   'family',
   'meals',
   'kids',
-  'chores',
   'deliveries',
   'manual',
   'tasks',
@@ -23,9 +22,15 @@ export interface IcsFeedEvent {
   allDay: boolean;
   timezone?: string | null;
   layer?: string | null;
+  module?: string | null;
   updatedAt?: string | null;
   deletedAt?: string | null;
   cancelled?: boolean;
+}
+
+export function isChoreFeedEvent(event: Pick<IcsFeedEvent, 'layer' | 'module'>): boolean {
+  return String(event.layer || '').trim().toLowerCase() === 'chores'
+    || String(event.module || '').trim().toLowerCase() === 'chores';
 }
 
 const FEED_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;

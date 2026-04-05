@@ -6,6 +6,7 @@ import {
   FEED_LAYERS,
   FeedLayer,
   IcsFeedEvent,
+  isChoreFeedEvent,
   isValidFeedToken,
   normalizeFeedLayer,
   parseFeedPath,
@@ -22,6 +23,7 @@ type CalendarEventRow = {
   id: string;
   title: string;
   description: string | null;
+  module: string | null;
   starts_at: string;
   ends_at: string | null;
   all_day: boolean;
@@ -136,6 +138,7 @@ function mapRowsToFeedEvents(rows: CalendarEventRow[]): IcsFeedEvent[] {
       allDay: !!row.all_day,
       timezone: row.timezone_name,
       layer: row.calendar_layer || "family",
+      module: row.module,
       updatedAt: row.updated_at,
       deletedAt: row.deleted_at,
       cancelled: !!(row.is_deleted || row.deleted_at),
@@ -168,7 +171,7 @@ async function renderFeed(req: Request, adminClient: ReturnType<typeof createCli
   let query = adminClient
     .from("calendar_events")
     .select(
-      "id,title,description,starts_at,ends_at,all_day,timezone_name,calendar_layer,location_text,updated_at,deleted_at,is_deleted",
+      "id,title,description,module,starts_at,ends_at,all_day,timezone_name,calendar_layer,location_text,updated_at,deleted_at,is_deleted",
     )
     .eq("owner_id", userId)
     .order("starts_at", { ascending: true });
@@ -188,7 +191,15 @@ async function renderFeed(req: Request, adminClient: ReturnType<typeof createCli
     });
   }
 
-  const feedEvents = mapRowsToFeedEvents(((data || []) as CalendarEventRow[]));
+  const feedEvents = mapRowsToFeedEvents(((data || []) as CalendarEventRow[]))
+    .map((event) =>
+      isChoreFeedEvent(event)
+        ? {
+            ...event,
+            cancelled: true,
+          }
+        : event,
+    );
   const layerLabel = layer === "all" ? "All Events" : `${layer.charAt(0).toUpperCase()}${layer.slice(1)} Events`;
   const ics = buildIcsCalendar(feedEvents, `Home Harmony - ${layerLabel}`);
 
