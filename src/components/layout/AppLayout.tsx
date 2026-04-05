@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { listDashboardProfiles, renameDashboardProfile } from '@/lib/macroGame';
 import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
+import { getHouseholdDashboard } from '@/lib/api/family';
 import {
   Dialog,
   DialogContent,
@@ -84,11 +85,43 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
 
   useEffect(() => {
     if (!user?.id || typeof window === 'undefined') return;
-    const key = `homehub.family-setup-prompt.v1:${user.id}`;
-    const seen = window.localStorage.getItem(key) === '1';
-    if (!seen) {
-      setFamilySetupOpen(true);
-    }
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const householdDashboard = await getHouseholdDashboard();
+        if (cancelled) return;
+
+        const activeMember = householdDashboard.members.find(
+          (member) => member.user_id === user.id && member.status === 'active',
+        );
+        const canSetupFamilyWorkspace = !activeMember || activeMember.role === 'owner';
+        if (!canSetupFamilyWorkspace) {
+          setFamilySetupOpen(false);
+          return;
+        }
+
+        const key = `homehub.family-setup-prompt.v1:${user.id}`;
+        const seen = window.localStorage.getItem(key) === '1';
+        if (!seen) {
+          setFamilySetupOpen(true);
+        }
+      } catch (error) {
+        console.error('Failed checking family setup eligibility:', error);
+        if (cancelled) return;
+
+        const key = `homehub.family-setup-prompt.v1:${user.id}`;
+        const seen = window.localStorage.getItem(key) === '1';
+        if (!seen) {
+          setFamilySetupOpen(true);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const activeDashboardId = useMemo(() => {

@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   AlertDialog,
@@ -41,7 +41,8 @@ const EMPTY_DASHBOARD: HouseholdDashboard = {
 };
 
 export default function FamilyPage() {
-  const { profile, user } = useAuth();
+  const { profile, user, isProfileComplete } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
   const inviteRolePrefill = searchParams.get('role');
@@ -193,6 +194,9 @@ export default function FamilyPage() {
       await acceptHouseholdInvite(inviteToken);
       setMessage('Invite accepted. You are now part of this household.');
       await loadDashboard();
+      if (!isProfileComplete) {
+        navigate('/onboarding', { replace: true, state: { from: '/family' } });
+      }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : 'Unable to accept invite.');
     } finally {
