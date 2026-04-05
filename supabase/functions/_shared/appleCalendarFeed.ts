@@ -83,6 +83,12 @@ function toUtcToken(date: Date): string {
   return `${year}${month}${day}T${hour}${minute}${second}Z`;
 }
 
+function toSequence(date: Date): number {
+  const time = date.getTime();
+  if (!Number.isFinite(time) || time <= 0) return 0;
+  return Math.max(0, Math.floor(time / 1000));
+}
+
 function isValidTimeZone(value: string | null | undefined): value is string {
   if (!value || typeof value !== 'string') return false;
   try {
@@ -173,10 +179,14 @@ export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): 
     const timezone = isValidTimeZone(event.timezone) ? event.timezone : null;
     const updatedAt = event.deletedAt ? new Date(event.deletedAt) : event.updatedAt ? new Date(event.updatedAt) : new Date();
     const dtstamp = Number.isFinite(updatedAt.getTime()) ? toUtcToken(updatedAt) : toUtcToken(new Date());
+    const lastModified = Number.isFinite(updatedAt.getTime()) ? toUtcToken(updatedAt) : dtstamp;
+    const sequence = Number.isFinite(updatedAt.getTime()) ? toSequence(updatedAt) : 0;
 
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${escapeIcsText(`${event.id}@homeharmonyhq`)}`);
     lines.push(`DTSTAMP:${dtstamp}`);
+    lines.push(`LAST-MODIFIED:${lastModified}`);
+    lines.push(`SEQUENCE:${sequence}`);
 
     if (event.allDay) {
       const startDate = timezone ? toDateTokenInZone(start, timezone) : toUtcToken(start).slice(0, 8);
@@ -206,7 +216,10 @@ export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): 
     lines.push(`SUMMARY:${escapeIcsText(event.title)}`);
     if (event.description) lines.push(`DESCRIPTION:${escapeIcsText(event.description)}`);
     if (event.location) lines.push(`LOCATION:${escapeIcsText(event.location)}`);
-    if (event.cancelled || event.deletedAt) lines.push('STATUS:CANCELLED');
+    if (event.cancelled || event.deletedAt) {
+      lines.push('STATUS:CANCELLED');
+      lines.push('TRANSP:TRANSPARENT');
+    }
     lines.push(`CATEGORIES:${escapeIcsText(sanitizeLayer(event.layer))}`);
     lines.push('END:VEVENT');
   }
