@@ -763,6 +763,26 @@ export default function CalendarPage() {
   }, [refreshEvents]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const handleWindowFocus = () => {
+      void refreshEvents();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshEvents();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshEvents]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = () => {
       setDepartureAddressProfile(loadDepartureAddressProfile(user?.id));
