@@ -12,6 +12,10 @@ export function RequireSubscription({ children }: { children: JSX.Element }) {
   }
 
   if (!user) return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
+  if (location.pathname === '/family') {
+    const params = new URLSearchParams(location.search);
+    if (params.get('invite')) return children;
+  }
   if (!isSubscribed) return <Navigate to="/billing" replace state={{ from: location.pathname }} />;
   return children;
 }
