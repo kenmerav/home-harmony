@@ -1,9 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireAdmin } from "./components/auth/RequireAdmin";
@@ -93,6 +93,7 @@ const TemplateDetailPage = lazy(() =>
 );
 
 const queryClient = new QueryClient();
+const GOOGLE_ANALYTICS_ID = "G-PN5Y1S4WCL";
 
 function RouteFallback() {
   return (
@@ -100,6 +101,23 @@ function RouteFallback() {
       Loading page...
     </div>
   );
+}
+
+function GoogleAnalyticsPageTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.gtag !== "function") return;
+
+    const pagePath = `${location.pathname}${location.search}${location.hash}`;
+    window.gtag("config", GOOGLE_ANALYTICS_ID, {
+      page_path: pagePath,
+      page_title: document.title,
+      page_location: window.location.href,
+    });
+  }, [location.hash, location.pathname, location.search]);
+
+  return null;
 }
 
 const App = () => (
@@ -110,6 +128,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <GoogleAnalyticsPageTracker />
             <Suspense fallback={<RouteFallback />}>
               <Routes>
               <Route path="/" element={<LandingPage />} />
