@@ -549,7 +549,7 @@ Rules:
     return { intent: null, clarification };
   }
 
-  const title = String(parsed.title || "").trim();
+  const title = normalizeCalendarTitle(String(parsed.title || ""));
   const dateText = String(parsed.date || "").trim();
   const startTimeText = String(parsed.startTime || "").trim();
   const endTimeText = String(parsed.endTime || "").trim();
@@ -565,12 +565,20 @@ Rules:
     };
   }
 
-  const date = DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
+  let date = DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
   if (!date.isValid) {
     return {
       intent: null,
       clarification: "I couldn't clearly read the date from that screenshot. Try a screenshot that includes the full event date.",
     };
+  }
+
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  if (date < today.minus({ days: 30 })) {
+    const nextYear = date.plus({ years: 1 });
+    if (nextYear >= today.minus({ days: 7 }) && nextYear <= today.plus({ years: 2 })) {
+      date = nextYear;
+    }
   }
 
   if (allDay || !startTimeText) {
@@ -632,6 +640,17 @@ function titleCaseWords(value: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function normalizeCalendarTitle(value: string): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+
+  const letters = trimmed.replace(/[^A-Za-z]/g, "");
+  const uppercaseLetters = letters.replace(/[^A-Z]/g, "").length;
+  const lowercaseLetters = letters.replace(/[^a-z]/g, "").length;
+  const shouldTitleCase = uppercaseLetters > 0 && (lowercaseLetters === 0 || uppercaseLetters >= lowercaseLetters * 2);
+  return shouldTitleCase ? titleCaseWords(trimmed.toLowerCase()) : trimmed;
 }
 
 function trimTrailingPunctuation(value: string): string {
@@ -1061,7 +1080,7 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)(?:\s+filter)?(?:\s+on\s+calendar)?\s+(?:starting\s+at|at)\s+(.+?)\s+for\s+(.+)$/i,
   );
   if (verboseMatch) {
-    const title = trimTrailingPunctuation(verboseMatch[1] || "");
+    const title = normalizeCalendarTitle(trimTrailingPunctuation(verboseMatch[1] || ""));
     const layer = normalizeCalendarLayerName(verboseMatch[2] || "");
     const timeText = trimTrailingPunctuation(verboseMatch[3] || "");
     const dateText = trimTrailingPunctuation(verboseMatch[4] || "");
@@ -1103,7 +1122,7 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     const match = normalized.match(pattern);
     if (!match) continue;
 
-    const title = trimTrailingPunctuation(match[1] || "");
+    const title = normalizeCalendarTitle(trimTrailingPunctuation(match[1] || ""));
     const rawLayer = trimTrailingPunctuation(match[2] || "");
     let layer = normalizeCalendarLayerName(rawLayer);
     const third = trimTrailingPunctuation(match[3] || "");
@@ -1383,7 +1402,10 @@ async function addCalendarEventBySms(
     const { error } = await supabase.from("calendar_events").insert(candidate);
     if (!error) {
       const localStart = DateTime.fromISO(intent.startsAt, { zone: "utc" }).setZone(timezone);
-      const whenText = intent.allDay ? localStart.toFormat("LLL d") : localStart.toFormat("LLL d 'at' h:mm a");
+      const dateFormat = localStart.year === DateTime.now().setZone(timezone).year ? "LLL d" : "LLL d, yyyy";
+      const whenText = intent.allDay
+        ? localStart.toFormat(dateFormat)
+        : localStart.toFormat(`${dateFormat} 'at' h:mm a`);
       return `Added ${intent.title} to ${intent.layer} for ${whenText}.`;
     }
     lastError = error;
