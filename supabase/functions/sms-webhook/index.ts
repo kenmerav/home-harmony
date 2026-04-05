@@ -575,9 +575,14 @@ Rules:
 
   const today = DateTime.now().setZone(timezone).startOf("day");
   if (date < today.minus({ days: 30 })) {
-    const nextYear = date.plus({ years: 1 });
-    if (nextYear >= today.minus({ days: 7 }) && nextYear <= today.plus({ years: 2 })) {
-      date = nextYear;
+    for (let i = 0; i < 4; i += 1) {
+      const nextYear = date.plus({ years: 1 });
+      if (nextYear > date) {
+        date = nextYear;
+      }
+      if (date >= today.minus({ days: 7 })) {
+        break;
+      }
     }
   }
 
