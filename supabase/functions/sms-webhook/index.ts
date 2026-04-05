@@ -164,6 +164,20 @@ type InboundSmsPreferenceRow = {
   updated_at?: string | null;
 };
 
+type InboundProfileRow = {
+  id: string;
+  phone: string | null;
+  household_id: string | null;
+  onboarding_completed_at: string | null;
+  updated_at?: string | null;
+};
+
+type InboundSubscriptionRow = {
+  user_id: string;
+  status: string;
+  updated_at?: string | null;
+};
+
 type SmsNotificationLogRow = {
   user_id: string;
   created_at: string;
@@ -294,6 +308,10 @@ function sortPreferenceRowsByUpdatedAt(rows: InboundSmsPreferenceRow[]): Inbound
   return [...rows].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
 }
 
+function sortRowsByUpdatedAt<T extends { updated_at?: string | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+}
+
 async function findRecentSmsOwnerForRecipient(
   supabase: ReturnType<typeof createClient>,
   userIds: string[],
@@ -320,6 +338,94 @@ async function findRecentSmsOwnerForRecipient(
   }
 
   return null;
+}
+
+function subscriptionScore(status: string | null | undefined): number {
+  switch (String(status || "").toLowerCase()) {
+    case "active":
+      return 30;
+    case "trialing":
+      return 28;
+    case "past_due":
+      return 8;
+    case "canceled":
+    case "cancelled":
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+async function findPreferredInboundSmsOwner(
+  supabase: ReturnType<typeof createClient>,
+  rows: InboundSmsPreferenceRow[],
+  normalizedFrom: string,
+): Promise<string | null> {
+  const uniqueRows = rows.filter((row, index, all) => all.findIndex((item) => item.user_id === row.user_id) === index);
+  const userIds = uniqueRows.map((row) => row.user_id);
+  if (!userIds.length) return null;
+
+  const recentOwner = await findRecentSmsOwnerForRecipient(supabase, userIds, normalizedFrom);
+
+  const [{ data: profilesData, error: profileError }, { data: subscriptionsData, error: subscriptionError }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id,phone,household_id,onboarding_completed_at,updated_at")
+      .in("id", userIds),
+    supabase
+      .from("subscriptions")
+      .select("user_id,status,updated_at")
+      .in("user_id", userIds),
+  ]);
+
+  if (profileError) {
+    console.error("Failed loading profiles for inbound recipient matching:", profileError.message || profileError);
+  }
+  if (subscriptionError) {
+    console.error("Failed loading subscriptions for inbound recipient matching:", subscriptionError.message || subscriptionError);
+  }
+
+  const profilesByUser = new Map<string, InboundProfileRow>();
+  for (const profile of sortRowsByUpdatedAt((profilesData || []) as InboundProfileRow[])) {
+    if (!profilesByUser.has(profile.id)) profilesByUser.set(profile.id, profile);
+  }
+
+  const subscriptionScoreByUser = new Map<string, number>();
+  for (const subscription of ((subscriptionsData || []) as InboundSubscriptionRow[])) {
+    const nextScore = subscriptionScore(subscription.status);
+    const currentScore = subscriptionScoreByUser.get(subscription.user_id) || 0;
+    if (nextScore > currentScore) {
+      subscriptionScoreByUser.set(subscription.user_id, nextScore);
+    }
+  }
+
+  const ranked = uniqueRows
+    .map((row) => {
+      const profile = profilesByUser.get(row.user_id);
+      const profilePhone = normalizePhone(String(profile?.phone || ""));
+      const rowPhone = normalizePhone(String(row.phone_e164 || ""));
+      let score = 0;
+
+      if (profilePhone && profilePhone === normalizedFrom) score += 50;
+      if (rowPhone && rowPhone === normalizedFrom) score += 18;
+      if (profile?.onboarding_completed_at) score += 16;
+      if (profile?.household_id) score += 14;
+      score += subscriptionScoreByUser.get(row.user_id) || 0;
+      if (recentOwner && recentOwner === row.user_id) score += 12;
+
+      return {
+        row,
+        score,
+        profileUpdatedAt: String(profile?.updated_at || ""),
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.profileUpdatedAt !== a.profileUpdatedAt) return b.profileUpdatedAt.localeCompare(a.profileUpdatedAt);
+      return String(b.row.updated_at || "").localeCompare(String(a.row.updated_at || ""));
+    });
+
+  return ranked[0]?.row.user_id || recentOwner || null;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -1392,13 +1498,9 @@ async function findSmsPreferenceForInboundNumber(
   const exactMatches = allRows.filter((row) => normalizePhone(String(row.phone_e164 || "")) === normalizedFrom);
   if (exactMatches.length === 1) return exactMatches[0];
   if (exactMatches.length > 1) {
-    const recentOwner = await findRecentSmsOwnerForRecipient(
-      supabase,
-      exactMatches.map((row) => row.user_id),
-      normalizedFrom,
-    );
-    if (recentOwner) {
-      const owned = exactMatches.find((row) => row.user_id === recentOwner);
+    const preferredOwner = await findPreferredInboundSmsOwner(supabase, exactMatches, normalizedFrom);
+    if (preferredOwner) {
+      const owned = exactMatches.find((row) => row.user_id === preferredOwner);
       if (owned) return owned;
     }
     return sortPreferenceRowsByUpdatedAt(exactMatches)[0];
@@ -1414,13 +1516,9 @@ async function findSmsPreferenceForInboundNumber(
   if (matches.length === 0) return null;
   if (matches.length === 1) return matches[0];
 
-  const recentOwner = await findRecentSmsOwnerForRecipient(
-    supabase,
-    matches.map((row) => row.user_id),
-    normalizedFrom,
-  );
-  if (recentOwner) {
-    const owned = matches.find((row) => row.user_id === recentOwner);
+  const preferredOwner = await findPreferredInboundSmsOwner(supabase, matches, normalizedFrom);
+  if (preferredOwner) {
+    const owned = matches.find((row) => row.user_id === preferredOwner);
     if (owned) return owned;
   }
 
