@@ -13,4 +13,4 @@ Disallow: /family
 Disallow: /me
 Disallow: /wife
 
-Sitemap: https://homeharmony.app/sitemap.xml
+Sitemap: https://www.homeharmonyhq.com/sitemap.xml

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const SITE_ORIGIN = 'https://homeharmony.app';
+const SITE_ORIGIN = 'https://www.homeharmonyhq.com';
 const now = new Date().toISOString().slice(0, 10);
 
 const repoRoot = resolve(process.cwd());
