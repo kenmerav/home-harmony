@@ -5,6 +5,16 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -12,8 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
+import { deleteAdminUser, fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
+import { useAuth } from '@/contexts/AuthContext';
 
 function numberFmt(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
@@ -37,10 +49,13 @@ function safeRatio(numerator: number, denominator: number): string {
 }
 
 export default function AdminDashboardPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<AdminMetricsResponse | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<AdminMetricsResponse['recentUsers'][number] | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -132,6 +147,32 @@ export default function AdminDashboardPage() {
     }
     return list;
   }, [derived, metrics]);
+
+  const handleDeleteUser = useCallback(async () => {
+    if (!pendingDeleteUser) return;
+
+    setDeletingUserId(pendingDeleteUser.id);
+    try {
+      await deleteAdminUser(pendingDeleteUser.id);
+      toast({
+        title: 'Account deleted',
+        description: pendingDeleteUser.email
+          ? `${pendingDeleteUser.email} was deleted.`
+          : 'The selected account was deleted.',
+      });
+      setPendingDeleteUser(null);
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete account.';
+      toast({
+        title: 'Delete failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingUserId(null);
+    }
+  }, [pendingDeleteUser, refresh, toast]);
 
   return (
     <AppLayout contentWidthClassName="max-w-7xl">
@@ -347,6 +388,7 @@ export default function AdminDashboardPage() {
                   <TableHead>Created</TableHead>
                   <TableHead>Last sign in</TableHead>
                   <TableHead>Confirmed</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -357,20 +399,60 @@ export default function AdminDashboardPage() {
                       <TableCell>{dateTimeFmt(row.createdAt)}</TableCell>
                       <TableCell>{dateTimeFmt(row.lastSignInAt)}</TableCell>
                       <TableCell>{row.emailConfirmedAt ? 'Yes' : 'No'}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setPendingDeleteUser(row)}
+                          disabled={row.id === user?.id || deletingUserId === row.id}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={5} className="text-sm text-muted-foreground">
                       No users found.
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Deleting an account removes that user&apos;s auth access and user-owned data. If the account owns a household, that household may be removed too.
+            </p>
           </SectionCard>
         </div>
       ) : null}
+
+      <AlertDialog open={Boolean(pendingDeleteUser)} onOpenChange={(open) => !open && setPendingDeleteUser(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteUser?.email
+                ? `This will permanently delete ${pendingDeleteUser.email}. This can remove their household-owned data too and cannot be undone.`
+                : 'This will permanently delete the selected account and can remove household-owned data too. This cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingUserId)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteUser();
+              }}
+              disabled={Boolean(deletingUserId)}
+            >
+              {deletingUserId ? 'Deleting...' : 'Delete account'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

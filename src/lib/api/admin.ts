@@ -72,3 +72,12 @@ export async function fetchAdminMetrics(): Promise<AdminMetricsResponse> {
   if (!parsed.summary || !parsed.totals) throw new Error('Admin metrics response missing required fields.');
   return parsed as AdminMetricsResponse;
 }
+
+export async function deleteAdminUser(userId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke('admin-delete-user', {
+    body: { userId },
+  });
+  if (error) {
+    throw new Error(await parseInvokeError(error, 'Could not delete account.'));
+  }
+}

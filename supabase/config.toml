@@ -33,6 +33,9 @@ verify_jwt = false
 [functions.admin-metrics]
 verify_jwt = false
 
+[functions.admin-delete-user]
+verify_jwt = false
+
 [functions.transactional-email]
 verify_jwt = false
 
