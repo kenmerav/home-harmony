@@ -46,6 +46,7 @@ export default function FamilyPage() {
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
   const inviteRolePrefill = searchParams.get('role');
+  const inviteFlow = Boolean(inviteToken);
 
   const [dashboard, setDashboard] = useState<HouseholdDashboard>(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
@@ -221,110 +222,118 @@ export default function FamilyPage() {
             <div>
               <h1 className="font-display text-3xl">Family</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.
+                {inviteFlow
+                  ? 'Join your family workspace, then finish your own profile setup.'
+                  : 'Invite your spouse or kids to collaborate on meals, groceries, chores, and tasks.'}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={onAddFamilyMemberClick} disabled={loading || creatingHousehold}>
-                Invite family member
-              </Button>
-              <Button onClick={() => setLocalMemberDialogOpen(true)}>
-                Add adult or child
-              </Button>
-            </div>
+            {!inviteFlow && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={onAddFamilyMemberClick} disabled={loading || creatingHousehold}>
+                  Invite family member
+                </Button>
+                <Button onClick={() => setLocalMemberDialogOpen(true)}>
+                  Add adult or child
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
-        <section className="rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-semibold">Local Family Setup</h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Adults get dashboards and nutrition tracking. Kids go into chores and the kid scoreboard.
-              </p>
-            </div>
-            <Button size="sm" onClick={() => setLocalMemberDialogOpen(true)}>
-              Add Member
-            </Button>
-          </div>
-          <div className="mt-3 space-y-2">
-            {localProfiles.map((member) => {
-              const canChangeType = member.id !== 'me' && member.id !== 'wife';
-              return (
-                <div key={member.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">{member.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {member.memberType === 'adult' ? 'Adult dashboard' : 'Kid chores member'}
-                      {canChangeType ? '' : ' • Primary profile'}
-                    </p>
-                  </div>
-                  {canChangeType ? (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          updateLocalMemberType(
-                            member.id,
-                            member.memberType === 'adult' ? 'child' : 'adult',
-                          )
-                        }
-                      >
-                        {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setPendingDeleteMember(member)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Adult</span>
-                  )}
-                </div>
-              );
-            })}
-            {localProfiles.length === 0 && (
-              <p className="text-sm text-muted-foreground">No local family members set up yet.</p>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="font-semibold">Family leaderboard</h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            Weekly score combines macro goal progress, healthy habits, and kids&apos; completed chores.
-          </p>
-          <div className="mt-3 space-y-2">
-            {familyLeaderboard.map((entry, index) => (
-              <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 text-xs font-semibold text-muted-foreground">{index + 1}</span>
-                  <p className="text-sm font-medium">{entry.name}</p>
-                  {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
-                  <span className="text-xs text-muted-foreground">{entry.headline}</span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold">{entry.weekPoints} pts</p>
-                  <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                    <Flame className="w-3 h-3 text-orange-500" />
-                    {entry.streak} streak
+        {!inviteFlow && (
+          <>
+            <section className="rounded-xl border border-border bg-card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold">Local Family Setup</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Adults get dashboards and nutrition tracking. Kids go into chores and the kid scoreboard.
                   </p>
                 </div>
+                <Button size="sm" onClick={() => setLocalMemberDialogOpen(true)}>
+                  Add Member
+                </Button>
               </div>
-            ))}
-            {familyLeaderboard.length === 0 && <p className="text-sm text-muted-foreground">No score data yet.</p>}
-          </div>
-        </section>
+              <div className="mt-3 space-y-2">
+                {localProfiles.map((member) => {
+                  const canChangeType = member.id !== 'me' && member.id !== 'wife';
+                  return (
+                    <div key={member.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">{member.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {member.memberType === 'adult' ? 'Adult dashboard' : 'Kid chores member'}
+                          {canChangeType ? '' : ' • Primary profile'}
+                        </p>
+                      </div>
+                      {canChangeType ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              updateLocalMemberType(
+                                member.id,
+                                member.memberType === 'adult' ? 'child' : 'adult',
+                              )
+                            }
+                          >
+                            {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setPendingDeleteMember(member)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Adult</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {localProfiles.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No local family members set up yet.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-border bg-card p-5">
+              <h2 className="font-semibold">Family leaderboard</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Weekly score combines macro goal progress, healthy habits, and kids&apos; completed chores.
+              </p>
+              <div className="mt-3 space-y-2">
+                {familyLeaderboard.map((entry, index) => (
+                  <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 text-xs font-semibold text-muted-foreground">{index + 1}</span>
+                      <p className="text-sm font-medium">{entry.name}</p>
+                      {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                      <span className="text-xs text-muted-foreground">{entry.headline}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">{entry.weekPoints} pts</p>
+                      <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        <Flame className="w-3 h-3 text-orange-500" />
+                        {entry.streak} streak
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {familyLeaderboard.length === 0 && <p className="text-sm text-muted-foreground">No score data yet.</p>}
+              </div>
+            </section>
+          </>
+        )}
 
         {inviteToken && (
           <section className="rounded-xl border border-border bg-card p-4">
             <p className="text-sm">
-              You have a household invite waiting. Accept it with this account to join your family workspace.
+              You have a household invite waiting. Accept it with this account to join the family workspace, then finish your own personal profile setup.
             </p>
             <Button className="mt-3" onClick={onAcceptInvite} disabled={acceptingInvite}>
               {acceptingInvite ? 'Accepting...' : 'Accept invite'}
