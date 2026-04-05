@@ -5,7 +5,7 @@ import { isValidE164, normalizePhone, sendTwilioSms } from "../_shared/twilio.ts
 
 type Action = "get" | "save" | "send_test";
 type SmsReminderModule = "meals" | "manual" | "tasks" | "chores" | "workouts" | "reminders";
-const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "workouts", "reminders"];
 
 const DEFAULT_PREFS = {
   enabled: false,
@@ -24,7 +24,7 @@ const DEFAULT_PREFS = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: "18:00",
-  include_modules: ["meals", "manual", "tasks", "chores", "workouts", "reminders"],
+  include_modules: ["meals", "manual", "tasks", "workouts", "reminders"],
   module_recipients: {
     meals: [],
     manual: [],

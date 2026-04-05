@@ -1,11 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export const SMS_REMINDER_MODULES = ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'] as const;
-export type SmsReminderModule = (typeof SMS_REMINDER_MODULES)[number];
+export type SmsReminderModule = 'meals' | 'manual' | 'tasks' | 'chores' | 'workouts' | 'reminders';
+export const SMS_REMINDER_MODULES: SmsReminderModule[] = ['meals', 'manual', 'tasks', 'workouts', 'reminders'];
 export const VISIBLE_SMS_REMINDER_MODULES: Array<Exclude<SmsReminderModule, 'manual'>> = [
   'meals',
   'tasks',
-  'chores',
   'workouts',
   'reminders',
 ];
@@ -61,7 +60,7 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: '18:00',
-  include_modules: ['meals', 'manual', 'tasks', 'chores', 'workouts', 'reminders'],
+  include_modules: ['meals', 'manual', 'tasks', 'workouts', 'reminders'],
   module_recipients: emptyModuleRecipients(),
   quiet_hours_start: null,
   quiet_hours_end: null,

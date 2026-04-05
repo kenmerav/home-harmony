@@ -22,7 +22,7 @@ type CalendarEvent = {
 };
 
 type SmsReminderModule = "meals" | "manual" | "tasks" | "chores" | "workouts" | "reminders";
-const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
+const SMS_REMINDER_MODULES: SmsReminderModule[] = ["meals", "manual", "tasks", "workouts", "reminders"];
 const DIGEST_MODULES: SmsReminderModule[] = [...SMS_REMINDER_MODULES];
 
 type SmsPreferenceRow = {
