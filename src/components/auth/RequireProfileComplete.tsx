@@ -4,13 +4,17 @@ import { useAuth } from '@/contexts/AuthContext';
 export function RequireProfileComplete({ children }: { children: JSX.Element }) {
   const { user, loading, profileLoading, isProfileComplete } = useAuth();
   const location = useLocation();
+  const targetLocation = `${location.pathname}${location.search}`;
+  const isFamilyInviteRoute =
+    location.pathname === '/family' && new URLSearchParams(location.search).has('invite');
 
   if (loading || profileLoading) {
     return <div className="min-h-screen grid place-items-center text-muted-foreground">Loading profile...</div>;
   }
 
-  if (!user) return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
-  if (!isProfileComplete) return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
+  if (!user) return <Navigate to="/signin" replace state={{ from: targetLocation }} />;
+  if (isFamilyInviteRoute) return children;
+  if (!isProfileComplete) return <Navigate to="/onboarding" replace state={{ from: targetLocation }} />;
 
   return children;
 }

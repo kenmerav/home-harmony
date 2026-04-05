@@ -30,6 +30,7 @@ export default function AuthPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const search = new URLSearchParams(location.search);
+  const returnTo = typeof location.state?.from === 'string' ? location.state.from : null;
   const onboardingIntent = search.get('onboarding') === '1';
   const referralCode = search.get('ref');
   const source = search.get('source');
@@ -44,6 +45,10 @@ export default function AuthPage() {
   useEffect(() => {
     if (!user) return;
     if (profileLoading || subscriptionLoading) return;
+    if (returnTo) {
+      navigate(returnTo, { replace: true });
+      return;
+    }
     if (onboardingIntent) {
       navigate('/onboarding?force=1', { replace: true });
       return;
@@ -59,6 +64,7 @@ export default function AuthPage() {
     navigate,
     onboardingIntent,
     profileLoading,
+    returnTo,
     subscriptionLoading,
     user,
   ]);
