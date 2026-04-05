@@ -85,7 +85,6 @@ const dashboardPanels = [
 ] as const;
 
 const proofStats = [
-  { value: '12K+', label: 'families organized' },
   { value: '8', label: 'modules in one app' },
   { value: '3 hrs', label: 'saved weekly on planning' },
   { value: '4.9 ★', label: 'family rating' },
@@ -318,21 +317,6 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
             <Button variant="ghost" size="lg" onClick={onSeeHowItWorks} aria-label="See how it works">
               See how it works
             </Button>
-          </div>
-          <div className="mt-6 flex items-center gap-3 text-sm text-muted-foreground">
-            <div className="flex items-center -space-x-2">
-              {['👩', '👨', '👩‍🦱', '👨‍🦳'].map((avatar) => (
-                <span
-                  key={avatar}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-background bg-muted text-sm"
-                >
-                  {avatar}
-                </span>
-              ))}
-            </div>
-            <p>
-              <span className="text-amber-500">★★★★★</span> Trusted by <strong className="text-foreground">12,000+</strong> families
-            </p>
           </div>
         </div>
 
@@ -625,7 +609,7 @@ export function SignupSection({ startHref }: SignupSectionProps) {
         <div className="rounded-2xl border border-border/60 bg-background p-6 text-foreground shadow-xl md:p-8">
           <h3 className="font-display text-3xl">Set up your home hub</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            Join 12,000+ families. Start free, onboard in minutes, then continue for {formatUsd(HOME_HARMONY_PRICING.monthly)}/month or {formatUsd(HOME_HARMONY_PRICING.yearly)}/year.
+            Start free, onboard in minutes, then continue for {formatUsd(HOME_HARMONY_PRICING.monthly)}/month or {formatUsd(HOME_HARMONY_PRICING.yearly)}/year.
           </p>
 
           <div className="mt-6 space-y-3">
