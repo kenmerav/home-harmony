@@ -122,6 +122,8 @@ type CalendarAddIntent = {
   startsAt: string;
   endsAt: string | null;
   allDay: boolean;
+  locationText?: string | null;
+  description?: string | null;
 };
 
 type GroceryAddIntent = {
@@ -265,6 +267,190 @@ function normalizePhoneList(value: unknown): string[] {
       .map((item) => normalizePhone(String(item || "")))
       .filter((item) => item.length > 0),
   )];
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function extensionForImageContentType(contentType: string | null): string {
+  const normalized = String(contentType || "").toLowerCase().trim();
+  if (normalized.includes("png")) return "png";
+  if (normalized.includes("webp")) return "webp";
+  if (normalized.includes("gif")) return "gif";
+  return "jpeg";
+}
+
+async function fetchTwilioImageAsDataUrl(mediaUrl: string, contentType: string | null): Promise<string> {
+  const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
+  const authToken = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
+  if (!accountSid || !authToken) {
+    throw new Error("Twilio image access is not configured.");
+  }
+
+  const response = await fetch(mediaUrl, {
+    headers: {
+      Authorization: `Basic ${btoa(`${accountSid}:${authToken}`)}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Could not download screenshot from Twilio (${response.status}).`);
+  }
+
+  const mediaType = (contentType || response.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return `data:${mediaType};base64,${bytesToBase64(bytes)}`;
+}
+
+function parseBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+async function parseCalendarScreenshotIntent(
+  imageDataUrl: string,
+  fileName: string,
+  timezone: string,
+): Promise<{ intent: CalendarAddIntent | null; clarification: string | null }> {
+  const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openAiApiKey) {
+    throw new Error("AI service not configured. Add OPENAI_API_KEY in Supabase Edge Function secrets.");
+  }
+
+  const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+  const systemPrompt = `You extract a single calendar event from a screenshot.
+Only use details that are visible in the image.
+If the screenshot does not clearly show one event to add, return a clarification message.
+
+Return JSON only in this exact schema:
+{
+  "title": "string",
+  "date": "YYYY-MM-DD",
+  "startTime": "h:mm AM/PM or empty string",
+  "endTime": "h:mm AM/PM or empty string",
+  "allDay": boolean,
+  "locationText": "string or empty string",
+  "description": "string or empty string",
+  "layer": "Family",
+  "clarification": "string or empty string"
+}
+
+Rules:
+- Default layer to "Family".
+- If a time is visible, allDay must be false.
+- If no time is visible but the event is clearly all-day, set allDay true.
+- If the screenshot is ambiguous, contains multiple candidate events, or does not show enough information to add an event confidently, leave fields blank and set clarification.
+- Do not invent missing dates or times.`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0.1,
+      max_tokens: 1200,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `Extract the calendar event shown in this screenshot file: ${fileName}.` },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `AI screenshot parsing failed (${response.status}).`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | { choices?: Array<{ message?: { content?: string } }> }
+    | null;
+  const content = aiResponse?.choices?.[0]?.message?.content || "";
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Could not parse calendar screenshot output.");
+  }
+
+  const clarification = String(parsed.clarification || "").trim();
+  if (clarification) {
+    return { intent: null, clarification };
+  }
+
+  const title = String(parsed.title || "").trim();
+  const dateText = String(parsed.date || "").trim();
+  const startTimeText = String(parsed.startTime || "").trim();
+  const endTimeText = String(parsed.endTime || "").trim();
+  const allDay = parseBoolean(parsed.allDay);
+  const layer = normalizeCalendarLayerName(String(parsed.layer || "Family"));
+  const locationText = String(parsed.locationText || "").trim() || null;
+  const description = String(parsed.description || "").trim() || null;
+
+  if (!title || !dateText) {
+    return {
+      intent: null,
+      clarification: "I couldn't clearly read the event title and date from that screenshot. Try a tighter screenshot of the event details.",
+    };
+  }
+
+  const date = DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
+  if (!date.isValid) {
+    return {
+      intent: null,
+      clarification: "I couldn't clearly read the date from that screenshot. Try a screenshot that includes the full event date.",
+    };
+  }
+
+  if (allDay || !startTimeText) {
+    return {
+      intent: {
+        title,
+        layer,
+        startsAt: date.set({ hour: 12, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO() || "",
+        endsAt: null,
+        allDay: true,
+        locationText,
+        description,
+      },
+      clarification: null,
+    };
+  }
+
+  const startsAt = parseTimeForZone(startTimeText, date, timezone);
+  if (!startsAt) {
+    return {
+      intent: null,
+      clarification: "I found the event, but I couldn't confidently read the start time. Try a screenshot that shows the time more clearly.",
+    };
+  }
+
+  const endsAt = endTimeText ? parseTimeForZone(endTimeText, date, timezone) : startsAt.plus({ hours: 1 });
+
+  return {
+    intent: {
+      title,
+      layer,
+      startsAt: startsAt.toUTC().toISO() || "",
+      endsAt: (endsAt || startsAt.plus({ hours: 1 })).toUTC().toISO() || null,
+      allDay: false,
+      locationText,
+      description,
+    },
+    clarification: null,
+  };
 }
 
 function normalizeRecipientMap(input: unknown): Record<string, string[]> {
@@ -929,8 +1115,8 @@ async function addCalendarEventBySms(
     id: crypto.randomUUID(),
     owner_id: userId,
     title: intent.title,
-    description: null,
-    location_text: null,
+    description: intent.description || null,
+    location_text: intent.locationText || null,
     event_reminder_enabled: false,
     event_reminder_lead_minutes: 5,
     travel_from_address: null,
@@ -1597,7 +1783,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -1606,6 +1792,34 @@ serve(async (req) => {
       ? pref.include_modules.map((value: unknown) => String(value).toLowerCase())
       : ["meals", "manual"];
     const preferredDinnerTime = String(pref.preferred_dinner_time || "18:00").slice(0, 5);
+    const numMedia = Number.parseInt(params.get("NumMedia") || "0", 10);
+    const mediaUrl = params.get("MediaUrl0")?.trim() || "";
+    const mediaContentType = params.get("MediaContentType0")?.trim() || "";
+
+    if (Number.isFinite(numMedia) && numMedia > 0) {
+      if (!mediaUrl || !mediaContentType.toLowerCase().startsWith("image/")) {
+        return twiml("I can only read image screenshots right now. Send an image and say 'add this to calendar'.");
+      }
+
+      try {
+        const fileName = `calendar-screenshot.${extensionForImageContentType(mediaContentType)}`;
+        const imageDataUrl = await fetchTwilioImageAsDataUrl(mediaUrl, mediaContentType);
+        const { intent, clarification } = await parseCalendarScreenshotIntent(imageDataUrl, fileName, timezone);
+        if (clarification) {
+          return twiml(clarification);
+        }
+        if (!intent) {
+          return twiml("I couldn't pull one clear event from that screenshot. Try a tighter screenshot of the event details.");
+        }
+
+        const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, intent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms screenshot calendar add failed:", error);
+        const detail = describeUnknownError(error);
+        return twiml(`I could not read that screenshot right now: ${detail}`);
+      }
+    }
 
     const waterIntent = parseWaterLogIntent(body);
     if (waterIntent) {
