@@ -164,6 +164,12 @@ type InboundSmsPreferenceRow = {
   updated_at?: string | null;
 };
 
+type SmsNotificationLogRow = {
+  user_id: string;
+  created_at: string;
+  payload: Record<string, unknown> | null;
+};
+
 const MEAL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 type MealDay = (typeof MEAL_DAYS)[number];
 
@@ -267,6 +273,53 @@ function normalizePhoneList(value: unknown): string[] {
       .map((item) => normalizePhone(String(item || "")))
       .filter((item) => item.length > 0),
   )];
+}
+
+function recipientListForModules(
+  includeModules: string[],
+  moduleRecipients: Record<string, string[]>,
+  fallbackPhone: string | null,
+): string[] {
+  const recipients = new Set<string>();
+  for (const moduleName of includeModules) {
+    for (const phone of moduleRecipients[moduleName] || []) {
+      recipients.add(phone);
+    }
+  }
+  if (fallbackPhone) recipients.add(fallbackPhone);
+  return Array.from(recipients);
+}
+
+function sortPreferenceRowsByUpdatedAt(rows: InboundSmsPreferenceRow[]): InboundSmsPreferenceRow[] {
+  return [...rows].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+}
+
+async function findRecentSmsOwnerForRecipient(
+  supabase: ReturnType<typeof createClient>,
+  userIds: string[],
+  recipientPhone: string,
+): Promise<string | null> {
+  if (!userIds.length) return null;
+
+  const { data, error } = await supabase
+    .from("sms_notification_log")
+    .select("user_id,created_at,payload")
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error("Failed loading sms notification log for inbound recipient matching:", error.message || error);
+    return null;
+  }
+
+  for (const row of ((data || []) as SmsNotificationLogRow[])) {
+    const payloadTo = normalizePhone(String((row.payload || {}).to || ""));
+    if (payloadTo && payloadTo === recipientPhone) {
+      return row.user_id;
+    }
+  }
+
+  return null;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -1329,23 +1382,29 @@ async function findSmsPreferenceForInboundNumber(
   const normalizedFrom = normalizePhone(from);
   if (!normalizedFrom) return null;
 
-  const { data: directData, error: directError } = await supabase
-    .from("sms_preferences")
-    .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164,updated_at")
-    .eq("phone_e164", normalizedFrom)
-    .eq("enabled", true)
-    .order("updated_at", { ascending: false });
-  if (directError) throw directError;
-  const exactMatches = (directData || []) as InboundSmsPreferenceRow[];
-  if (exactMatches.length > 0) return exactMatches[0];
-
   const { data: candidates, error: candidateError } = await supabase
     .from("sms_preferences")
     .select("user_id,enabled,timezone,preferred_dinner_time,include_modules,module_recipients,phone_e164,updated_at")
     .eq("enabled", true);
   if (candidateError) throw candidateError;
 
-  const matches = ((candidates || []) as InboundSmsPreferenceRow[]).filter((row) => {
+  const allRows = (candidates || []) as InboundSmsPreferenceRow[];
+  const exactMatches = allRows.filter((row) => normalizePhone(String(row.phone_e164 || "")) === normalizedFrom);
+  if (exactMatches.length === 1) return exactMatches[0];
+  if (exactMatches.length > 1) {
+    const recentOwner = await findRecentSmsOwnerForRecipient(
+      supabase,
+      exactMatches.map((row) => row.user_id),
+      normalizedFrom,
+    );
+    if (recentOwner) {
+      const owned = exactMatches.find((row) => row.user_id === recentOwner);
+      if (owned) return owned;
+    }
+    return sortPreferenceRowsByUpdatedAt(exactMatches)[0];
+  }
+
+  const matches = allRows.filter((row) => {
     const primary = normalizePhone(String(row.phone_e164 || ""));
     if (primary === normalizedFrom) return true;
     const moduleRecipients = normalizeRecipientMap(row.module_recipients);
@@ -1353,8 +1412,39 @@ async function findSmsPreferenceForInboundNumber(
   });
 
   if (matches.length === 0) return null;
-  matches.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  return matches[0];
+  if (matches.length === 1) return matches[0];
+
+  const recentOwner = await findRecentSmsOwnerForRecipient(
+    supabase,
+    matches.map((row) => row.user_id),
+    normalizedFrom,
+  );
+  if (recentOwner) {
+    const owned = matches.find((row) => row.user_id === recentOwner);
+    if (owned) return owned;
+  }
+
+  const ownershipRows = sortPreferenceRowsByUpdatedAt(allRows);
+  const ownerByRecipient = new Map<string, string>();
+  for (const row of ownershipRows.reverse()) {
+    const includeModules = Array.isArray(row.include_modules)
+      ? row.include_modules.map((value) => String(value).toLowerCase())
+      : [];
+    const recipients = recipientListForModules(
+      includeModules,
+      normalizeRecipientMap(row.module_recipients),
+      row.phone_e164 || null,
+    )
+      .map((item) => normalizePhone(String(item || "")))
+      .filter(Boolean);
+    for (const recipient of recipients) {
+      ownerByRecipient.set(recipient, row.user_id);
+    }
+  }
+
+  const ownedMatch = matches.find((row) => ownerByRecipient.get(normalizedFrom) === row.user_id);
+  if (ownedMatch) return ownedMatch;
+  return sortPreferenceRowsByUpdatedAt(matches)[0];
 }
 
 async function generateMealsForWeekBySms(
