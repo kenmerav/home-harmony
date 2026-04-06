@@ -77,6 +77,7 @@ import {
   RecurrenceUnit,
 } from '@/lib/calendarRecurrence';
 import { useAccountCalendarPreferences } from '@/hooks/useAccountCalendarPreferences';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { canDeleteCalendarEvent, deleteCalendarEventFromSource } from '@/lib/calendarEventActions';
 import { cn } from '@/lib/utils';
@@ -231,6 +232,7 @@ function isCalendarModule(value: string): value is CalendarEventModule {
 export default function CalendarPlannerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const {
     filters,
     setFilters,
@@ -606,6 +608,14 @@ export default function CalendarPlannerPage() {
     const key = isoDayKey(selectedDate);
     return eventsByDay.get(key) || [];
   }, [eventsByDay, selectedDate]);
+
+  const today = useMemo(() => new Date(), []);
+  const todayEvents = useMemo(() => {
+    const key = isoDayKey(today);
+    return eventsByDay.get(key) || [];
+  }, [eventsByDay, today]);
+
+  const selectedDateIsToday = isSameDay(selectedDate, today);
 
   const upcomingEvents = useMemo(
     () =>
@@ -1226,23 +1236,105 @@ export default function CalendarPlannerPage() {
     );
   };
 
+  const renderMobileDayCell = (day: Date, inCurrentMonth: boolean) => {
+    const key = isoDayKey(day);
+    const dayEvents = eventsByDay.get(key) || [];
+    const isSelected = isSameDay(day, selectedDate);
+    const isToday = isSameDay(day, today);
+    const dotModules = [...new Set(dayEvents.slice(0, 3).map((event) => event.module))];
+
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => {
+          setSelectedDate(day);
+          setCurrentMonth(day);
+        }}
+        className={cn(
+          'min-h-[74px] border border-border/70 px-2 py-2 text-left transition-colors',
+          isSelected && 'bg-primary/10 ring-1 ring-primary',
+          !isSelected && isToday && 'bg-primary/5',
+          !inCurrentMonth && 'bg-muted/30 text-muted-foreground',
+          inCurrentMonth && 'hover:bg-muted/30',
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className={cn('text-sm font-semibold leading-none', isToday && 'text-primary')}>
+              {format(day, 'd')}
+            </p>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              {format(day, 'EEE')}
+            </p>
+          </div>
+          {dayEvents.length > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {dayEvents.length}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-3 flex items-center gap-1.5">
+          {dotModules.length > 0 ? (
+            dotModules.map((module) => (
+              <span
+                key={`${key}-${module}`}
+                className={cn('h-2 w-2 rounded-full', CALENDAR_MODULE_META[module].dotClass)}
+              />
+            ))
+          ) : (
+            <span className="text-[10px] text-muted-foreground">No events</span>
+          )}
+          {dayEvents.length > dotModules.length ? (
+            <span className="text-[10px] text-muted-foreground">+{dayEvents.length - dotModules.length}</span>
+          ) : null}
+        </div>
+      </button>
+    );
+  };
+
+  const renderEventSection = (title: string, subtitle: string, dayEvents: CalendarEvent[]) => (
+    <SectionCard title={title} subtitle={subtitle}>
+      {dayEvents.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No events for this day.</p>
+      ) : (
+        <div className="space-y-2">
+          {dayEvents.map((event) => (
+            <EventRow
+              key={event.id}
+              badgeLabel={getEventBadgeLabel(event)}
+              event={event}
+              googleEnabled={googlePrefs.enabled}
+              onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
+              onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
+            />
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+
   return (
     <AppLayout contentWidthClassName="max-w-[1440px]">
       <PageHeader
         title="Calendar Planner"
         subtitle="Expanded planning view for weekly coordination"
         action={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/calendar/standard">Standard View</Link>
-            </Button>
+          <div className={cn('flex items-center gap-2', isMobile && 'w-full flex-wrap')}>
+            {!isMobile ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/calendar/standard">Standard View</Link>
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => setFilterDialogOpen(true)}>
               Filters
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void refreshEvents()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
-            </Button>
+            {!isMobile ? (
+              <Button variant="outline" size="sm" onClick={() => void refreshEvents()}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+            ) : null}
             <Button size="sm" onClick={openAddDialog}>
               <Plus className="mr-2 h-4 w-4" />
               Add Event
@@ -1251,23 +1343,35 @@ export default function CalendarPlannerPage() {
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+      <div className={cn('grid gap-6', !isMobile && 'xl:grid-cols-[1fr_360px]')}>
+        {isMobile ? renderEventSection('Today', `${todayEvents.length} events`, todayEvents) : null}
+
         <SectionCard noPadding className="overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+              <div className={cn('flex items-center gap-2', isMobile && 'w-full justify-between')}>
+                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <h2 className="font-display text-xl font-semibold">{format(currentMonth, 'MMMM yyyy')}</h2>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+                <h2 className={cn('font-display font-semibold', isMobile ? 'text-lg' : 'text-xl')}>
+                  {format(currentMonth, 'MMMM yyyy')}
+                </h2>
+                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setCurrentMonth(new Date())}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const nextToday = new Date();
+                    setCurrentMonth(nextToday);
+                    setSelectedDate(nextToday);
+                  }}
+                >
                   Today
                 </Button>
               </div>
-              <Tabs value={mode} onValueChange={(value) => setMode(value as PlannerMode)}>
+              <Tabs value={mode} onValueChange={(value) => setMode(value as PlannerMode)} className={cn(isMobile && 'w-full')}>
                 <TabsList>
                   <TabsTrigger value="month">Month</TabsTrigger>
                   <TabsTrigger value="twoWeek">2 Weeks</TabsTrigger>
@@ -1289,31 +1393,20 @@ export default function CalendarPlannerPage() {
           ) : (
             <div className="grid grid-cols-7">
               {(mode === 'month' ? monthGridDays : twoWeekDays).map((day) =>
-                renderDayCell(day, mode === 'twoWeek' ? true : format(day, 'M') === format(currentMonth, 'M')),
+                isMobile
+                  ? renderMobileDayCell(day, mode === 'twoWeek' ? true : format(day, 'M') === format(currentMonth, 'M'))
+                  : renderDayCell(day, mode === 'twoWeek' ? true : format(day, 'M') === format(currentMonth, 'M')),
               )}
             </div>
           )}
         </SectionCard>
 
         <div className="space-y-6">
-          <SectionCard title={format(selectedDate, 'EEEE, MMMM d')} subtitle={`${selectedDayEvents.length} events`}>
-            {selectedDayEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No events for this day.</p>
-            ) : (
-              <div className="space-y-2">
-                {selectedDayEvents.map((event) => (
-                  <EventRow
-                    key={event.id}
-                    badgeLabel={getEventBadgeLabel(event)}
-                    event={event}
-                    googleEnabled={googlePrefs.enabled}
-                    onEdit={(event.source === 'reminder' && !canEditReminderEvent(event)) ? undefined : openEventEditor}
-                    onDelete={canDeleteCalendarEvent(event) ? removeCalendarEvent : undefined}
-                  />
-                ))}
-              </div>
-            )}
-          </SectionCard>
+          {!isMobile
+            ? renderEventSection(format(selectedDate, 'EEEE, MMMM d'), `${selectedDayEvents.length} events`, selectedDayEvents)
+            : !selectedDateIsToday
+              ? renderEventSection(format(selectedDate, 'EEEE, MMMM d'), `${selectedDayEvents.length} events`, selectedDayEvents)
+              : null}
 
           <SectionCard title="Filters" subtitle="Show/hide event types">
             <div className="space-y-2">
