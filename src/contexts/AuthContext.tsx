@@ -8,7 +8,7 @@ import { claimReferral } from '@/lib/api/referrals';
 import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
-import { setMacroGameStorageScope } from '@/lib/macroGame';
+import { hydrateMacroGameActivityFromAccount, hydrateMacroGameProfilesFromAccount, setMacroGameStorageScope } from '@/lib/macroGame';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -216,6 +216,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
+  }, [isDemoUser, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser) return;
+
+    const refreshMacroState = () => {
+      void hydrateMacroGameProfilesFromAccount(user.id);
+      void hydrateMacroGameActivityFromAccount(user.id);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMacroState();
+      }
+    };
+
+    refreshMacroState();
+    window.addEventListener('focus', refreshMacroState);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', refreshMacroState);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isDemoUser, user?.id]);
 
   useEffect(() => {
