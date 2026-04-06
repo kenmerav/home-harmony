@@ -1662,8 +1662,8 @@ export default function MealsPage() {
             </div>
             <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
-                className="grid min-w-[860px]"
-                style={{ gridTemplateColumns: '140px repeat(7, minmax(100px, 1fr))' }}
+                className="grid min-w-[900px]"
+                style={{ gridTemplateColumns: '180px repeat(7, minmax(100px, 1fr))' }}
               >
                 <div className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Meal
@@ -1678,17 +1678,17 @@ export default function MealsPage() {
                 ))}
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`top-grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
+                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3">
+                      <div className="flex flex-col items-start gap-2">
                         <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-[10px]"
+                          className="h-7 w-full justify-start px-2 text-xs whitespace-nowrap"
                           onClick={() => void regeneratePlannerGridRow(gridRow)}
                           disabled={regenerating || recipesLoading}
                         >
-                          <RefreshCw className="mr-1 h-3 w-3" />
+                          <RefreshCw className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                           Regenerate
                         </Button>
                       </div>
@@ -2665,8 +2665,8 @@ export default function MealsPage() {
             </div>
             <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
-                className="grid min-w-[860px]"
-                style={{ gridTemplateColumns: '140px repeat(7, minmax(100px, 1fr))' }}
+                className="grid min-w-[900px]"
+                style={{ gridTemplateColumns: '180px repeat(7, minmax(100px, 1fr))' }}
               >
                 <div className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Meal
@@ -2682,17 +2682,17 @@ export default function MealsPage() {
 
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
+                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3">
+                      <div className="flex flex-col items-start gap-2">
                         <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-[10px]"
+                          className="h-7 w-full justify-start px-2 text-xs whitespace-nowrap"
                           onClick={() => void regeneratePlannerGridRow(gridRow)}
                           disabled={regenerating || recipesLoading}
                         >
-                          <RefreshCw className="mr-1 h-3 w-3" />
+                          <RefreshCw className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                           Regenerate
                         </Button>
                       </div>
