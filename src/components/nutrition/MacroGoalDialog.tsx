@@ -178,6 +178,37 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     });
   };
 
+  const updateFinalMacroField = (
+    field: 'calories' | 'protein_g' | 'carbs_g' | 'fat_g',
+    rawValue: string,
+  ) => {
+    const nextValue = normalizeIntegerInput(rawValue);
+    setFinalMacroInputs((prev) => {
+      const nextInputs = { ...prev, [field]: nextValue };
+      if (field === 'calories') {
+        const parsedCalories = parseIntegerInput(nextValue);
+        if (parsedCalories !== null) {
+          setFinalMacros((current) => ({ ...current, calories: parsedCalories }));
+        }
+        return nextInputs;
+      }
+
+      const protein = field === 'protein_g' ? parseIntegerInput(nextValue) ?? 0 : parseIntegerInput(nextInputs.protein_g) ?? 0;
+      const carbs = field === 'carbs_g' ? parseIntegerInput(nextValue) ?? 0 : parseIntegerInput(nextInputs.carbs_g) ?? 0;
+      const fat = field === 'fat_g' ? parseIntegerInput(nextValue) ?? 0 : parseIntegerInput(nextInputs.fat_g) ?? 0;
+      const calories = protein * 4 + carbs * 4 + fat * 9;
+
+      nextInputs.calories = String(calories);
+      setFinalMacros({
+        calories,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
+      });
+      return nextInputs;
+    });
+  };
+
   const save = () => {
     const calories = parseIntegerInput(finalMacroInputs.calories);
     const protein_g = parseIntegerInput(finalMacroInputs.protein_g);
@@ -490,14 +521,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <Input
                   type="number"
                   value={finalMacroInputs.calories}
-                  onChange={(e) => {
-                    const nextValue = normalizeIntegerInput(e.target.value);
-                    setFinalMacroInputs((prev) => ({ ...prev, calories: nextValue }));
-                    const parsed = parseIntegerInput(nextValue);
-                    if (parsed !== null) {
-                      setFinalMacros((prev) => ({ ...prev, calories: parsed }));
-                    }
-                  }}
+                  onChange={(e) => updateFinalMacroField('calories', e.target.value)}
                   placeholder="Calories"
                 />
               </div>
@@ -506,14 +530,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <Input
                   type="number"
                   value={finalMacroInputs.protein_g}
-                  onChange={(e) => {
-                    const nextValue = normalizeIntegerInput(e.target.value);
-                    setFinalMacroInputs((prev) => ({ ...prev, protein_g: nextValue }));
-                    const parsed = parseIntegerInput(nextValue);
-                    if (parsed !== null) {
-                      setFinalMacros((prev) => ({ ...prev, protein_g: parsed }));
-                    }
-                  }}
+                  onChange={(e) => updateFinalMacroField('protein_g', e.target.value)}
                   placeholder="Protein (g)"
                 />
               </div>
@@ -522,14 +539,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <Input
                   type="number"
                   value={finalMacroInputs.carbs_g}
-                  onChange={(e) => {
-                    const nextValue = normalizeIntegerInput(e.target.value);
-                    setFinalMacroInputs((prev) => ({ ...prev, carbs_g: nextValue }));
-                    const parsed = parseIntegerInput(nextValue);
-                    if (parsed !== null) {
-                      setFinalMacros((prev) => ({ ...prev, carbs_g: parsed }));
-                    }
-                  }}
+                  onChange={(e) => updateFinalMacroField('carbs_g', e.target.value)}
                   placeholder="Carbs (g)"
                 />
               </div>
@@ -538,14 +548,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <Input
                   type="number"
                   value={finalMacroInputs.fat_g}
-                  onChange={(e) => {
-                    const nextValue = normalizeIntegerInput(e.target.value);
-                    setFinalMacroInputs((prev) => ({ ...prev, fat_g: nextValue }));
-                    const parsed = parseIntegerInput(nextValue);
-                    if (parsed !== null) {
-                      setFinalMacros((prev) => ({ ...prev, fat_g: parsed }));
-                    }
-                  }}
+                  onChange={(e) => updateFinalMacroField('fat_g', e.target.value)}
                   placeholder="Fat (g)"
                 />
               </div>
