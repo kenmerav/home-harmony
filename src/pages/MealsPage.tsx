@@ -1096,7 +1096,7 @@ export default function MealsPage() {
       }
     }
 
-    const targetDates = Array.from(new Set(getPlannerTargetDates()));
+    const targetDates = [plannerForm.date];
     const targetPersonId = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
     const targetPersonName = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.name || null;
     if (gridQuickAddContext?.entryId) {
@@ -2328,47 +2328,6 @@ export default function MealsPage() {
                       </div>
                     </div>
 
-                    <div className="border-t border-border/60 pt-3">
-                      <p className="text-xs font-medium text-muted-foreground">3. Repeat pattern</p>
-                      <div className="mt-2 grid gap-2 md:grid-cols-3">
-                        <Button
-                          type="button"
-                          variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
-                          onClick={() => setPlannerRepeatModeSafe('once')}
-                        >
-                          Just this day
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
-                          onClick={() => setPlannerRepeatModeSafe('daily')}
-                        >
-                          Every day
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
-                          onClick={() => setPlannerRepeatModeSafe('selected_days')}
-                        >
-                          Certain days
-                        </Button>
-                      </div>
-                      {plannerRepeatMode === 'selected_days' ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {days.map((day) => (
-                            <Button
-                              key={`planner-repeat-${day}`}
-                              type="button"
-                              size="sm"
-                              variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
-                              onClick={() => togglePlannerRepeatDay(day)}
-                            >
-                              {dayLabels[day]}
-                            </Button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
                   </div>
 
                   {plannerForm.mealType === 'alcohol' ? (
@@ -2404,7 +2363,7 @@ export default function MealsPage() {
                     <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-medium text-muted-foreground">4. Choose how you want to add it</p>
+                          <p className="text-xs font-medium text-muted-foreground">3. Choose how you want to add it</p>
                           <p className="text-xs text-muted-foreground">
                             Start from AI, a saved recipe, or a manual item, then review the meal details below.
                           </p>
