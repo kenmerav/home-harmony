@@ -1700,7 +1700,7 @@ export default function MealsPage() {
             <div className="text-left">
               <h2 className="font-display text-xl">Macro Budget Planner</h2>
               <p className="text-sm text-muted-foreground">
-                Keep the planner clean: pick a view, quick add items, and expand AI suggestions only when needed.
+                Plan out your meals for the week to make sure they fit your macros.
               </p>
             </div>
           </AccordionTrigger>
