@@ -36,6 +36,33 @@ interface MacroGoalDialogProps {
   onSaved?: () => void;
 }
 
+function normalizeIntegerInput(value: string): string {
+  const digitsOnly = value.replace(/\D/g, '');
+  if (!digitsOnly) return '';
+  return digitsOnly.replace(/^0+(?=\d)/, '');
+}
+
+function normalizeDecimalInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned) return '';
+  const [wholeRaw, ...rest] = cleaned.split('.');
+  const whole = wholeRaw.replace(/^0+(?=\d)/, '');
+  if (rest.length === 0) return whole;
+  return `${whole || '0'}.${rest.join('').replace(/\./g, '')}`;
+}
+
+function parseIntegerInput(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDecimalInput(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function activityLabel(level: ActivityLevel): string {
   switch (level) {
     case 'sedentary':
@@ -80,23 +107,55 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     fat_g: profile.macroPlan.fat_g,
   });
   const [proteinOnlyMode, setProteinOnlyMode] = useState(profile.macroPlan.proteinOnlyMode);
-  const [waterTargetOz, setWaterTargetOz] = useState(profile.macroPlan.waterTargetOz);
-  const [alcoholLimitDrinks, setAlcoholLimitDrinks] = useState(profile.macroPlan.alcoholLimitDrinks);
+  const [ageInput, setAgeInput] = useState(String(profile.macroPlan.questionnaire.age));
+  const [heightFeetInput, setHeightFeetInput] = useState('');
+  const [heightInchesInput, setHeightInchesInput] = useState('');
+  const [heightCmInput, setHeightCmInput] = useState(String(profile.macroPlan.questionnaire.heightCm));
+  const [weightInput, setWeightInput] = useState('');
+  const [finalMacroInputs, setFinalMacroInputs] = useState({
+    calories: String(profile.macroPlan.calories),
+    protein_g: String(profile.macroPlan.protein_g),
+    carbs_g: String(profile.macroPlan.carbs_g),
+    fat_g: String(profile.macroPlan.fat_g),
+  });
+  const [waterTargetInput, setWaterTargetInput] = useState(String(profile.macroPlan.waterTargetOz));
+  const [alcoholLimitInput, setAlcoholLimitInput] = useState(String(profile.macroPlan.alcoholLimitDrinks));
+
+  const syncQuestionnaireDrafts = (nextQuestionnaire: MacroQuestionnaire, nextUnitSystem: BodyUnitSystem) => {
+    setAgeInput(String(nextQuestionnaire.age));
+    setHeightCmInput(String(nextQuestionnaire.heightCm));
+    const totalInches = Math.max(48, Math.round(nextQuestionnaire.heightCm / 2.54));
+    setHeightFeetInput(String(Math.floor(totalInches / 12)));
+    setHeightInchesInput(String(totalInches % 12));
+    setWeightInput(
+      nextUnitSystem === 'imperial'
+        ? Number((nextQuestionnaire.weightKg * 2.20462).toFixed(1)).toString()
+        : Number(nextQuestionnaire.weightKg.toFixed(1)).toString(),
+    );
+  };
 
   useEffect(() => {
     if (!open) return;
     const next = getProfiles()[personId];
     setQuestionnaire(next.macroPlan.questionnaire);
-    setBodyUnitSystem(next.macroPlan.bodyUnitSystem || 'imperial');
+    const nextUnitSystem = next.macroPlan.bodyUnitSystem || 'imperial';
+    setBodyUnitSystem(nextUnitSystem);
     setFinalMacros({
       calories: next.macroPlan.calories,
       protein_g: next.macroPlan.protein_g,
       carbs_g: next.macroPlan.carbs_g,
       fat_g: next.macroPlan.fat_g,
     });
+    setFinalMacroInputs({
+      calories: String(next.macroPlan.calories),
+      protein_g: String(next.macroPlan.protein_g),
+      carbs_g: String(next.macroPlan.carbs_g),
+      fat_g: String(next.macroPlan.fat_g),
+    });
     setProteinOnlyMode(next.macroPlan.proteinOnlyMode);
-    setWaterTargetOz(next.macroPlan.waterTargetOz);
-    setAlcoholLimitDrinks(next.macroPlan.alcoholLimitDrinks);
+    setWaterTargetInput(String(next.macroPlan.waterTargetOz));
+    setAlcoholLimitInput(String(next.macroPlan.alcoholLimitDrinks));
+    syncQuestionnaireDrafts(next.macroPlan.questionnaire, nextUnitSystem);
   }, [open, personId]);
 
   const recommendation = useMemo(
@@ -111,29 +170,65 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
       carbs_g: recommendation.carbs_g,
       fat_g: recommendation.fat_g,
     });
+    setFinalMacroInputs({
+      calories: String(recommendation.calories),
+      protein_g: String(recommendation.protein_g),
+      carbs_g: String(recommendation.carbs_g),
+      fat_g: String(recommendation.fat_g),
+    });
   };
 
   const save = () => {
+    const calories = parseIntegerInput(finalMacroInputs.calories);
+    const protein_g = parseIntegerInput(finalMacroInputs.protein_g);
+    const carbs_g = parseIntegerInput(finalMacroInputs.carbs_g);
+    const fat_g = parseIntegerInput(finalMacroInputs.fat_g);
+    const waterTarget = parseIntegerInput(waterTargetInput);
+    const alcoholLimit = parseDecimalInput(alcoholLimitInput);
+
+    if (calories === null || protein_g === null || carbs_g === null || fat_g === null) {
+      toast({
+        title: 'Finish your macro targets',
+        description: 'Calories, protein, carbs, and fat all need values before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const macroCalories = protein_g * 4 + carbs_g * 4 + fat_g * 9;
+    if (Math.abs(calories - macroCalories) > 10) {
+      toast({
+        title: 'Calories and macros do not match',
+        description: `Those macros add up to ${macroCalories} calories, so adjust the targets before saving.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (waterTarget === null || alcoholLimit === null) {
+      toast({
+        title: 'Finish the extra targets',
+        description: 'Water and alcohol targets need valid values before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     updateMacroPlan(personId, {
       questionnaire,
       bodyUnitSystem,
-      calories: Math.max(1000, Math.round(finalMacros.calories)),
-      protein_g: Math.max(40, Math.round(finalMacros.protein_g)),
-      carbs_g: Math.max(20, Math.round(finalMacros.carbs_g)),
-      fat_g: Math.max(20, Math.round(finalMacros.fat_g)),
+      calories: Math.max(1000, Math.round(calories)),
+      protein_g: Math.max(40, Math.round(protein_g)),
+      carbs_g: Math.max(20, Math.round(carbs_g)),
+      fat_g: Math.max(20, Math.round(fat_g)),
       proteinOnlyMode,
-      waterTargetOz: Math.max(16, Math.round(waterTargetOz)),
-      alcoholLimitDrinks: Math.max(0, Number(alcoholLimitDrinks.toFixed(1))),
+      waterTargetOz: Math.max(16, Math.round(waterTarget)),
+      alcoholLimitDrinks: Math.max(0, Number(alcoholLimit.toFixed(1))),
     });
     onOpenChange(false);
     onSaved?.();
     toast({ title: 'Macro goals saved' });
   };
-
-  const totalInches = Math.max(48, Math.round(questionnaire.heightCm / 2.54));
-  const heightFeet = Math.floor(totalInches / 12);
-  const heightInches = totalInches % 12;
-  const weightLb = Number((questionnaire.weightKg * 2.20462).toFixed(1));
 
   const updateImperialHeight = (feet: number, inches: number) => {
     const normalizedFeet = Math.max(3, feet);
@@ -141,6 +236,9 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     const heightCm = Math.round((normalizedFeet * 12 + normalizedInches) * 2.54);
     setQuestionnaire((prev) => ({ ...prev, heightCm }));
   };
+
+  const macroCalories = finalMacros.protein_g * 4 + finalMacros.carbs_g * 4 + finalMacros.fat_g * 9;
+  const macroCalorieDelta = finalMacros.calories - macroCalories;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -160,7 +258,10 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 type="button"
                 size="sm"
                 variant={bodyUnitSystem === 'imperial' ? 'default' : 'outline'}
-                onClick={() => setBodyUnitSystem('imperial')}
+                onClick={() => {
+                  setBodyUnitSystem('imperial');
+                  syncQuestionnaireDrafts(questionnaire, 'imperial');
+                }}
               >
                 Imperial (ft/in, lb)
               </Button>
@@ -168,7 +269,10 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 type="button"
                 size="sm"
                 variant={bodyUnitSystem === 'metric' ? 'default' : 'outline'}
-                onClick={() => setBodyUnitSystem('metric')}
+                onClick={() => {
+                  setBodyUnitSystem('metric');
+                  syncQuestionnaireDrafts(questionnaire, 'metric');
+                }}
               >
                 Metric (cm, kg)
               </Button>
@@ -198,10 +302,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
               <Input
                 type="number"
                 min={12}
-                value={questionnaire.age}
-                onChange={(e) =>
-                  setQuestionnaire((prev) => ({ ...prev, age: Number.parseInt(e.target.value, 10) || 30 }))
-                }
+                value={ageInput}
+                onChange={(e) => {
+                  const nextValue = normalizeIntegerInput(e.target.value);
+                  setAgeInput(nextValue);
+                  const parsed = parseIntegerInput(nextValue);
+                  if (parsed !== null) {
+                    setQuestionnaire((prev) => ({ ...prev, age: parsed }));
+                  }
+                }}
               />
             </div>
             {bodyUnitSystem === 'imperial' ? (
@@ -212,10 +321,16 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                     type="number"
                     min={3}
                     max={8}
-                    value={heightFeet}
-                    onChange={(e) =>
-                      updateImperialHeight(Number.parseInt(e.target.value, 10) || 5, heightInches)
-                    }
+                    value={heightFeetInput}
+                    onChange={(e) => {
+                      const nextValue = normalizeIntegerInput(e.target.value);
+                      setHeightFeetInput(nextValue);
+                      const feet = parseIntegerInput(nextValue);
+                      const inches = parseIntegerInput(heightInchesInput);
+                      if (feet !== null && inches !== null) {
+                        updateImperialHeight(feet, inches);
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -224,10 +339,16 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                     type="number"
                     min={0}
                     max={11}
-                    value={heightInches}
-                    onChange={(e) =>
-                      updateImperialHeight(heightFeet, Number.parseInt(e.target.value, 10) || 0)
-                    }
+                    value={heightInchesInput}
+                    onChange={(e) => {
+                      const nextValue = normalizeIntegerInput(e.target.value);
+                      setHeightInchesInput(nextValue);
+                      const feet = parseIntegerInput(heightFeetInput);
+                      const inches = parseIntegerInput(nextValue);
+                      if (feet !== null && inches !== null) {
+                        updateImperialHeight(feet, inches);
+                      }
+                    }}
                   />
                 </div>
                 <div className="col-span-2">
@@ -236,13 +357,18 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                     type="number"
                     min={80}
                     step="0.1"
-                    value={weightLb}
-                    onChange={(e) =>
-                      setQuestionnaire((prev) => ({
-                        ...prev,
-                        weightKg: Number.parseFloat(((Number.parseFloat(e.target.value) || 154) / 2.20462).toFixed(2)),
-                      }))
-                    }
+                    value={weightInput}
+                    onChange={(e) => {
+                      const nextValue = normalizeDecimalInput(e.target.value);
+                      setWeightInput(nextValue);
+                      const parsed = parseDecimalInput(nextValue);
+                      if (parsed !== null) {
+                        setQuestionnaire((prev) => ({
+                          ...prev,
+                          weightKg: Number.parseFloat((parsed / 2.20462).toFixed(2)),
+                        }));
+                      }
+                    }}
                   />
                 </div>
               </>
@@ -253,10 +379,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                   <Input
                     type="number"
                     min={120}
-                    value={questionnaire.heightCm}
-                    onChange={(e) =>
-                      setQuestionnaire((prev) => ({ ...prev, heightCm: Number.parseInt(e.target.value, 10) || 170 }))
-                    }
+                    value={heightCmInput}
+                    onChange={(e) => {
+                      const nextValue = normalizeIntegerInput(e.target.value);
+                      setHeightCmInput(nextValue);
+                      const parsed = parseIntegerInput(nextValue);
+                      if (parsed !== null) {
+                        setQuestionnaire((prev) => ({ ...prev, heightCm: parsed }));
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -265,10 +396,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                     type="number"
                     min={35}
                     step="0.1"
-                    value={questionnaire.weightKg}
-                    onChange={(e) =>
-                      setQuestionnaire((prev) => ({ ...prev, weightKg: Number.parseFloat(e.target.value) || 70 }))
-                    }
+                    value={weightInput}
+                    onChange={(e) => {
+                      const nextValue = normalizeDecimalInput(e.target.value);
+                      setWeightInput(nextValue);
+                      const parsed = parseDecimalInput(nextValue);
+                      if (parsed !== null) {
+                        setQuestionnaire((prev) => ({ ...prev, weightKg: parsed }));
+                      }
+                    }}
                   />
                 </div>
               </>
@@ -353,10 +489,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <p className="text-xs text-muted-foreground">Calories</p>
                 <Input
                   type="number"
-                  value={finalMacros.calories}
-                  onChange={(e) =>
-                    setFinalMacros((prev) => ({ ...prev, calories: Number.parseInt(e.target.value, 10) || 0 }))
-                  }
+                  value={finalMacroInputs.calories}
+                  onChange={(e) => {
+                    const nextValue = normalizeIntegerInput(e.target.value);
+                    setFinalMacroInputs((prev) => ({ ...prev, calories: nextValue }));
+                    const parsed = parseIntegerInput(nextValue);
+                    if (parsed !== null) {
+                      setFinalMacros((prev) => ({ ...prev, calories: parsed }));
+                    }
+                  }}
                   placeholder="Calories"
                 />
               </div>
@@ -364,10 +505,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <p className="text-xs text-muted-foreground">Protein (g)</p>
                 <Input
                   type="number"
-                  value={finalMacros.protein_g}
-                  onChange={(e) =>
-                    setFinalMacros((prev) => ({ ...prev, protein_g: Number.parseInt(e.target.value, 10) || 0 }))
-                  }
+                  value={finalMacroInputs.protein_g}
+                  onChange={(e) => {
+                    const nextValue = normalizeIntegerInput(e.target.value);
+                    setFinalMacroInputs((prev) => ({ ...prev, protein_g: nextValue }));
+                    const parsed = parseIntegerInput(nextValue);
+                    if (parsed !== null) {
+                      setFinalMacros((prev) => ({ ...prev, protein_g: parsed }));
+                    }
+                  }}
                   placeholder="Protein (g)"
                 />
               </div>
@@ -375,10 +521,15 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <p className="text-xs text-muted-foreground">Carbs (g)</p>
                 <Input
                   type="number"
-                  value={finalMacros.carbs_g}
-                  onChange={(e) =>
-                    setFinalMacros((prev) => ({ ...prev, carbs_g: Number.parseInt(e.target.value, 10) || 0 }))
-                  }
+                  value={finalMacroInputs.carbs_g}
+                  onChange={(e) => {
+                    const nextValue = normalizeIntegerInput(e.target.value);
+                    setFinalMacroInputs((prev) => ({ ...prev, carbs_g: nextValue }));
+                    const parsed = parseIntegerInput(nextValue);
+                    if (parsed !== null) {
+                      setFinalMacros((prev) => ({ ...prev, carbs_g: parsed }));
+                    }
+                  }}
                   placeholder="Carbs (g)"
                 />
               </div>
@@ -386,13 +537,28 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <p className="text-xs text-muted-foreground">Fat (g)</p>
                 <Input
                   type="number"
-                  value={finalMacros.fat_g}
-                  onChange={(e) =>
-                    setFinalMacros((prev) => ({ ...prev, fat_g: Number.parseInt(e.target.value, 10) || 0 }))
-                  }
+                  value={finalMacroInputs.fat_g}
+                  onChange={(e) => {
+                    const nextValue = normalizeIntegerInput(e.target.value);
+                    setFinalMacroInputs((prev) => ({ ...prev, fat_g: nextValue }));
+                    const parsed = parseIntegerInput(nextValue);
+                    if (parsed !== null) {
+                      setFinalMacros((prev) => ({ ...prev, fat_g: parsed }));
+                    }
+                  }}
                   placeholder="Fat (g)"
                 />
               </div>
+            </div>
+            <div className="rounded-md border border-border bg-muted/10 px-3 py-2 text-sm">
+              <p className="font-medium">Macro calories: {macroCalories}</p>
+              <p className={Math.abs(macroCalorieDelta) <= 10 ? 'text-muted-foreground' : 'text-destructive'}>
+                {Math.abs(macroCalorieDelta) <= 10
+                  ? 'Calories and macros are aligned.'
+                  : macroCalorieDelta > 0
+                    ? `${macroCalorieDelta} calories are unaccounted for by your macros.`
+                    : `Macros are ${Math.abs(macroCalorieDelta)} calories over your calorie target.`}
+              </p>
             </div>
             <label className="flex items-center gap-2">
               <Checkbox checked={proteinOnlyMode} onCheckedChange={(checked) => setProteinOnlyMode(!!checked)} />
@@ -404,8 +570,11 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                 <Input
                   type="number"
                   min={16}
-                  value={waterTargetOz}
-                  onChange={(e) => setWaterTargetOz(Number.parseInt(e.target.value, 10) || 0)}
+                  value={waterTargetInput}
+                  onChange={(e) => {
+                    const nextValue = normalizeIntegerInput(e.target.value);
+                    setWaterTargetInput(nextValue);
+                  }}
                 />
               </div>
               <div>
@@ -414,8 +583,11 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
                   type="number"
                   min={0}
                   step="0.5"
-                  value={alcoholLimitDrinks}
-                  onChange={(e) => setAlcoholLimitDrinks(Number.parseFloat(e.target.value) || 0)}
+                  value={alcoholLimitInput}
+                  onChange={(e) => {
+                    const nextValue = normalizeDecimalInput(e.target.value);
+                    setAlcoholLimitInput(nextValue);
+                  }}
                 />
               </div>
             </div>
