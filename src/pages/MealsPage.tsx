@@ -2904,7 +2904,7 @@ export default function MealsPage() {
 
       {/* Grid Quick Add Dialog */}
       <Dialog open={!!gridQuickAddContext} onOpenChange={(open) => !open && closeGridQuickAdd()}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               Add {plannedMealTypeLabel[plannerForm.mealType]}
@@ -3159,7 +3159,7 @@ export default function MealsPage() {
 
       {/* Manual Add Meal Dialog */}
       <Dialog open={!!manualDialogDay} onOpenChange={(open) => !open && setManualDialogDay(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Add Meal</DialogTitle>
             <DialogDescription>
