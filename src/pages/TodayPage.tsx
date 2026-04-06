@@ -11,6 +11,7 @@ import { mockMealPlan } from '@/data/mockData';
 import { DayOfWeek, MealLog } from '@/types';
 import {
   UtensilsCrossed,
+  Camera,
   Check,
   SkipForward,
   Plus,
@@ -21,6 +22,7 @@ import {
   CalendarDays,
   ClipboardList,
   ListChecks,
+  Loader2,
   Dumbbell,
   ShoppingCart,
 } from 'lucide-react';
@@ -35,6 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
+import { estimateMealFromPhoto } from '@/lib/api/mealPhoto';
 import {
   addAlcohol,
   addMealLog,
@@ -192,6 +195,8 @@ export default function TodayPage() {
     fat: '',
     person: 'all',
   });
+  const [quickAddPhotoNote, setQuickAddPhotoNote] = useState('');
+  const [estimatingMealPhoto, setEstimatingMealPhoto] = useState(false);
   const [logMealCategory, setLogMealCategory] = useState<LogMealCategory>('dinner');
   const [selectedLogMealId, setSelectedLogMealId] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
@@ -532,7 +537,40 @@ export default function TodayPage() {
 
     setQuickAddOpen(false);
     setQuickAddData({ name: '', calories: '', protein: '', carbs: '', fat: '', person: 'all' });
+    setQuickAddPhotoNote('');
     refresh();
+  };
+
+  const handleEstimateMealPhoto = async (file: File | null) => {
+    if (!file) return;
+    setEstimatingMealPhoto(true);
+    try {
+      const result = await estimateMealFromPhoto(file, quickAddPhotoNote);
+      if (!result.success || !result.meal) {
+        toast({
+          title: 'Could not estimate meal',
+          description: result.error || 'Try another photo or add a note with what is in the meal.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setQuickAddData((prev) => ({
+        ...prev,
+        name: result.meal?.name || prev.name,
+        calories: String(result.meal?.calories || 0),
+        protein: String(result.meal?.protein_g || 0),
+        carbs: String(result.meal?.carbs_g || 0),
+        fat: String(result.meal?.fat_g || 0),
+      }));
+
+      toast({
+        title: 'Meal estimated',
+        description: result.meal.assumptions || `${result.meal.name} is ready to log.`,
+      });
+    } finally {
+      setEstimatingMealPhoto(false);
+    }
   };
 
   const adjustWater = (person: string, deltaOz: number) => {
@@ -1063,6 +1101,44 @@ export default function TodayPage() {
             <DialogDescription>Log an unplanned meal or snack</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">Estimate from photo</p>
+                <p className="text-xs text-muted-foreground">
+                  Upload a meal photo and optionally add a short note so AI can estimate calories and macros.
+                </p>
+              </div>
+              <Input
+                placeholder="Optional note: tuna sandwich with mayo, one slice of cheese"
+                value={quickAddPhotoNote}
+                onChange={(e) => setQuickAddPhotoNote(e.target.value)}
+              />
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
+                {estimatingMealPhoto ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Estimating meal...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-4 w-4" />
+                    Upload meal photo
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={estimatingMealPhoto}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    void handleEstimateMealPhoto(file);
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
             <Input
               placeholder="Name (optional)"
               value={quickAddData.name}
