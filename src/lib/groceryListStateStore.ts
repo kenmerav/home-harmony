@@ -20,6 +20,7 @@ export interface GroceryListManualItem {
 export interface GroceryWeekState {
   checkedKeys: string[];
   manualItems: GroceryListManualItem[];
+  orderedAt: string | null;
 }
 
 export interface StoredGroceryListState {
@@ -31,6 +32,7 @@ export function defaultGroceryWeekState(): GroceryWeekState {
   return {
     checkedKeys: [],
     manualItems: [],
+    orderedAt: null,
   };
 }
 
@@ -83,6 +85,10 @@ function normalizeWeekState(value: unknown): GroceryWeekState {
           .map((item) => normalizeManualItem(item))
           .filter((item): item is GroceryListManualItem => Boolean(item))
       : [],
+    orderedAt:
+      typeof record.orderedAt === 'string' && record.orderedAt.trim()
+        ? record.orderedAt
+        : null,
   };
 }
 
@@ -94,7 +100,7 @@ function pruneWeekStates(weekStates: Record<string, GroceryWeekState>): Record<s
 
   return sortedKeys.reduce<Record<string, GroceryWeekState>>((next, key) => {
     const weekState = normalizeWeekState(weekStates[key]);
-    if (weekState.checkedKeys.length === 0 && weekState.manualItems.length === 0) {
+    if (weekState.checkedKeys.length === 0 && weekState.manualItems.length === 0 && !weekState.orderedAt) {
       return next;
     }
     next[key] = weekState;
@@ -182,7 +188,7 @@ export function hasMeaningfulGroceryListState(state: StoredGroceryListState): bo
   return (
     state.recurringItems.length > 0 ||
     Object.values(state.weekStates).some(
-      (weekState) => weekState.checkedKeys.length > 0 || weekState.manualItems.length > 0,
+      (weekState) => weekState.checkedKeys.length > 0 || weekState.manualItems.length > 0 || Boolean(weekState.orderedAt),
     )
   );
 }

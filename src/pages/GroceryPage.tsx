@@ -522,6 +522,7 @@ export default function GroceryPage() {
     () => groceryListState.weekStates[currentWeekOf] || defaultGroceryWeekState(),
     [currentWeekOf, groceryListState.weekStates],
   );
+  const currentWeekOrderedAt = currentWeekState.orderedAt;
 
   useEffect(() => {
     setPreferredStoreIdState(getPreferredGroceryStoreId());
@@ -676,7 +677,7 @@ export default function GroceryPage() {
       const current = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
       const nextWeekState = updater(current);
       const nextWeekStates = { ...previous.weekStates };
-      if (nextWeekState.checkedKeys.length === 0 && nextWeekState.manualItems.length === 0) {
+      if (nextWeekState.checkedKeys.length === 0 && nextWeekState.manualItems.length === 0 && !nextWeekState.orderedAt) {
         delete nextWeekStates[currentWeekOf];
       } else {
         nextWeekStates[currentWeekOf] = nextWeekState;
@@ -708,6 +709,18 @@ export default function GroceryPage() {
       ...weekState,
       checkedKeys: Array.from(new Set(items.map((item) => item.key))),
     }));
+  };
+
+  const regenerateCurrentWeekList = () => {
+    updateCurrentWeekState((weekState) => ({
+      ...weekState,
+      checkedKeys: [],
+      orderedAt: null,
+    }));
+    toast({
+      title: 'Grocery list restored',
+      description: 'This week’s list is visible again in case you still need it.',
+    });
   };
 
   const resetAddItemDialog = () => {
@@ -761,6 +774,7 @@ export default function GroceryPage() {
           ...previous.weekStates,
           [currentWeekOf]: {
             ...weekState,
+            orderedAt: null,
             manualItems: [...weekState.manualItems, nextItem],
           },
         },
@@ -792,7 +806,15 @@ export default function GroceryPage() {
       const nextWeekStates = { ...previous.weekStates };
 
       if (nextManualItems.length === 0 && nextCheckedKeys.length === 0) {
-        delete nextWeekStates[currentWeekOf];
+        if (weekState.orderedAt) {
+          nextWeekStates[currentWeekOf] = {
+            ...weekState,
+            manualItems: nextManualItems,
+            checkedKeys: nextCheckedKeys,
+          };
+        } else {
+          delete nextWeekStates[currentWeekOf];
+        }
       } else {
         nextWeekStates[currentWeekOf] = {
           ...weekState,
@@ -816,8 +838,13 @@ export default function GroceryPage() {
     });
   };
 
+  const visibleItems = useMemo(
+    () => (currentWeekOrderedAt ? [] : items),
+    [currentWeekOrderedAt, items],
+  );
+
   const groupedItems = categoryOrder.reduce((acc, category) => {
-    const categoryItems = items.filter(item => item.category === category);
+    const categoryItems = visibleItems.filter(item => item.category === category);
     if (categoryItems.length > 0) {
       acc[category] = categoryItems;
     }
@@ -852,9 +879,9 @@ export default function GroceryPage() {
     });
   };
 
-  const checkedCount = items.filter(i => i.isChecked).length;
-  const totalCount = items.length;
-  const remainingItems = useMemo(() => items.filter((item) => !item.isChecked), [items]);
+  const checkedCount = visibleItems.filter(i => i.isChecked).length;
+  const totalCount = visibleItems.length;
+  const remainingItems = useMemo(() => visibleItems.filter((item) => !item.isChecked), [visibleItems]);
 
   const copyList = () => {
     const uncheckedItems = remainingItems
@@ -926,8 +953,15 @@ export default function GroceryPage() {
     const now = new Date().toISOString();
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
-    checkAllItems();
-    toast({ title: 'Order marked complete', description: 'Reminder will wait until next scheduled window.' });
+    updateCurrentWeekState((weekState) => ({
+      ...weekState,
+      checkedKeys: Array.from(new Set(items.map((item) => item.key))),
+      orderedAt: now,
+    }));
+    toast({
+      title: 'Order marked complete',
+      description: 'This week’s grocery list is now cleared from view until you regenerate it.',
+    });
   };
 
   const toggleNextWeekOrdered = async (ordered: boolean) => {
@@ -1027,6 +1061,22 @@ export default function GroceryPage() {
         <div className="mb-4 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
           {groceryListState.recurringItems.length} weekly staple
           {groceryListState.recurringItems.length === 1 ? '' : 's'} will be added automatically each week.
+        </div>
+      )}
+
+      {currentWeekOrderedAt && (
+        <div className="mb-4 rounded-xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">This week’s grocery list is marked ordered</p>
+              <p className="text-xs text-muted-foreground">
+                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Generate the list again if checkout didn’t happen or you need to reopen it.
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={regenerateCurrentWeekList}>
+              Generate Grocery List
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1255,7 +1305,7 @@ export default function GroceryPage() {
         </div>
       )}
 
-      {!loading && totalCount === 0 && (
+      {!loading && !currentWeekOrderedAt && totalCount === 0 && (
         <div className="text-center py-12">
           <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
           <p className="text-muted-foreground">No items on your list</p>
@@ -1265,7 +1315,7 @@ export default function GroceryPage() {
         </div>
       )}
 
-      {checkedCount === totalCount && totalCount > 0 && (
+      {checkedCount === totalCount && totalCount > 0 && !currentWeekOrderedAt && (
         <div className="text-center py-8">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
             <Check className="w-8 h-8 text-primary" />
