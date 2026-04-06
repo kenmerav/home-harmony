@@ -45,6 +45,7 @@ import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } 
 import { inferKidFriendly } from '@/lib/kidFriendly';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getNextWeekOf, loadWeeklyPlanningStatus, type WeeklyPlanningStatus } from '@/lib/api/weeklyPlanningStatus';
+import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
 function isEdgeTransportFailure(errorMessage?: string): boolean {
@@ -413,6 +414,7 @@ function dbRecipeToDisplayRecipe(
 }
 
 export default function RecipesPage() {
+  const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
@@ -741,6 +743,11 @@ export default function RecipesPage() {
   const checklistGroceryReady = !!nextWeekPlanning?.groceries_ordered;
   const checklistDoneCount = [checklistRecipeReady, checklistMealsReady, checklistGroceryReady].filter(Boolean).length;
   const checklistAllDone = checklistDoneCount === 3;
+  const checklistStartDate = profile?.onboardingCompletedAt || user?.created_at || null;
+  const checklistAgeDays = checklistStartDate
+    ? Math.floor((Date.now() - new Date(checklistStartDate).getTime()) / 86_400_000)
+    : 0;
+  const shouldShowSetupChecklist = !checklistAllDone && checklistAgeDays < 21;
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const bulkParsedUrls = parseBulkUrlInput(bulkUrlsInput);
   const bulkUrlCount = bulkParsedUrls.length;
@@ -1675,6 +1682,7 @@ export default function RecipesPage() {
         }
       />
 
+      {shouldShowSetupChecklist ? (
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -1743,6 +1751,7 @@ export default function RecipesPage() {
           </p>
         )}
       </div>
+      ) : null}
 
       {/* Search */}
       <div className="relative mb-6">
