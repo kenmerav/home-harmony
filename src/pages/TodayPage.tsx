@@ -502,20 +502,20 @@ export default function TodayPage() {
     logMealCandidate(selectedLogMeal, selectedLogMeal?.personId || person);
   };
 
-  const handleQuickAdd = () => {
-    const calories = Number.parseInt(quickAddData.calories, 10) || 0;
-    const protein = Number.parseInt(quickAddData.protein, 10) || 0;
-    const carbs = Number.parseInt(quickAddData.carbs, 10) || 0;
-    const fat = Number.parseInt(quickAddData.fat, 10) || 0;
+  const submitQuickAdd = (input = quickAddData, options?: { closeDialog?: boolean; title?: string; description?: string }) => {
+    const calories = Number.parseInt(input.calories, 10) || 0;
+    const protein = Number.parseInt(input.protein, 10) || 0;
+    const carbs = Number.parseInt(input.carbs, 10) || 0;
+    const fat = Number.parseInt(input.fat, 10) || 0;
 
     if (calories <= 0) {
       toast({ title: 'Please enter calories', variant: 'destructive' });
-      return;
+      return false;
     }
 
     const createLog = (target: string): MealLog => ({
       id: `quickadd-${Date.now()}-${target}`,
-      recipeName: quickAddData.name || 'Quick Add',
+      recipeName: input.name || 'Quick Add',
       date: todayKey,
       person: target,
       servings: 1,
@@ -524,21 +524,28 @@ export default function TodayPage() {
       createdAt: new Date(),
     });
 
-    if (quickAddData.person === 'all') {
+    if (input.person === 'all') {
       dashboards.forEach((dashboard) => addMealLog(createLog(dashboard.id)));
     } else {
-      addMealLog(createLog(quickAddData.person));
+      addMealLog(createLog(input.person));
     }
 
     toast({
-      title: 'Added',
-      description: `${calories} cal${quickAddData.name ? ` - ${quickAddData.name}` : ''}`,
+      title: options?.title || 'Added',
+      description: options?.description || `${calories} cal${input.name ? ` - ${input.name}` : ''}`,
     });
 
-    setQuickAddOpen(false);
+    if (options?.closeDialog !== false) {
+      setQuickAddOpen(false);
+    }
     setQuickAddData({ name: '', calories: '', protein: '', carbs: '', fat: '', person: 'all' });
     setQuickAddPhotoNote('');
     refresh();
+    return true;
+  };
+
+  const handleQuickAdd = () => {
+    submitQuickAdd();
   };
 
   const handleEstimateMealPhoto = async (file: File | null) => {
@@ -564,10 +571,30 @@ export default function TodayPage() {
         fat: String(result.meal?.fat_g || 0),
       }));
 
-      toast({
-        title: 'Meal estimated',
-        description: result.meal.assumptions || `${result.meal.name} is ready to log.`,
-      });
+      const estimatedQuickAddData = {
+        ...quickAddData,
+        name: result.meal?.name || quickAddData.name,
+        calories: String(result.meal?.calories || 0),
+        protein: String(result.meal?.protein_g || 0),
+        carbs: String(result.meal?.carbs_g || 0),
+        fat: String(result.meal?.fat_g || 0),
+      };
+
+      const looksUsable =
+        (result.meal?.calories || 0) > 0 &&
+        String(result.meal?.name || '').trim().toLowerCase() !== 'unknown meal';
+
+      if (looksUsable) {
+        submitQuickAdd(estimatedQuickAddData, {
+          title: 'Meal estimated and logged',
+          description: result.meal.assumptions || `${result.meal.name} was added to your log.`,
+        });
+      } else {
+        toast({
+          title: 'Meal estimated',
+          description: result.meal.assumptions || `${result.meal.name} is ready to review before logging.`,
+        });
+      }
     } finally {
       setEstimatingMealPhoto(false);
     }
