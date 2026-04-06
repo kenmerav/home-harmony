@@ -2290,7 +2290,6 @@ export default function MealsPage() {
                       type="number"
                       step="0.25"
                       min="0.1"
-                      placeholder="Servings"
                       value={plannerForm.servings}
                       onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
                     />
@@ -2307,7 +2306,6 @@ export default function MealsPage() {
                       <Input
                         type="number"
                         min="0"
-                        placeholder="Calories"
                         value={plannerForm.calories}
                         onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
                       />
@@ -2317,7 +2315,6 @@ export default function MealsPage() {
                       <Input
                         type="number"
                         min="0"
-                        placeholder="Protein"
                         value={plannerForm.protein_g}
                         onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
                       />
@@ -2327,7 +2324,6 @@ export default function MealsPage() {
                       <Input
                         type="number"
                         min="0"
-                        placeholder="Carbs"
                         value={plannerForm.carbs_g}
                         onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
                       />
@@ -2337,7 +2333,6 @@ export default function MealsPage() {
                       <Input
                         type="number"
                         min="0"
-                        placeholder="Fat"
                         value={plannerForm.fat_g}
                         onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
                       />
@@ -3304,7 +3299,6 @@ export default function MealsPage() {
                   type="number"
                   step="0.25"
                   min="0.1"
-                  placeholder="Servings"
                   value={plannerForm.servings}
                   onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
                 />
@@ -3314,7 +3308,6 @@ export default function MealsPage() {
                 <Input
                   type="number"
                   min="0"
-                  placeholder="Calories"
                   value={plannerForm.calories}
                   onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
                 />
@@ -3324,7 +3317,6 @@ export default function MealsPage() {
                 <Input
                   type="number"
                   min="0"
-                  placeholder="Protein"
                   value={plannerForm.protein_g}
                   onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
                 />
@@ -3334,7 +3326,6 @@ export default function MealsPage() {
                 <Input
                   type="number"
                   min="0"
-                  placeholder="Carbs"
                   value={plannerForm.carbs_g}
                   onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
                 />
@@ -3344,7 +3335,6 @@ export default function MealsPage() {
                 <Input
                   type="number"
                   min="0"
-                  placeholder="Fat"
                   value={plannerForm.fat_g}
                   onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
                 />
