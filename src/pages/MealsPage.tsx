@@ -2423,10 +2423,32 @@ export default function MealsPage() {
                 </div>
                 {isExpanded ? (
                   <>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
-                      {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+                      <p className="text-xs text-muted-foreground">
+                        Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
+                        {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
+                      </p>
+                      {shouldShowDinnerBase && dinnerBase ? (
+                        <div className="min-w-[170px]">
+                          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Your dinner servings
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                              <Button
+                                key={`${row.date}-dinner-serving-summary-${value}`}
+                                type="button"
+                                size="sm"
+                                variant={String(dinnerServings) === value ? 'default' : 'outline'}
+                                onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
+                              >
+                                {value}x
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                     {showDetailedMetrics ? (
                       <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
                         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -2477,34 +2499,14 @@ export default function MealsPage() {
                     <div className="mt-3 space-y-2">
                       {shouldShowDinnerBase && dinnerBase && (
                         <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {Math.round(dinnerBase.calories * dinnerServings)} cal • {Math.round(dinnerBase.protein_g * dinnerServings)}P • {Math.round(dinnerBase.carbs_g * dinnerServings)}C • {Math.round(dinnerBase.fat_g * dinnerServings)}F
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {dinnerBase.calories} cal per serving
-                              </p>
-                            </div>
-                            <div className="min-w-[170px]">
-                              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Your dinner servings
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                {['0', '0.5', '1', '1.5', '2'].map((value) => (
-                                  <Button
-                                    key={`${row.date}-dinner-serving-${value}`}
-                                    type="button"
-                                    size="sm"
-                                    variant={String(dinnerServings) === value ? 'default' : 'outline'}
-                                    onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
-                                  >
-                                    {value}x
-                                  </Button>
-                                ))}
-                              </div>
-                            </div>
+                          <div>
+                            <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {Math.round(dinnerBase.calories * dinnerServings)} cal • {Math.round(dinnerBase.protein_g * dinnerServings)}P • {Math.round(dinnerBase.carbs_g * dinnerServings)}C • {Math.round(dinnerBase.fat_g * dinnerServings)}F
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {dinnerBase.calories} cal per serving
+                            </p>
                           </div>
                         </div>
                       )}
