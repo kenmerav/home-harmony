@@ -38,8 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
-import { getDinnerReminderPrefs, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
-import { estimateCookMinutes } from '@/lib/recipeTime';
+import { getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { listTaskDatesInRange, loadTasks, updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { estimateCommuteEta } from '@/lib/api/commute';
 import {
@@ -556,7 +555,6 @@ export default function CalendarPage() {
         }),
       );
 
-      const dinnerPrefs = getDinnerReminderPrefs();
       const meals = mealsByWeek.flat();
       meals.forEach((meal) => {
         if (meal.is_skipped || !meal.recipes) return;
@@ -581,22 +579,6 @@ export default function CalendarPage() {
           readonly: true,
         });
 
-        if (dinnerPrefs.enabled) {
-          const cookMinutes = estimateCookMinutes(meal.recipes.instructions) ?? 45;
-          const prepStart = addMinutes(mealStart, -Math.max(15, cookMinutes));
-          nextEvents.push({
-            id: `prep-${meal.id}`,
-            title: `Start prep: ${meal.recipes.name}`,
-            description: `Estimated cook time ${cookMinutes} minutes`,
-            startsAt: prepStart.toISOString(),
-            endsAt: mealStart.toISOString(),
-            allDay: false,
-            source: 'reminder',
-            module: 'reminders',
-            relatedId: meal.id,
-            readonly: true,
-          });
-        }
       });
 
       const taskRows = loadTasks(user?.id);

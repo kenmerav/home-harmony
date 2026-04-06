@@ -1,5 +1,4 @@
 import { supabase } from '@/integrations/supabase/client';
-import { estimateCookMinutes } from '@/lib/recipeTime';
 import { getDinnerReminderPrefs, getDinnerTimeForDay } from '@/lib/mealPrefs';
 import { DayOfWeek } from '@/types';
 
@@ -531,7 +530,6 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
   };
 
   const prefs = getDinnerReminderPrefs();
-  const prepEnabled = !!prefs.enabled;
 
   const weekKeys = Array.from(new Set(meals.map((meal) => String(meal.week_of || '')).filter(Boolean)));
   const existingRows: { id: string; related_id: string | null; is_deleted: boolean }[] = [];
@@ -642,25 +640,7 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
         recurrence_rule: null,
       });
 
-      if (prepEnabled) {
-        desiredRelatedIds.add(prepRelatedId);
-        const cookMinutes = Math.max(15, estimateCookMinutes(meal.recipes?.instructions || '') ?? 45);
-        const prepStart = new Date(startsAt.getTime() - cookMinutes * 60_000);
-        upsertByRelatedId(prepRelatedId, {
-          title: `Start prep: ${title}`,
-          description: `Estimated cook time ${cookMinutes} minutes`,
-          starts_at: prepStart.toISOString(),
-          ends_at: startsAt.toISOString(),
-          all_day: false,
-          module: 'reminders',
-          source: 'reminder',
-          calendar_layer: 'deliveries',
-          timezone_name: timezoneName,
-          recurrence_rule: null,
-        });
-      } else {
-        markDeleted(prepRelatedId);
-      }
+      markDeleted(prepRelatedId);
     } else {
       markDeleted(mealRelatedId);
       markDeleted(prepRelatedId);

@@ -14,9 +14,8 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
-import { getDinnerReminderPrefs, getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
+import { getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
-import { estimateCookMinutes } from '@/lib/recipeTime';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
@@ -526,7 +525,6 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     }),
   );
 
-  const dinnerPrefs = getDinnerReminderPrefs();
   const meals = mealsByWeek.flat();
   meals.forEach((meal) => {
     if (meal.is_skipped || !meal.recipes) return;
@@ -551,22 +549,6 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
       readonly: true,
     });
 
-    if (dinnerPrefs.enabled) {
-      const cookMinutes = estimateCookMinutes(meal.recipes.instructions) ?? 45;
-      const prepStart = addMinutes(mealStart, -Math.max(15, cookMinutes));
-      nextEvents.push({
-        id: `prep-${meal.id}`,
-        title: `Start prep: ${meal.recipes.name}`,
-        description: `Estimated cook time ${cookMinutes} minutes`,
-        startsAt: prepStart.toISOString(),
-        endsAt: mealStart.toISOString(),
-        allDay: false,
-        source: 'reminder',
-        module: 'reminders',
-        relatedId: meal.id,
-        readonly: true,
-      });
-    }
   });
 
   nextEvents.push(...collectDerivedEventsForRange(rangeStart, rangeEnd, userId));
