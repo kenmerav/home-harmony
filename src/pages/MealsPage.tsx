@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles, Camera, Loader2 } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles, Camera, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -2781,7 +2781,8 @@ export default function MealsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-xs"
+                      className="h-8 w-8 p-0"
+                      aria-label={isExpanded ? 'Collapse day details' : 'Expand day details'}
                       onClick={() =>
                         setPlannerExpandedByDate((prev) => {
                           const current = prev[row.date] ?? (plannerViewMode === 'daily-all');
@@ -2792,7 +2793,7 @@ export default function MealsPage() {
                         })
                       }
                     >
-                      {isExpanded ? 'Collapse' : 'Expand'}
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
