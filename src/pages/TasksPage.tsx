@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -29,6 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { loadTasks, saveTasks, taskOccursOnDate, taskFrequencyLabel } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
+import { listDashboardProfiles } from '@/lib/macroGame';
 
 const statusOrder: TaskStatus[] = ['in_progress', 'not_started', 'done'];
 
@@ -55,11 +56,11 @@ type TaskDraft = {
   notes: string;
   type: TaskType;
   frequency: TaskFrequency;
+  assignedToId: string;
   day: DayOfWeek;
   dueDate: string;
   reminderEnabled: boolean;
   reminderTime: string;
-  reminderLeadMinutes: string;
 };
 
 const DEFAULT_TASK_DRAFT: TaskDraft = {
@@ -67,11 +68,11 @@ const DEFAULT_TASK_DRAFT: TaskDraft = {
   notes: '',
   type: 'do',
   frequency: 'once',
+  assignedToId: 'unassigned',
   day: 'monday',
   dueDate: '',
   reminderEnabled: false,
   reminderTime: '09:00',
-  reminderLeadMinutes: '30',
 };
 
 export default function TasksPage() {
@@ -84,6 +85,7 @@ export default function TasksPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newTask, setNewTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
   const [editTask, setEditTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
+  const [adultDashboards, setAdultDashboards] = useState(() => listDashboardProfiles());
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const { toast } = useToast();
@@ -102,6 +104,20 @@ export default function TasksPage() {
     if (!tasksLoaded) return;
     void syncDerivedCalendarSnapshot(user?.id, new Date());
   }, [tasks, tasksLoaded, user?.id]);
+
+  useEffect(() => {
+    const refreshDashboards = () => setAdultDashboards(listDashboardProfiles());
+    window.addEventListener('homehub:macro-state-updated', refreshDashboards);
+    return () => window.removeEventListener('homehub:macro-state-updated', refreshDashboards);
+  }, []);
+
+  const dashboardNameById = useMemo(
+    () => new Map(adultDashboards.map((dashboard) => [dashboard.id, dashboard.name])),
+    [adultDashboards],
+  );
+
+  const taskAssigneeLabel = (task: HouseTask) =>
+    task.assignedToId ? dashboardNameById.get(task.assignedToId) || task.assignedToName : task.assignedToName;
 
   const cycleStatus = (taskId: string) => {
     setTasks(prev => prev.map(task => {
@@ -122,16 +138,17 @@ export default function TasksPage() {
     notes: task.notes || '',
     type: task.type,
     frequency: task.frequency,
+    assignedToId: task.assignedToId || 'unassigned',
     day: task.day || 'monday',
     dueDate: task.dueDate || '',
     reminderEnabled: !!task.reminderEnabled,
     reminderTime: task.reminderTime || '09:00',
-    reminderLeadMinutes: String(task.reminderLeadMinutes || 30),
   });
 
   const taskFromDraft = (draft: TaskDraft, taskId?: string): HouseTask => {
-    const reminderLeadMinutes = Math.max(5, Math.min(240, Number.parseInt(draft.reminderLeadMinutes || '30', 10) || 30));
     const dueDate = draft.dueDate.trim();
+    const assignedToId = draft.assignedToId !== 'unassigned' ? draft.assignedToId : undefined;
+    const assignedToName = assignedToId ? dashboardNameById.get(assignedToId) : undefined;
     return {
       id: taskId || `task-${Date.now()}`,
       title: draft.title.trim(),
@@ -139,11 +156,12 @@ export default function TasksPage() {
       type: draft.type,
       status: 'not_started',
       frequency: draft.frequency,
+      assignedToId,
+      assignedToName,
       day: draft.frequency === 'weekly' ? draft.day : undefined,
       dueDate: dueDate || undefined,
       reminderEnabled: draft.reminderEnabled,
       reminderTime: draft.reminderEnabled ? draft.reminderTime : undefined,
-      reminderLeadMinutes: draft.reminderEnabled ? reminderLeadMinutes : undefined,
       createdAt: new Date(),
     };
   };
@@ -241,6 +259,7 @@ export default function TasksPage() {
                     onStatusChange={cycleStatus}
                     onDelete={deleteTask}
                     onEdit={openEditTask}
+                    assigneeLabel={taskAssigneeLabel(task)}
                   />
                 ))}
               </div>
@@ -260,6 +279,7 @@ export default function TasksPage() {
                     onStatusChange={cycleStatus}
                     onDelete={deleteTask}
                     onEdit={openEditTask}
+                    assigneeLabel={taskAssigneeLabel(task)}
                   />
                 ))}
               </div>
@@ -279,7 +299,14 @@ export default function TasksPage() {
                   >
                     <div className="flex items-center gap-3">
                       <StatusBadge type={task.type} />
-                      <span className="text-sm">{task.title}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm">{task.title}</p>
+                        {taskAssigneeLabel(task) && (
+                          <p className="text-xs text-muted-foreground">
+                            Assigned to {taskAssigneeLabel(task)}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground capitalize">
@@ -415,6 +442,26 @@ export default function TasksPage() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Assign to adult</label>
+              <Select
+                value={newTask.assignedToId}
+                onValueChange={(value) => setNewTask((prev) => ({ ...prev, assignedToId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">No one specific</SelectItem>
+                  {adultDashboards.map((dashboard) => (
+                    <SelectItem key={dashboard.id} value={dashboard.id}>
+                      {dashboard.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {newTask.frequency === 'weekly' && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Day of Week</label>
@@ -469,32 +516,13 @@ export default function TasksPage() {
             </label>
 
             {newTask.reminderEnabled && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Reminder time</label>
-                  <Input
-                    type="time"
-                    value={newTask.reminderTime}
-                    onChange={(e) => setNewTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Lead (minutes)</label>
-                  <Select
-                    value={newTask.reminderLeadMinutes}
-                    onValueChange={(value) => setNewTask((prev) => ({ ...prev, reminderLeadMinutes: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="15">15</SelectItem>
-                      <SelectItem value="30">30</SelectItem>
-                      <SelectItem value="60">60</SelectItem>
-                      <SelectItem value="120">120</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reminder time</label>
+                <Input
+                  type="time"
+                  value={newTask.reminderTime}
+                  onChange={(e) => setNewTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
+                />
               </div>
             )}
 
@@ -566,6 +594,25 @@ export default function TasksPage() {
                 </Select>
               </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Assign to adult</label>
+              <Select
+                value={editTask.assignedToId}
+                onValueChange={(value) => setEditTask((prev) => ({ ...prev, assignedToId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">No one specific</SelectItem>
+                  {adultDashboards.map((dashboard) => (
+                    <SelectItem key={dashboard.id} value={dashboard.id}>
+                      {dashboard.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {editTask.frequency === 'weekly' && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Day of week</label>
@@ -616,32 +663,13 @@ export default function TasksPage() {
               Enable reminder
             </label>
             {editTask.reminderEnabled && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Reminder time</label>
-                  <Input
-                    type="time"
-                    value={editTask.reminderTime}
-                    onChange={(e) => setEditTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Lead (minutes)</label>
-                  <Select
-                    value={editTask.reminderLeadMinutes}
-                    onValueChange={(value) => setEditTask((prev) => ({ ...prev, reminderLeadMinutes: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="15">15</SelectItem>
-                      <SelectItem value="30">30</SelectItem>
-                      <SelectItem value="60">60</SelectItem>
-                      <SelectItem value="120">120</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reminder time</label>
+                <Input
+                  type="time"
+                  value={editTask.reminderTime}
+                  onChange={(e) => setEditTask((prev) => ({ ...prev, reminderTime: e.target.value }))}
+                />
               </div>
             )}
             <div className="flex gap-2 justify-end">
@@ -664,11 +692,13 @@ function TaskRow({
   onStatusChange, 
   onDelete,
   onEdit,
+  assigneeLabel,
 }: { 
   task: HouseTask; 
   onStatusChange: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (task: HouseTask) => void;
+  assigneeLabel?: string;
 }) {
   return (
     <div 
@@ -707,6 +737,9 @@ function TaskRow({
           {taskFrequencyLabel(task)}
           {task.reminderEnabled && task.reminderTime ? ` • Remind at ${task.reminderTime}` : ''}
         </p>
+        {assigneeLabel && (
+          <p className="text-[11px] text-muted-foreground">Assigned to {assigneeLabel}</p>
+        )}
       </div>
 
       {/* Type badge */}

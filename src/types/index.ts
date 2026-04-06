@@ -114,6 +114,8 @@ export interface HouseTask {
   type: TaskType;
   status: TaskStatus;
   frequency: TaskFrequency;
+  assignedToId?: string;
+  assignedToName?: string;
   dueDate?: string;
   day?: DayOfWeek;
   reminderEnabled?: boolean;

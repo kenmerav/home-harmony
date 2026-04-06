@@ -80,6 +80,8 @@ function normalizeTask(raw: unknown, index: number): HouseTask {
   const input = (raw || {}) as Partial<HouseTask> & { createdAt?: string | Date };
   const frequency = normalizeTaskFrequency(input.frequency);
   const reminderLead = Number.parseInt(String(input.reminderLeadMinutes ?? ''), 10);
+  const assignedToId = typeof input.assignedToId === 'string' ? input.assignedToId.trim() : '';
+  const assignedToName = typeof input.assignedToName === 'string' ? input.assignedToName.trim() : '';
   return {
     id: input.id || `task-${index}`,
     title: input.title || 'Untitled task',
@@ -90,6 +92,8 @@ function normalizeTask(raw: unknown, index: number): HouseTask {
         ? input.status
         : 'not_started',
     frequency,
+    assignedToId: assignedToId || undefined,
+    assignedToName: assignedToName || undefined,
     dueDate: typeof input.dueDate === 'string' ? input.dueDate : undefined,
     day: normalizeTaskDay(input.day),
     reminderEnabled: input.reminderEnabled === true,
