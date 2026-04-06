@@ -307,6 +307,7 @@ export default function MealsPage() {
   const [plannerExpandedByDate, setPlannerExpandedByDate] = useState<Record<string, boolean>>({});
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
   const [plannerDinnerServingsByProfile, setPlannerDinnerServingsByProfile] = useState<DinnerServingsByProfile>({});
+  const [plannerDinnerAdjustDate, setPlannerDinnerAdjustDate] = useState<string | null>(null);
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [plannerPhotoNote, setPlannerPhotoNote] = useState('');
   const [estimatingPlannerPhoto, setEstimatingPlannerPhoto] = useState(false);
@@ -2570,6 +2571,7 @@ export default function MealsPage() {
             const shouldShowDinnerBase =
               Boolean(dinnerBase) &&
               (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
+            const dinnerAdjustOpen = plannerDinnerAdjustDate === row.date;
             const isExpanded = plannerExpandedByDate[row.date] ?? (plannerViewMode === 'daily-all');
             const showDetailedMetrics = false;
             const plannedCount = filteredEntries.length + (shouldShowDinnerBase ? 1 : 0);
@@ -2673,15 +2675,46 @@ export default function MealsPage() {
                     <div className="mt-3 space-y-2">
                       {shouldShowDinnerBase && dinnerBase && (
                         <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                          <div>
-                            <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {Math.round(dinnerBase.calories * dinnerServings)} cal • {Math.round(dinnerBase.protein_g * dinnerServings)}P • {Math.round(dinnerBase.carbs_g * dinnerServings)}C • {Math.round(dinnerBase.fat_g * dinnerServings)}F
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {dinnerBase.calories} cal per serving
-                            </p>
-                          </div>
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() =>
+                              setPlannerDinnerAdjustDate((current) => (current === row.date ? null : row.date))
+                            }
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {Math.round(dinnerBase.calories * dinnerServings)} cal • {Math.round(dinnerBase.protein_g * dinnerServings)}P • {Math.round(dinnerBase.carbs_g * dinnerServings)}C • {Math.round(dinnerBase.fat_g * dinnerServings)}F
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {dinnerBase.calories} cal per serving
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-xs font-medium text-foreground">{dinnerServings}x</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {dinnerAdjustOpen ? 'Hide servings' : 'Adjust servings'}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                          {dinnerAdjustOpen ? (
+                            <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-3">
+                              {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                                <Button
+                                  key={`inline-dinner-serving-${row.date}-${value}`}
+                                  type="button"
+                                  size="sm"
+                                  variant={String(dinnerServings) === value ? 'default' : 'outline'}
+                                  onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
+                                >
+                                  {value}x
+                                </Button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       )}
                       {filteredEntries.map((entry) => (
