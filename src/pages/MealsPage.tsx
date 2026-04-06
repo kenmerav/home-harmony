@@ -767,6 +767,7 @@ export default function MealsPage() {
     setGridQuickAddContext(null);
     setPlannerRepeatMode('once');
     setPlannerRepeatDays(new Set());
+    setPlannerPhotoNote('');
   };
 
   const resetPlannerItemFields = (keepRepeat = false) => {
@@ -1019,11 +1020,33 @@ export default function MealsPage() {
       fat_g: '',
     }));
     setPlannerRecipeQuery('');
+    setPlannerPhotoNote('');
     setPlannerDay(date);
     setSuggestionDate(date);
     setPlannerRepeatMode('once');
     setPlannerRepeatDays(new Set());
     setGridQuickAddContext({ date, mealType });
+  };
+
+  const openPlannerQuickAdd = () => {
+    const nextDate = plannerDay || format(new Date(), 'yyyy-MM-dd');
+    setPlannerForm((prev) => ({
+      ...prev,
+      date: nextDate,
+      recipeId: '',
+      name: '',
+      servings: '1',
+      calories: '',
+      protein_g: '',
+      carbs_g: '',
+      fat_g: '',
+    }));
+    setPlannerRecipeQuery('');
+    setPlannerPhotoNote('');
+    setSuggestionDate(nextDate);
+    setPlannerRepeatMode('once');
+    setPlannerRepeatDays(new Set());
+    setGridQuickAddContext({ date: nextDate, mealType: plannerForm.mealType });
   };
 
   const commonPlannedFoods = listCommonPlannedFoods(user?.id, 10);
@@ -1827,6 +1850,10 @@ export default function MealsPage() {
                 <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
                   <Calculator className="w-4 h-4 mr-1.5" />
                   Macro Calculator
+                </Button>
+                <Button size="sm" onClick={openPlannerQuickAdd}>
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Quick Add
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -2986,6 +3013,45 @@ export default function MealsPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+            ) : null}
+            {plannerForm.mealType !== 'alcohol' ? (
+              <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Estimate from meal photo</p>
+                  <p className="text-xs text-muted-foreground">
+                    Upload a meal photo or type what you had below, then adjust anything manually if needed.
+                  </p>
+                </div>
+                <Input
+                  placeholder="Optional note: tuna sandwich with mayo and chips"
+                  value={plannerPhotoNote}
+                  onChange={(event) => setPlannerPhotoNote(event.target.value)}
+                />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
+                  {estimatingPlannerPhoto ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Estimating meal...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-4 w-4" />
+                      Upload meal photo
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={estimatingPlannerPhoto}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] || null;
+                      void handleEstimatePlannerMealPhoto(file);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                </label>
               </div>
             ) : null}
             <Input
