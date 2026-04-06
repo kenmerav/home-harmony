@@ -154,13 +154,14 @@ interface PantryMatch {
   missing: string[];
 }
 
-type PlannerViewMode = 'weekly-breakfasts' | 'weekly-dinners' | 'weekly-lunches' | 'daily-all' | 'weekly-meal-grid';
-type TopMealsViewMode = 'dinner-list' | 'breakfast-list' | 'lunch-list' | 'weekly-meal-grid';
+type PlannerViewMode = 'weekly-breakfasts' | 'weekly-dinners' | 'weekly-lunches' | 'weekly-snacks' | 'daily-all' | 'weekly-meal-grid';
+type TopMealsViewMode = 'dinner-list' | 'breakfast-list' | 'lunch-list' | 'snack-list' | 'weekly-meal-grid';
 
 const plannerViewModeLabel: Record<PlannerViewMode, string> = {
   'daily-all': 'Daily - All Meals',
   'weekly-breakfasts': 'Weekly - Breakfasts',
   'weekly-lunches': 'Weekly - Lunches',
+  'weekly-snacks': 'Weekly - Snacks',
   'weekly-dinners': 'Weekly - Dinners',
   'weekly-meal-grid': 'Weekly - Meal Grid',
 };
@@ -1474,6 +1475,13 @@ export default function MealsPage() {
         </Button>
         <Button
           size="sm"
+          variant={topMealsViewMode === 'snack-list' ? 'default' : 'outline'}
+          onClick={() => setTopMealsViewMode('snack-list')}
+        >
+          Snack list
+        </Button>
+        <Button
+          size="sm"
           variant={topMealsViewMode === 'dinner-list' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('dinner-list')}
         >
@@ -1809,8 +1817,18 @@ export default function MealsPage() {
           ) : (
             <div className="space-y-3 stagger-children">
               {weekDateRows.map((row) => {
-                const mealType: PlannedMealType = topMealsViewMode === 'breakfast-list' ? 'breakfast' : 'lunch';
-                const label = mealType === 'breakfast' ? 'Breakfast' : 'Lunch';
+                const mealType: PlannedMealType =
+                  topMealsViewMode === 'breakfast-list'
+                    ? 'breakfast'
+                    : topMealsViewMode === 'snack-list'
+                    ? 'snack'
+                    : 'lunch';
+                const label =
+                  mealType === 'breakfast'
+                    ? 'Breakfast'
+                    : mealType === 'snack'
+                    ? 'Snack'
+                    : 'Lunch';
                 const entries = (entriesByDate[row.date] || []).filter((entry) => entry.mealType === mealType);
                 const loggedEntries = scopedMealLogs.filter(
                   (log) => log.date === row.date && log.mealType === mealType,
@@ -2553,6 +2571,8 @@ export default function MealsPage() {
                 ? allEntries.filter((entry) => entry.mealType === 'breakfast')
                 : plannerViewMode === 'weekly-lunches'
                 ? allEntries.filter((entry) => entry.mealType === 'lunch')
+                : plannerViewMode === 'weekly-snacks'
+                ? allEntries.filter((entry) => entry.mealType === 'snack')
                 : plannerViewMode === 'weekly-dinners'
                 ? allEntries.filter((entry) => entry.mealType === 'dinner')
                 : allEntries;
