@@ -1347,6 +1347,8 @@ export default function MealsPage() {
       : focusedCalorieDelta < 0
       ? `${Math.abs(focusedCalorieDelta)} under target`
       : 'On target';
+  const focusedDinnerServings = getDinnerServingsForDate(plannerDay);
+  const focusedHasSharedDinner = Boolean(dinnerBaseByDate.get(plannerDay));
 
   const getEntriesForGridCell = (entries: PlannedFoodEntry[], row: MealGridRow): PlannedFoodEntry[] => {
     if (row.key === 'snack-1') return entries.filter((entry) => entry.mealType === 'snack').slice(0, 1);
@@ -1940,6 +1942,26 @@ export default function MealsPage() {
             </p>
           </div>
         </div>
+        {focusedHasSharedDinner ? (
+          <div className="rounded-md border border-border bg-muted/10 px-3 py-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Your dinner servings for focused day
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                <Button
+                  key={`focused-dinner-serving-${plannerDay}-${value}`}
+                  type="button"
+                  size="sm"
+                  variant={String(focusedDinnerServings) === value ? 'default' : 'outline'}
+                  onClick={() => updateDinnerServingsForDate(plannerDay, Number(value))}
+                >
+                  {value}x
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <Accordion type="multiple" defaultValue={['planner-quick-add']} className="rounded-lg border border-border px-3">
           <AccordionItem value="planner-quick-add" className="border-b border-border">
@@ -2442,26 +2464,6 @@ export default function MealsPage() {
                     <p className="font-medium">
                       {format(new Date(`${row.date}T00:00:00`), 'EEE, MMM d')}
                     </p>
-                    {shouldShowDinnerBase && dinnerBase ? (
-                      <div className="mt-2">
-                        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Your dinner servings
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {['0', '0.5', '1', '1.5', '2'].map((value) => (
-                            <Button
-                              key={`${row.date}-dinner-serving-summary-${value}`}
-                              type="button"
-                              size="sm"
-                              variant={String(dinnerServings) === value ? 'default' : 'outline'}
-                              onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
-                            >
-                              {value}x
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <p className={cn('text-xs', calorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
