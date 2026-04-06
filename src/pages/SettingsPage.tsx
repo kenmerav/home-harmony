@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { OptionList } from '@/components/onboarding/OptionList';
+import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { loadOnboardingResult, saveOnboardingResult, type StoredOnboardingResult } from '@/lib/onboardingStore';
-import { BodyUnitSystem, getProfiles, updateMacroPlan } from '@/lib/macroGame';
+import { BodyUnitSystem, getProfiles, listDashboardProfiles, updateMacroPlan } from '@/lib/macroGame';
 import {
   defaultSmsPreferences,
   loadSmsPreferences,
@@ -260,7 +261,9 @@ export default function SettingsPage() {
   );
   const [smsSaving, setSmsSaving] = useState(false);
   const [smsTesting, setSmsTesting] = useState(false);
+  const [macroDialogPersonId, setMacroDialogPersonId] = useState<string | null>(null);
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
+  const adultMacroProfiles = listDashboardProfiles();
 
   useEffect(() => {
     setAccountDetails({
@@ -1085,6 +1088,28 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
+        <SectionCard
+          title="Macro calculator + targets"
+          subtitle="Set up or adjust calorie and macro targets here. If you have not set them yet, the Meals planner will still surface the calculator until you do."
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              If you want to revisit the full guided setup, you can also rerun onboarding below.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {adultMacroProfiles.map((macroProfile) => (
+                <Button
+                  key={macroProfile.id}
+                  variant="outline"
+                  onClick={() => setMacroDialogPersonId(macroProfile.id)}
+                >
+                  Open {macroProfile.name} Macro Calculator
+                </Button>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+
         <SectionCard title="Body units for macro calculator">
           <div className="grid gap-6 md:grid-cols-2">
             <div>
@@ -1145,6 +1170,16 @@ export default function SettingsPage() {
             <Button variant="outline">Re-run Full Onboarding</Button>
           </Link>
         </div>
+        <MacroGoalDialog
+          personId={macroDialogPersonId || 'me'}
+          open={Boolean(macroDialogPersonId)}
+          onOpenChange={(open) => {
+            if (!open) setMacroDialogPersonId(null);
+          }}
+          onSaved={() => {
+            setMacroDialogPersonId(null);
+          }}
+        />
       </div>
     </AppLayout>
   );

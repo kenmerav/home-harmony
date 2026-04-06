@@ -56,7 +56,13 @@ import { inferKidFriendly } from '@/lib/kidFriendly';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { syncScheduledMealsToCalendar } from '@/lib/calendarStore';
 import { useAuth } from '@/contexts/AuthContext';
-import { getProfiles, listDashboardProfiles } from '@/lib/macroGame';
+import {
+  calculateMacroRecommendation,
+  getProfiles,
+  listDashboardProfiles,
+  type MacroPlan,
+  type MacroQuestionnaire,
+} from '@/lib/macroGame';
 import {
   addPlannedFoodEntry,
   deletePlannedFoodEntry,
@@ -212,6 +218,59 @@ const MEAL_GRID_ROWS: MealGridRow[] = [
 function metricProgress(current: number, target: number): number {
   if (!target || target <= 0) return 0;
   return Math.max(0, Math.min((current / target) * 100, 150));
+}
+
+function plannerNeedsMacroSetup(
+  profileId: string,
+  profileName: string | undefined,
+  macroPlan: MacroPlan | undefined,
+): boolean {
+  if (!macroPlan?.questionnaire) return true;
+
+  const normalizedName = (profileName || '').toLowerCase();
+  const femaleHint =
+    profileId === 'wife' || normalizedName.includes('wife') || normalizedName.includes('mom');
+  const defaultQuestionnaire: MacroQuestionnaire = femaleHint
+    ? {
+        sex: 'female',
+        age: 34,
+        heightCm: 165,
+        weightKg: 68,
+        activityLevel: 'moderate',
+        goal: 'fat_loss',
+        pace: 'moderate',
+      }
+    : {
+        sex: 'male',
+        age: 35,
+        heightCm: 180,
+        weightKg: 84,
+        activityLevel: 'moderate',
+        goal: 'muscle_gain',
+        pace: 'moderate',
+      };
+
+  const defaultRecommendation = calculateMacroRecommendation(defaultQuestionnaire);
+  const defaultWaterTarget = femaleHint ? 80 : 100;
+  const defaultAlcoholLimit = femaleHint ? 1 : 2;
+
+  return (
+    macroPlan.questionnaire.sex === defaultQuestionnaire.sex &&
+    macroPlan.questionnaire.age === defaultQuestionnaire.age &&
+    macroPlan.questionnaire.heightCm === defaultQuestionnaire.heightCm &&
+    macroPlan.questionnaire.weightKg === defaultQuestionnaire.weightKg &&
+    macroPlan.questionnaire.activityLevel === defaultQuestionnaire.activityLevel &&
+    macroPlan.questionnaire.goal === defaultQuestionnaire.goal &&
+    macroPlan.questionnaire.pace === defaultQuestionnaire.pace &&
+    macroPlan.calories === defaultRecommendation.calories &&
+    macroPlan.protein_g === defaultRecommendation.protein_g &&
+    macroPlan.carbs_g === defaultRecommendation.carbs_g &&
+    macroPlan.fat_g === defaultRecommendation.fat_g &&
+    (macroPlan.bodyUnitSystem || 'imperial') === 'imperial' &&
+    Boolean(macroPlan.proteinOnlyMode) === false &&
+    (macroPlan.waterTargetOz ?? defaultWaterTarget) === defaultWaterTarget &&
+    (macroPlan.alcoholLimitDrinks ?? defaultAlcoholLimit) === defaultAlcoholLimit
+  );
 }
 
 function canUseStorage() {
@@ -1235,6 +1294,12 @@ export default function MealsPage() {
       carbs_g: 180,
       fat_g: 70,
     };
+  const selectedMacroProfile = macroProfiles[plannerDashboardId] || macroProfiles.me;
+  const shouldShowPlannerMacroCalculator = plannerNeedsMacroSetup(
+    plannerDashboardId,
+    plannerDashboard?.name,
+    selectedMacroProfile?.macroPlan,
+  );
 
   const projectedByDate = weekDateRows.reduce<
     Record<string, { calories: number; protein_g: number; carbs_g: number; fat_g: number }>
@@ -1481,10 +1546,6 @@ export default function MealsPage() {
             <Button size="sm" onClick={() => handleRegenerate()} disabled={regenerating}>
               <RefreshCw className={cn("w-4 h-4 mr-2", regenerating && "animate-spin")} />
               Regenerate
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
-              <Calculator className="w-4 h-4 mr-2" />
-              Macro Calculator
             </Button>
             <Button size="sm" variant="outline" onClick={() => setPantryOpen(true)}>
               What Can I Make?
@@ -2057,10 +2118,12 @@ export default function MealsPage() {
                     </option>
                   ))}
                 </select>
-                <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
-                  <Calculator className="w-4 h-4 mr-1.5" />
-                  Macro Calculator
-                </Button>
+                {shouldShowPlannerMacroCalculator ? (
+                  <Button size="sm" variant="outline" onClick={() => setMacroDialogOpen(true)}>
+                    <Calculator className="w-4 h-4 mr-1.5" />
+                    Macro Calculator
+                  </Button>
+                ) : null}
                 <Button size="sm" onClick={openPlannerQuickAdd}>
                   <Plus className="w-4 h-4 mr-1.5" />
                   Quick Add
