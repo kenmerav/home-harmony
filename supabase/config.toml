@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.estimate-recipe-macros]
 verify_jwt = false
+
+[functions.estimate-meal-photo]
+verify_jwt = false
