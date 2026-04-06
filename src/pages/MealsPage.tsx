@@ -1581,28 +1581,28 @@ export default function MealsPage() {
           variant={topMealsViewMode === 'breakfast-list' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('breakfast-list')}
         >
-          Breakfast list
+          Breakfast List
         </Button>
         <Button
           size="sm"
           variant={topMealsViewMode === 'lunch-list' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('lunch-list')}
         >
-          Lunch list
+          Lunch List
         </Button>
         <Button
           size="sm"
           variant={topMealsViewMode === 'snack-list' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('snack-list')}
         >
-          Snack list
+          Snack List
         </Button>
         <Button
           size="sm"
           variant={topMealsViewMode === 'dinner-list' ? 'default' : 'outline'}
           onClick={() => setTopMealsViewMode('dinner-list')}
         >
-          Dinner list
+          Dinner List
         </Button>
         <Button
           size="sm"
@@ -1610,7 +1610,7 @@ export default function MealsPage() {
           onClick={() => setTopMealsViewMode('weekly-meal-grid')}
           className="hidden md:inline-flex"
         >
-          Weekly meal grid
+          Weekly Meal Grid
         </Button>
         {dashboardProfiles.length > 0 && (
           <div className="ml-auto flex items-center gap-2">
