@@ -68,6 +68,13 @@ interface ChildChoreSummary {
   total: number;
 }
 
+interface PendingChoreDetail {
+  id: string;
+  childId: string;
+  childName: string;
+  name: string;
+}
+
 type LogMealCategory = 'breakfast' | 'snacks' | 'lunch' | 'dinner' | 'drinks';
 
 interface LogMealCandidate {
@@ -126,6 +133,39 @@ function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
   }
 }
 
+function loadPendingChoreDetails(userId?: string | null): PendingChoreDetail[] {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(`${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as {
+      children?: Array<{
+        id?: string;
+        name?: string;
+        dailyChores?: Array<{ id?: string; name?: string; isCompleted?: boolean }>;
+      }>;
+    };
+    const children = Array.isArray(parsed.children) ? parsed.children : [];
+    return children.flatMap((child, childIndex) => {
+      const childId = String(child.id || `child-${childIndex}`);
+      const childName = String(child.name || 'Child');
+      const dailyChores = Array.isArray(child.dailyChores) ? child.dailyChores : [];
+      return dailyChores
+        .filter((chore) => !chore?.isCompleted)
+        .map((chore, choreIndex) => ({
+          id: String(chore?.id || `${childId}-chore-${choreIndex}`),
+          childId,
+          childName,
+          name: String(chore?.name || 'Chore'),
+        }));
+    });
+  } catch {
+    return [];
+  }
+}
+
+type TodaySummaryView = 'schedule' | 'tasks' | 'chores' | 'actions';
+
 export default function TodayPage() {
   const { user } = useAuth();
   const currentDate = useCurrentDate();
@@ -155,6 +195,8 @@ export default function TodayPage() {
   const [logMealCategory, setLogMealCategory] = useState<LogMealCategory>('dinner');
   const [selectedLogMealId, setSelectedLogMealId] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [summaryView, setSummaryView] = useState<TodaySummaryView>('schedule');
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +266,7 @@ export default function TodayPage() {
   );
   const leaderboard = useMemo(() => getFamilyLeaderboard(currentDate, user?.id), [currentDate, refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
+  const pendingChores = useMemo(() => loadPendingChoreDetails(user?.id), [refreshTick, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -268,6 +311,13 @@ export default function TodayPage() {
   const groceryActionCount = todaysEvents.filter(
     (event) => event.module === 'meals' || event.title.toLowerCase().includes('grocery'),
   ).length;
+  const actionEvents = useMemo(
+    () =>
+      todaysEvents.filter(
+        (event) => event.module === 'workouts' || event.module === 'meals' || event.title.toLowerCase().includes('grocery'),
+      ),
+    [todaysEvents],
+  );
 
   const nextEvent = useMemo(() => {
     const now = Date.now();
@@ -279,6 +329,11 @@ export default function TodayPage() {
       }) || null
     );
   }, [todaysEvents]);
+
+  const openSummaryDialog = (view: TodaySummaryView) => {
+    setSummaryView(view);
+    setSummaryDialogOpen(true);
+  };
 
   const plannedEntriesToday = useMemo(
     () => getPlannedFoodEntries(user?.id).filter((entry) => entry.date === todayKey),
@@ -526,7 +581,11 @@ export default function TodayPage() {
           }
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-lg border border-border p-3">
+            <button
+              type="button"
+              onClick={() => openSummaryDialog('schedule')}
+              className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/30"
+            >
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Next up</p>
               <p className="mt-1 text-sm font-semibold text-foreground">
                 {nextEvent ? nextEvent.title : 'No upcoming event'}
@@ -536,27 +595,43 @@ export default function TodayPage() {
                   {formatEventTime(nextEvent)}
                 </p>
               )}
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => openSummaryDialog('schedule')}
+              className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/30"
+            >
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Today schedule</p>
               <p className="mt-1 text-2xl font-display font-semibold">{todaysEvents.length}</p>
               <p className="text-xs text-muted-foreground">events</p>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => openSummaryDialog('tasks')}
+              className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/30"
+            >
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Open tasks</p>
               <p className="mt-1 text-2xl font-display font-semibold">{pendingTaskCount}</p>
               <p className="text-xs text-muted-foreground">to complete today</p>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => openSummaryDialog('chores')}
+              className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/30"
+            >
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Chores pending</p>
               <p className="mt-1 text-2xl font-display font-semibold">{pendingChoreCount}</p>
               <p className="text-xs text-muted-foreground">{completedChoresCount} done</p>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => openSummaryDialog('actions')}
+              className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/30"
+            >
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Workouts + meal actions</p>
               <p className="mt-1 text-2xl font-display font-semibold">{workoutCountToday + groceryActionCount}</p>
               <p className="text-xs text-muted-foreground">planned actions</p>
-            </div>
+            </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/calendar">
@@ -1082,6 +1157,125 @@ export default function TodayPage() {
               <Button onClick={saveWeeklyPrize}>Save Prize</Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={summaryDialogOpen} onOpenChange={setSummaryDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {summaryView === 'schedule'
+                ? "Today's Schedule"
+                : summaryView === 'tasks'
+                  ? "Today's Tasks"
+                  : summaryView === 'chores'
+                    ? 'Pending Chores'
+                    : "Today's Action Items"}
+            </DialogTitle>
+            <DialogDescription>
+              {summaryView === 'schedule'
+                ? 'Everything currently scheduled for today.'
+                : summaryView === 'tasks'
+                  ? 'The tasks still open for today.'
+                  : summaryView === 'chores'
+                    ? 'The daily chores that still need to be done.'
+                    : 'Workout and meal-related actions planned for today.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {summaryView === 'schedule' ? (
+            todaysEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing scheduled for today yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {todaysEvents.map((event) => {
+                  const meta = CALENDAR_MODULE_META[event.module] || CALENDAR_MODULE_META.manual;
+                  const Icon = moduleIconForEvent(event.module);
+                  return (
+                    <div key={event.id} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="mt-0.5 rounded-full bg-muted/50 p-1.5">
+                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{event.title}</p>
+                          {event.description ? <p className="truncate text-xs text-muted-foreground">{event.description}</p> : null}
+                          <p className="text-xs text-muted-foreground">{formatEventTime(event)}</p>
+                        </div>
+                      </div>
+                      <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', meta.badgeClass)}>
+                        {meta.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : null}
+
+          {summaryView === 'tasks' ? (
+            pendingTaskCount === 0 ? (
+              <p className="text-sm text-muted-foreground">No open tasks scheduled for today.</p>
+            ) : (
+              <div className="space-y-2">
+                {todaysTasks
+                  .filter((task) => task.status !== 'done')
+                  .map((task) => (
+                    <div key={task.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{task.title}</p>
+                        {task.notes ? <p className="truncate text-xs text-muted-foreground">{task.notes}</p> : null}
+                      </div>
+                      <StatusBadge status={task.status} />
+                    </div>
+                  ))}
+              </div>
+            )
+          ) : null}
+
+          {summaryView === 'chores' ? (
+            pendingChores.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pending daily chores right now.</p>
+            ) : (
+              <div className="space-y-2">
+                {pendingChores.map((chore) => (
+                  <div key={chore.id} className="rounded-md border border-border px-3 py-2">
+                    <p className="text-sm font-medium">{chore.name}</p>
+                    <p className="text-xs text-muted-foreground">{chore.childName}</p>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : null}
+
+          {summaryView === 'actions' ? (
+            actionEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No workout or meal actions planned for today.</p>
+            ) : (
+              <div className="space-y-2">
+                {actionEvents.map((event) => {
+                  const meta = CALENDAR_MODULE_META[event.module] || CALENDAR_MODULE_META.manual;
+                  const Icon = moduleIconForEvent(event.module);
+                  return (
+                    <div key={event.id} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="mt-0.5 rounded-full bg-muted/50 p-1.5">
+                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{event.title}</p>
+                          <p className="text-xs text-muted-foreground">{formatEventTime(event)}</p>
+                        </div>
+                      </div>
+                      <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', meta.badgeClass)}>
+                        {meta.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : null}
         </DialogContent>
       </Dialog>
     </AppLayout>
