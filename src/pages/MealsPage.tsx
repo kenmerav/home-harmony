@@ -386,6 +386,12 @@ export default function MealsPage() {
   }, [user?.id]);
 
   useEffect(() => {
+    const refresh = () => setPlannerEntries(getPlannedFoodEntries(user?.id));
+    window.addEventListener('homehub:planned-food-updated', refresh);
+    return () => window.removeEventListener('homehub:planned-food-updated', refresh);
+  }, [user?.id]);
+
+  useEffect(() => {
     setPlannerDinnerServingsByProfile(readDinnerServings(user?.id));
   }, [user?.id]);
 

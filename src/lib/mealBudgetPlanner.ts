@@ -1,3 +1,5 @@
+import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
+
 export type PlannedMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | 'alcohol';
 
 export interface PlannedFoodEntry {
@@ -32,6 +34,13 @@ interface PlannedFoodEntryInput {
 }
 
 const STORAGE_KEY = 'homehub.mealBudgetPlanner.v1';
+const MEAL_BUDGET_PLANNER_SETTINGS_PATH = ['appPreferences', 'mealBudgetPlanner', 'entries'];
+
+let currentStorageScopeUserId: string | null = null;
+let hydratedScopeKey: string | null = null;
+let lastPersistedSnapshot: string | null = null;
+let persistTimer: number | null = null;
+let hydrationToken = 0;
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -39,6 +48,17 @@ function canUseStorage(): boolean {
 
 function scopedKey(userId?: string | null): string {
   return `${STORAGE_KEY}:${userId || 'anon'}`;
+}
+
+function plannerScopeKey(userId?: string | null): string {
+  return userId || 'anon';
+}
+
+function dispatchPlannerUpdated() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:planned-food-updated'));
+    window.dispatchEvent(new CustomEvent('homehub:meals-updated'));
+  }
 }
 
 function toFinite(value: unknown, fallback = 0): number {
@@ -68,23 +88,75 @@ function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
   };
 }
 
+function normalizeEntries(input: unknown): PlannedFoodEntry[] {
+  return (Array.isArray(input) ? input : [])
+    .map((entry) => normalizeEntry(entry))
+    .filter((entry): entry is PlannedFoodEntry => Boolean(entry));
+}
+
 function readEntries(userId?: string | null): PlannedFoodEntry[] {
   if (!canUseStorage()) return [];
   try {
     const raw = window.localStorage.getItem(scopedKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown[];
-    return (Array.isArray(parsed) ? parsed : [])
-      .map((entry) => normalizeEntry(entry))
-      .filter((entry): entry is PlannedFoodEntry => Boolean(entry));
+    return normalizeEntries(parsed);
   } catch {
     return [];
   }
 }
 
-function writeEntries(entries: PlannedFoodEntry[], userId?: string | null) {
+function serializeEntries(entries: PlannedFoodEntry[]): string {
+  return JSON.stringify(sortEntries(normalizeEntries(entries)));
+}
+
+async function loadRemoteEntries(userId: string): Promise<PlannedFoodEntry[] | null> {
+  const document = await loadProfileSettingsDocument(userId);
+  const storedEntries = getProfileSettingsValue(document, MEAL_BUDGET_PLANNER_SETTINGS_PATH);
+  if (typeof storedEntries === 'undefined') return null;
+  return sortEntries(normalizeEntries(storedEntries));
+}
+
+async function persistEntriesToAccount(userId: string, entries: PlannedFoodEntry[]): Promise<void> {
+  const normalizedEntries = sortEntries(normalizeEntries(entries));
+  await updateProfileSettingsValue(userId, MEAL_BUDGET_PLANNER_SETTINGS_PATH, normalizedEntries);
+  if (currentStorageScopeUserId === userId) {
+    lastPersistedSnapshot = serializeEntries(normalizedEntries);
+  }
+}
+
+function scheduleEntriesPersist(entries: PlannedFoodEntry[]) {
+  if (!currentStorageScopeUserId) return;
+  if (hydratedScopeKey !== plannerScopeKey(currentStorageScopeUserId)) return;
+  if (typeof window === 'undefined') return;
+
+  const snapshot = serializeEntries(entries);
+  if (snapshot === lastPersistedSnapshot) return;
+
+  if (persistTimer !== null) {
+    window.clearTimeout(persistTimer);
+  }
+
+  const scopedUserId = currentStorageScopeUserId;
+  persistTimer = window.setTimeout(() => {
+    persistTimer = null;
+    const latestEntries = readEntries(scopedUserId);
+    const latestSnapshot = serializeEntries(latestEntries);
+    if (latestSnapshot === lastPersistedSnapshot) return;
+    void persistEntriesToAccount(scopedUserId, latestEntries).catch((error) => {
+      console.error('Failed to save planned meals:', error);
+    });
+  }, 500);
+}
+
+function writeEntries(entries: PlannedFoodEntry[], userId?: string | null, skipRemotePersist = false) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(scopedKey(userId), JSON.stringify(entries));
+  const normalizedEntries = sortEntries(normalizeEntries(entries));
+  window.localStorage.setItem(scopedKey(userId), JSON.stringify(normalizedEntries));
+  if (!skipRemotePersist) {
+    scheduleEntriesPersist(normalizedEntries);
+  }
+  dispatchPlannerUpdated();
 }
 
 function sortEntries(entries: PlannedFoodEntry[]): PlannedFoodEntry[] {
@@ -183,4 +255,78 @@ export function listCommonPlannedFoods(userId?: string | null, limit = 8): strin
     .sort((a, b) => b[1] - a[1])
     .slice(0, Math.max(1, limit))
     .map(([name]) => name);
+}
+
+export async function hydrateMealBudgetPlannerFromAccount(userId?: string | null): Promise<void> {
+  if (!userId || !canUseStorage()) return;
+
+  const scopeKey = plannerScopeKey(userId);
+  const currentToken = ++hydrationToken;
+  const localEntries = readEntries(userId);
+  const localSnapshot = serializeEntries(localEntries);
+
+  try {
+    const remoteEntries = await loadRemoteEntries(userId);
+    if (hydrationToken !== currentToken || currentStorageScopeUserId !== userId) return;
+
+    const currentEntries = readEntries(userId);
+    const currentSnapshot = serializeEntries(currentEntries);
+    const localChangedDuringLoad = currentSnapshot !== localSnapshot;
+
+    let nextEntries = currentEntries;
+    let nextSnapshot = currentSnapshot;
+
+    if (localChangedDuringLoad) {
+      await persistEntriesToAccount(userId, currentEntries);
+    } else if (remoteEntries) {
+      const merged = new Map<string, PlannedFoodEntry>();
+      currentEntries.forEach((entry) => merged.set(entry.id, entry));
+      remoteEntries.forEach((entry) => merged.set(entry.id, entry));
+      nextEntries = sortEntries(Array.from(merged.values()));
+      nextSnapshot = serializeEntries(nextEntries);
+      if (nextSnapshot !== currentSnapshot) {
+        writeEntries(nextEntries, userId, true);
+      }
+      if (nextSnapshot !== serializeEntries(remoteEntries)) {
+        await persistEntriesToAccount(userId, nextEntries);
+      } else {
+        lastPersistedSnapshot = nextSnapshot;
+      }
+    } else {
+      await persistEntriesToAccount(userId, currentEntries);
+    }
+
+    if (hydrationToken !== currentToken || currentStorageScopeUserId !== userId) return;
+
+    hydratedScopeKey = scopeKey;
+    lastPersistedSnapshot = nextSnapshot;
+    dispatchPlannerUpdated();
+  } catch (error) {
+    console.error('Failed to hydrate planned meals:', error);
+    if (hydrationToken !== currentToken || currentStorageScopeUserId !== userId) return;
+    hydratedScopeKey = scopeKey;
+    lastPersistedSnapshot = null;
+    dispatchPlannerUpdated();
+  }
+}
+
+export function setMealBudgetPlannerStorageScope(userId?: string | null) {
+  currentStorageScopeUserId = userId || null;
+  hydratedScopeKey = null;
+
+  if (typeof window !== 'undefined' && persistTimer !== null) {
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+
+  if (!currentStorageScopeUserId) {
+    lastPersistedSnapshot = serializeEntries(readEntries(null));
+    hydratedScopeKey = plannerScopeKey(null);
+    dispatchPlannerUpdated();
+    return;
+  }
+
+  lastPersistedSnapshot = null;
+  dispatchPlannerUpdated();
+  void hydrateMealBudgetPlannerFromAccount(currentStorageScopeUserId);
 }

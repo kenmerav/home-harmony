@@ -9,6 +9,7 @@ import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referra
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
 import { hydrateMacroGameActivityFromAccount, hydrateMacroGameProfilesFromAccount, setMacroGameStorageScope } from '@/lib/macroGame';
+import { hydrateMealBudgetPlannerFromAccount, setMealBudgetPlannerStorageScope } from '@/lib/mealBudgetPlanner';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -216,6 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
+    setMealBudgetPlannerStorageScope(!isDemoUser ? user?.id : null);
   }, [isDemoUser, user?.id]);
 
   useEffect(() => {
@@ -224,6 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshMacroState = () => {
       void hydrateMacroGameProfilesFromAccount(user.id);
       void hydrateMacroGameActivityFromAccount(user.id);
+      void hydrateMealBudgetPlannerFromAccount(user.id);
     };
 
     const handleVisibilityChange = () => {
