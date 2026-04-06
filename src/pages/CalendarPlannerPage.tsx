@@ -256,6 +256,7 @@ export default function CalendarPlannerPage() {
   const [filterPresetDraftColor, setFilterPresetDraftColor] = useState<CalendarFilterPresetColor>(
     DEFAULT_CALENDAR_FILTER_PRESET_COLOR,
   );
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [calendarIntegrationsExpanded, setCalendarIntegrationsExpanded] = useState(false);
   const [moduleEditorOpen, setModuleEditorOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<CalendarEventModule | null>(null);
@@ -337,6 +338,10 @@ export default function CalendarPlannerPage() {
       mounted = false;
     };
   }, [canUseRemoteSms]);
+
+  useEffect(() => {
+    setFiltersExpanded(!isMobile);
+  }, [isMobile]);
 
   const resetDraftTravelEstimate = useCallback(() => {
     setDraftTravelMinutes(null);
@@ -1408,46 +1413,73 @@ export default function CalendarPlannerPage() {
               ? renderEventSection(format(selectedDate, 'EEEE, MMMM d'), `${selectedDayEvents.length} events`, selectedDayEvents)
               : null}
 
-          <SectionCard title="Filters" subtitle="Show/hide event types">
-            <div className="space-y-2">
-              {VISIBLE_FILTER_MODULES.map((module) => (
-                <div key={module} className="flex items-center justify-between">
-                  <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
-                    <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
-                      {getModuleLabel(module)}
-                    </Badge>
-                  </button>
-                  <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
-                </div>
-              ))}
-              {filterPresets.map((preset) => {
-                const isActive = !!preset.enabled;
-                return (
-                  <div key={preset.id} className="flex items-center justify-between">
-                    <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
-                      <Badge
-                        variant="outline"
-                        className="border cursor-pointer"
-                        style={filterBadgeStyle(preset.color || DEFAULT_CALENDAR_FILTER_PRESET_COLOR)}
-                      >
-                        {preset.name}
+          <SectionCard
+            title="Filters"
+            subtitle="Show/hide event types"
+            action={
+              isMobile ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setFiltersExpanded((prev) => !prev)}
+                  aria-expanded={filtersExpanded}
+                  aria-controls="calendar-planner-filters-panel"
+                  aria-label={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
+                >
+                  <ChevronDown
+                    className={cn('h-4 w-4 transition-transform', filtersExpanded && 'rotate-180')}
+                  />
+                </Button>
+              ) : undefined
+            }
+          >
+            {filtersExpanded ? (
+              <div id="calendar-planner-filters-panel" className="space-y-2">
+                {VISIBLE_FILTER_MODULES.map((module) => (
+                  <div key={module} className="flex items-center justify-between">
+                    <button type="button" onClick={() => openModuleEditor(module)} aria-label={`Edit ${getModuleLabel(module)} filter`}>
+                      <Badge variant="outline" className={cn('border cursor-pointer', CALENDAR_MODULE_META[module].badgeClass)}>
+                        {getModuleLabel(module)}
                       </Badge>
                     </button>
-                    <Switch
-                      checked={isActive}
-                      onCheckedChange={(checked) => toggleFilterPreset(preset.id, checked)}
-                      aria-label={`Toggle ${preset.name} filter`}
-                    />
+                    <Switch checked={filters[module]} onCheckedChange={(checked) => setFilter(module, checked)} />
                   </div>
-                );
-              })}
-              <div className="flex justify-end pt-1">
-                <Button type="button" variant="outline" size="sm" onClick={openAddFilterPresetDialog}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Filter
-                </Button>
+                ))}
+                {filterPresets.map((preset) => {
+                  const isActive = !!preset.enabled;
+                  return (
+                    <div key={preset.id} className="flex items-center justify-between">
+                      <button type="button" onClick={() => openEditFilterPresetDialog(preset.id)} aria-label={`Edit ${preset.name} filter`}>
+                        <Badge
+                          variant="outline"
+                          className="border cursor-pointer"
+                          style={filterBadgeStyle(preset.color || DEFAULT_CALENDAR_FILTER_PRESET_COLOR)}
+                        >
+                          {preset.name}
+                        </Badge>
+                      </button>
+                      <Switch
+                        checked={isActive}
+                        onCheckedChange={(checked) => toggleFilterPreset(preset.id, checked)}
+                        aria-label={`Toggle ${preset.name} filter`}
+                      />
+                    </div>
+                  );
+                })}
+                <div className="flex justify-end pt-1">
+                  <Button type="button" variant="outline" size="sm" onClick={openAddFilterPresetDialog}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Filter
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <p id="calendar-planner-filters-panel" className="text-sm text-muted-foreground">
+                Expand to manage event filters and custom family filters.
+              </p>
+            )}
           </SectionCard>
 
           <SectionCard title="Upcoming" subtitle="Next 10 scheduled items">
