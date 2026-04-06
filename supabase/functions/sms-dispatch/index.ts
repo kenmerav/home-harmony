@@ -9,6 +9,9 @@ type CalendarEvent = {
   id: string;
   title: string;
   module: SmsReminderModule;
+  relatedId?: string | null;
+  assigneeId?: string | null;
+  assigneeName?: string | null;
   locationText?: string | null;
   eventReminderEnabled?: boolean;
   eventReminderLeadMinutes?: number | null;
@@ -283,6 +286,151 @@ function filterRecipientsForOwner(recipients: string[], userId: string, ownershi
   );
 }
 
+function normalizeNameForMatch(value: string | null | undefined): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseTaskAssigneeMeta(relatedId: string | null | undefined): {
+  assigneeId: string | null;
+  assigneeName: string | null;
+} {
+  const raw = String(relatedId || '').trim();
+  if (!raw) return { assigneeId: null, assigneeName: null };
+
+  const parts = raw.split('::').slice(1);
+  let assigneeId: string | null = null;
+  let assigneeName: string | null = null;
+
+  for (const part of parts) {
+    if (part.startsWith('assignee-id=')) {
+      assigneeId = decodeURIComponent(part.slice('assignee-id='.length)) || null;
+    }
+    if (part.startsWith('assignee-name=')) {
+      assigneeName = decodeURIComponent(part.slice('assignee-name='.length)) || null;
+    }
+  }
+
+  return { assigneeId, assigneeName };
+}
+
+type HouseholdTaskRecipientContext = {
+  ownerPhone: string | null;
+  spousePhone: string | null;
+  byFullName: Map<string, string>;
+  byFirstName: Map<string, string>;
+};
+
+async function buildHouseholdTaskRecipientContext(
+  supabase: ReturnType<typeof createClient>,
+  ownerUserId: string,
+  ownerPhone: string | null,
+): Promise<HouseholdTaskRecipientContext> {
+  const normalizedOwnerPhone = normalizePhone(String(ownerPhone || '')) || null;
+  const context: HouseholdTaskRecipientContext = {
+    ownerPhone: normalizedOwnerPhone,
+    spousePhone: null,
+    byFullName: new Map(),
+    byFirstName: new Map(),
+  };
+
+  const { data: ownerProfile, error: ownerProfileError } = await supabase
+    .from('profiles')
+    .select('household_id,full_name')
+    .eq('id', ownerUserId)
+    .maybeSingle();
+  if (ownerProfileError) throw ownerProfileError;
+
+  const ownerFullName = normalizeNameForMatch(ownerProfile?.full_name);
+  if (ownerFullName && normalizedOwnerPhone) {
+    context.byFullName.set(ownerFullName, normalizedOwnerPhone);
+    context.byFirstName.set(ownerFullName.split(' ')[0], normalizedOwnerPhone);
+  }
+
+  const householdId = typeof ownerProfile?.household_id === 'string' ? ownerProfile.household_id : null;
+  if (!householdId) return context;
+
+  const { data: householdMembers, error: householdMembersError } = await supabase
+    .from('household_members')
+    .select('user_id,role,status')
+    .eq('household_id', householdId)
+    .eq('status', 'active');
+  if (householdMembersError) throw householdMembersError;
+
+  const memberUserIds = Array.from(
+    new Set(
+      (householdMembers || [])
+        .map((member) => (typeof member.user_id === 'string' ? member.user_id : ''))
+        .filter((value) => value.length > 0),
+    ),
+  );
+  if (!memberUserIds.length) return context;
+
+  const [{ data: memberProfiles, error: memberProfilesError }, { data: memberSmsPrefs, error: memberSmsError }] = await Promise.all([
+    supabase.from('profiles').select('id,full_name').in('id', memberUserIds),
+    supabase.from('sms_preferences').select('user_id,phone_e164,enabled').in('user_id', memberUserIds),
+  ]);
+  if (memberProfilesError) throw memberProfilesError;
+  if (memberSmsError) throw memberSmsError;
+
+  const phoneByUserId = new Map<string, string>();
+  for (const row of memberSmsPrefs || []) {
+    if (row.enabled === false) continue;
+    const normalizedPhone = normalizePhone(String(row.phone_e164 || ''));
+    if (!normalizedPhone) continue;
+    phoneByUserId.set(String(row.user_id), normalizedPhone);
+  }
+
+  const roleByUserId = new Map<string, string>();
+  for (const member of householdMembers || []) {
+    roleByUserId.set(String(member.user_id), String(member.role || '').toLowerCase());
+  }
+
+  for (const profile of memberProfiles || []) {
+    const userId = String(profile.id || '');
+    const normalizedPhone = userId === ownerUserId ? normalizedOwnerPhone : phoneByUserId.get(userId) || null;
+    if (!normalizedPhone) continue;
+
+    const fullName = normalizeNameForMatch(profile.full_name);
+    if (fullName) {
+      context.byFullName.set(fullName, normalizedPhone);
+      context.byFirstName.set(fullName.split(' ')[0], normalizedPhone);
+    }
+
+    if (roleByUserId.get(userId) === 'spouse') {
+      context.spousePhone = normalizedPhone;
+    }
+  }
+
+  return context;
+}
+
+function assignedTaskRecipients(
+  event: CalendarEvent,
+  context: HouseholdTaskRecipientContext | null,
+  fallbackRecipients: string[],
+): string[] {
+  if (!context) return fallbackRecipients;
+
+  const assigneeId = String(event.assigneeId || '').trim().toLowerCase();
+  const assigneeName = normalizeNameForMatch(event.assigneeName);
+
+  let directPhone: string | null = null;
+  if (assigneeId === 'me') directPhone = context.ownerPhone;
+  else if (assigneeId === 'wife') directPhone = context.spousePhone || context.byFullName.get(assigneeName) || null;
+
+  if (!directPhone && assigneeName) {
+    directPhone = context.byFullName.get(assigneeName) || context.byFirstName.get(assigneeName.split(' ')[0]) || null;
+  }
+
+  if (directPhone) return [directPhone];
+  return fallbackRecipients;
+}
+
 type OnboardingHealthSnapshot = {
   healthTrackingFocus: string[];
   wellnessGoals: string[];
@@ -471,7 +619,7 @@ async function fetchDailyEvents(
     const dayEndUtc = localDate.plus({ days: 1 }).startOf("day").toUTC().toISO();
     const { data } = await supabase
       .from("calendar_events")
-      .select("id,title,module,starts_at,location_text,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
+      .select("id,title,module,related_id,starts_at,location_text,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_duration_minutes,traffic_duration_minutes,leave_reminder_enabled,leave_reminder_lead_minutes")
       .eq("owner_id", userId)
       .eq("is_deleted", false)
       .gte("starts_at", dayStartUtc)
@@ -485,10 +633,14 @@ async function fetchDailyEvents(
       const eventModule = SMS_REMINDER_MODULES.includes(moduleName as SmsReminderModule)
         ? (moduleName as SmsReminderModule)
         : "manual";
+      const taskAssignee = parseTaskAssigneeMeta(typeof row.related_id === 'string' ? row.related_id : null);
       events.push({
         id: `${eventModule}-${row.id}`,
         title: String(row.title || "Event"),
         module: eventModule,
+        relatedId: typeof row.related_id === 'string' ? row.related_id : null,
+        assigneeId: taskAssignee.assigneeId,
+        assigneeName: taskAssignee.assigneeName,
         locationText: typeof row.location_text === "string" ? row.location_text : null,
         eventReminderEnabled: !!row.event_reminder_enabled,
         eventReminderLeadMinutes: normalizeLeadMinutes(row.event_reminder_lead_minutes, 0),
@@ -658,6 +810,12 @@ serve(async (req) => {
           DIGEST_MODULES,
           String(row.preferred_dinner_time || "18:00").slice(0, 5),
         );
+        const needsTaskRecipientRouting = [...todayEvents, ...tomorrowEvents].some(
+          (event) => event.module === 'tasks' && (event.assigneeId || event.assigneeName),
+        );
+        const taskRecipientContext = needsTaskRecipientRouting
+          ? await buildHouseholdTaskRecipientContext(supabase, row.user_id, phone || null)
+          : null;
 
         if (
           row.morning_digest_enabled &&
@@ -928,11 +1086,14 @@ serve(async (req) => {
                 if (!sendAtIso) continue;
 
                 const dedupeKey = `event:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
-                const eventRecipients = filterRecipientsForOwner(
+                const moduleRecipientsForEvent = filterRecipientsForOwner(
                   recipientListForModule(event.module, moduleRecipients, digestRecipients),
                   row.user_id,
                   recipientOwnership,
                 );
+                const eventRecipients = event.module === 'tasks'
+                  ? assignedTaskRecipients(event, taskRecipientContext, moduleRecipientsForEvent)
+                  : moduleRecipientsForEvent;
                 if (eventRecipients.length === 0) continue;
 
                 for (const recipient of eventRecipients) {

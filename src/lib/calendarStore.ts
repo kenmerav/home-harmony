@@ -10,6 +10,8 @@ export interface CalendarEvent {
   title: string;
   description?: string;
   calendarLayer?: string;
+  assigneeId?: string;
+  assigneeName?: string;
   location?: string;
   arriveByAt?: string | null;
   eventReminderEnabled?: boolean;

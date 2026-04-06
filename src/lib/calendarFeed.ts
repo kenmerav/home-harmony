@@ -162,6 +162,26 @@ function calendarLayerForDerivedEvent(event: CalendarEvent): string {
   return 'family';
 }
 
+function buildDerivedRelatedKey(event: CalendarEvent): string | null {
+  const baseKey = typeof event.relatedId === 'string' && event.relatedId.trim()
+    ? event.relatedId.trim()
+    : typeof event.id === 'string' && event.id.trim()
+      ? event.id.trim()
+      : null;
+
+  if (!baseKey) return null;
+  if (event.source !== 'task') return baseKey;
+
+  const parts = [baseKey];
+  if (event.assigneeId) {
+    parts.push(`assignee-id=${encodeURIComponent(event.assigneeId)}`);
+  }
+  if (event.assigneeName) {
+    parts.push(`assignee-name=${encodeURIComponent(event.assigneeName)}`);
+  }
+  return parts.join('::');
+}
+
 export async function syncDerivedCalendarEvents(
   userId: string | null | undefined,
   rangeStart: Date,
@@ -172,7 +192,7 @@ export async function syncDerivedCalendarEvents(
 
   const desiredEvents = events
     .filter((event) => DERIVED_SYNC_SOURCES.includes(event.source as SyncCalendarEventSource))
-    .map((event) => ({ ...event, relatedKey: event.relatedId || event.id }))
+    .map((event) => ({ ...event, relatedKey: buildDerivedRelatedKey(event) }))
     .filter((event) => typeof event.relatedKey === 'string' && event.relatedKey.trim().length > 0);
 
   const desiredByRelated = new Map<string, (typeof desiredEvents)[number]>();
@@ -389,6 +409,8 @@ function collectDerivedEventsForRange(
         id: eventId,
         title: task.title,
         description: task.notes,
+        assigneeId: task.assignedToId,
+        assigneeName: task.assignedToName,
         startsAt: start.toISOString(),
         endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
         allDay: task.frequency === 'once',
