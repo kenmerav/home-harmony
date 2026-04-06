@@ -2276,19 +2276,25 @@ export default function MealsPage() {
                 ) : null}
 
                 <div className="grid gap-2 md:grid-cols-[1fr_140px]">
-                  <Input
-                    placeholder="Item name (ex: 3 eggs and toast)"
-                    value={plannerForm.name}
-                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
-                  />
-                  <Input
-                    type="number"
-                    step="0.25"
-                    min="0.1"
-                    placeholder="Servings"
-                    value={plannerForm.servings}
-                    onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
-                  />
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Meal name</p>
+                    <Input
+                      placeholder="Item name (ex: 3 eggs and toast)"
+                      value={plannerForm.name}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Servings</p>
+                    <Input
+                      type="number"
+                      step="0.25"
+                      min="0.1"
+                      placeholder="Servings"
+                      value={plannerForm.servings}
+                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
+                    />
+                  </div>
                 </div>
 
                 <details className="rounded-md border border-border bg-muted/10 px-3 py-2">
@@ -2296,34 +2302,46 @@ export default function MealsPage() {
                     Manual macros (optional)
                   </summary>
                   <div className="mt-2 grid gap-2 md:grid-cols-4">
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Calories"
-                      value={plannerForm.calories}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Protein"
-                      value={plannerForm.protein_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Carbs"
-                      value={plannerForm.carbs_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Fat"
-                      value={plannerForm.fat_g}
-                      onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
-                    />
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Calories</p>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Calories"
+                        value={plannerForm.calories}
+                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Protein</p>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Protein"
+                        value={plannerForm.protein_g}
+                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Carbs</p>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Carbs"
+                        value={plannerForm.carbs_g}
+                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Fat</p>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Fat"
+                        value={plannerForm.fat_g}
+                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
+                      />
+                    </div>
                   </div>
                 </details>
 
@@ -3271,48 +3289,66 @@ export default function MealsPage() {
                 </option>
               ))}
             </select>
-            <Input
-              placeholder="Or type food/meal (ex: Greek yogurt + granola)"
-              value={plannerForm.name}
-              onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
-            />
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Meal name</p>
+              <Input
+                placeholder="Or type food/meal (ex: Greek yogurt + granola)"
+                value={plannerForm.name}
+                onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
+              />
+            </div>
             <div className="grid gap-2 md:grid-cols-5">
-              <Input
-                type="number"
-                step="0.25"
-                min="0.1"
-                placeholder="Servings"
-                value={plannerForm.servings}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
-              />
-              <Input
-                type="number"
-                min="0"
-                placeholder="Calories"
-                value={plannerForm.calories}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
-              />
-              <Input
-                type="number"
-                min="0"
-                placeholder="Protein"
-                value={plannerForm.protein_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
-              />
-              <Input
-                type="number"
-                min="0"
-                placeholder="Carbs"
-                value={plannerForm.carbs_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
-              />
-              <Input
-                type="number"
-                min="0"
-                placeholder="Fat"
-                value={plannerForm.fat_g}
-                onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
-              />
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Servings</p>
+                <Input
+                  type="number"
+                  step="0.25"
+                  min="0.1"
+                  placeholder="Servings"
+                  value={plannerForm.servings}
+                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Calories</p>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Calories"
+                  value={plannerForm.calories}
+                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Protein</p>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Protein"
+                  value={plannerForm.protein_g}
+                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Carbs</p>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Carbs"
+                  value={plannerForm.carbs_g}
+                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Fat</p>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Fat"
+                  value={plannerForm.fat_g}
+                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeGridQuickAdd}>
