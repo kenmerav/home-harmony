@@ -63,6 +63,7 @@ import {
   deletePlannedFoodEntriesByDateAndMealType,
   getPlannedFoodEntries,
   listCommonPlannedFoods,
+  updatePlannedFoodEntry,
   type PlannedFoodEntry,
   type PlannedMealType,
 } from '@/lib/mealBudgetPlanner';
@@ -177,6 +178,7 @@ interface MealGridRow {
 interface GridQuickAddContext {
   date: string;
   mealType: PlannedMealType;
+  entryId?: string | null;
 }
 
 type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
@@ -1034,6 +1036,32 @@ export default function MealsPage() {
     const targetDates = Array.from(new Set(getPlannerTargetDates()));
     const targetPersonId = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
     const targetPersonName = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.name || null;
+    if (gridQuickAddContext?.entryId) {
+      updatePlannedFoodEntry(
+        gridQuickAddContext.entryId,
+        {
+          date: plannerForm.date,
+          mealType: plannerForm.mealType,
+          personId: targetPersonId,
+          personName: targetPersonName,
+          name: plannerForm.name.trim(),
+          servings,
+          calories,
+          protein_g: protein,
+          carbs_g: carbs,
+          fat_g: fat,
+          sourceRecipeId: plannerForm.recipeId || null,
+        },
+        user?.id,
+      );
+      refreshPlannerEntries();
+      toast({
+        title: 'Planned meal updated',
+      });
+      closeGridQuickAdd();
+      return true;
+    }
+
     for (const date of targetDates) {
       addPlannedFoodEntry(
         {
@@ -1085,7 +1113,31 @@ export default function MealsPage() {
     setSuggestionDate(date);
     setPlannerRepeatMode('once');
     setPlannerRepeatDays(new Set());
-    setGridQuickAddContext({ date, mealType });
+    setGridQuickAddContext({ date, mealType, entryId: null });
+  };
+
+  const openPlannerEntryEditor = (entry: PlannedFoodEntry) => {
+    if (entry.personId && entry.personId !== plannerDashboardId) {
+      setPlannerDashboardId(entry.personId);
+    }
+    setPlannerForm({
+      date: entry.date,
+      mealType: entry.mealType,
+      recipeId: entry.sourceRecipeId || '',
+      name: entry.name,
+      servings: String(entry.servings),
+      calories: String(entry.calories),
+      protein_g: String(entry.protein_g),
+      carbs_g: String(entry.carbs_g),
+      fat_g: String(entry.fat_g),
+    });
+    setPlannerRecipeQuery('');
+    setPlannerPhotoNote(entry.name);
+    setPlannerDay(entry.date);
+    setSuggestionDate(entry.date);
+    setPlannerRepeatMode('once');
+    setPlannerRepeatDays(new Set());
+    setGridQuickAddContext({ date: entry.date, mealType: entry.mealType, entryId: entry.id });
   };
 
   const openPlannerQuickAdd = () => {
@@ -1855,21 +1907,34 @@ export default function MealsPage() {
                       <div className="flex-1 min-w-0 space-y-2">
                         {entries.length > 0 ? (
                           entries.map((entry) => (
-                            <div key={entry.id} className="rounded-md border border-border px-3 py-2">
+                            <div
+                              key={entry.id}
+                              role="button"
+                              tabIndex={0}
+                              className="w-full rounded-md border border-border px-3 py-2 text-left transition-colors hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              onClick={() => openPlannerEntryEditor(entry)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  openPlannerEntryEditor(entry);
+                                }
+                              }}
+                            >
                               <div className="flex items-start justify-between gap-2">
                                 <div>
                                   <p className="text-sm font-medium">
                                     {label}: {entry.name}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
+                                    {entry.servings}x • {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
                                   </p>
                                 </div>
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-7 w-7"
-                                  onClick={() => {
+                                  onClick={(event) => {
+                                    event.stopPropagation();
                                     deletePlannedFoodEntry(entry.id, user?.id);
                                     refreshPlannerEntries();
                                   }}
@@ -2738,7 +2803,19 @@ export default function MealsPage() {
                         </div>
                       )}
                       {filteredEntries.map((entry) => (
-                        <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-start justify-between gap-2">
+                        <div
+                          key={entry.id}
+                          role="button"
+                          tabIndex={0}
+                          className="rounded-md border border-border px-3 py-2 flex items-start justify-between gap-2 transition-colors hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          onClick={() => openPlannerEntryEditor(entry)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              openPlannerEntryEditor(entry);
+                            }
+                          }}
+                        >
                           <div>
                             <p className="text-sm font-medium">
                               {plannedMealTypeLabel[entry.mealType]}: {entry.name}
@@ -2751,7 +2828,8 @@ export default function MealsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation();
                               deletePlannedFoodEntry(entry.id, user?.id);
                               refreshPlannerEntries();
                             }}
@@ -3136,7 +3214,7 @@ export default function MealsPage() {
         <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
-              Add {plannedMealTypeLabel[plannerForm.mealType]}
+              {gridQuickAddContext?.entryId ? 'Edit ' : 'Add '}{plannedMealTypeLabel[plannerForm.mealType]}
             </DialogTitle>
             <DialogDescription>
               {gridQuickAddContext
@@ -3173,47 +3251,49 @@ export default function MealsPage() {
                 ))}
               </select>
             </div>
-            <div className="rounded-md border border-border bg-muted/10 p-3">
-              <p className="text-xs font-medium text-muted-foreground">Repeat this meal</p>
-              <div className="mt-2 grid gap-2 md:grid-cols-3">
-                <Button
-                  type="button"
-                  variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
-                  onClick={() => setPlannerRepeatModeSafe('once')}
-                >
-                  Just this day
-                </Button>
-                <Button
-                  type="button"
-                  variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
-                  onClick={() => setPlannerRepeatModeSafe('daily')}
-                >
-                  Every day
-                </Button>
-                <Button
-                  type="button"
-                  variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
-                  onClick={() => setPlannerRepeatModeSafe('selected_days')}
-                >
-                  Certain days
-                </Button>
-              </div>
-              {plannerRepeatMode === 'selected_days' ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {days.map((day) => (
-                    <Button
-                      key={`grid-planner-repeat-${day}`}
-                      type="button"
-                      size="sm"
-                      variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
-                      onClick={() => togglePlannerRepeatDay(day)}
-                    >
-                      {dayLabels[day]}
-                    </Button>
-                  ))}
+            {!gridQuickAddContext?.entryId ? (
+              <div className="rounded-md border border-border bg-muted/10 p-3">
+                <p className="text-xs font-medium text-muted-foreground">Repeat this meal</p>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <Button
+                    type="button"
+                    variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
+                    onClick={() => setPlannerRepeatModeSafe('once')}
+                  >
+                    Just this day
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
+                    onClick={() => setPlannerRepeatModeSafe('daily')}
+                  >
+                    Every day
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
+                    onClick={() => setPlannerRepeatModeSafe('selected_days')}
+                  >
+                    Certain days
+                  </Button>
                 </div>
-              ) : null}
-            </div>
+                {plannerRepeatMode === 'selected_days' ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {days.map((day) => (
+                      <Button
+                        key={`grid-planner-repeat-${day}`}
+                        type="button"
+                        size="sm"
+                        variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
+                        onClick={() => togglePlannerRepeatDay(day)}
+                      >
+                        {dayLabels[day]}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {plannerForm.mealType === 'alcohol' ? (
               <div className="space-y-2 rounded-md border border-border bg-muted/10 p-2">
                 <p className="text-xs font-medium text-muted-foreground">
@@ -3397,17 +3477,21 @@ export default function MealsPage() {
               <Button variant="outline" onClick={closeGridQuickAdd}>
                 Cancel
               </Button>
-              <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
-                Save + Add Another
-              </Button>
+              {!gridQuickAddContext?.entryId ? (
+                <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
+                  Save + Add Another
+                </Button>
+              ) : null}
               <Button
                 onClick={() => {
                   if (addPlannerItem()) {
-                    closeGridQuickAdd();
+                    if (!gridQuickAddContext?.entryId) {
+                      closeGridQuickAdd();
+                    }
                   }
                 }}
               >
-                Save Item
+                {gridQuickAddContext?.entryId ? 'Save Changes' : 'Save Item'}
               </Button>
             </div>
           </div>
