@@ -2437,10 +2437,32 @@ export default function MealsPage() {
 
             return (
               <div key={row.date} className="rounded-lg border border-border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">
-                    {format(new Date(`${row.date}T00:00:00`), 'EEE, MMM d')}
-                  </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">
+                      {format(new Date(`${row.date}T00:00:00`), 'EEE, MMM d')}
+                    </p>
+                    {shouldShowDinnerBase && dinnerBase ? (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Your dinner servings
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                            <Button
+                              key={`${row.date}-dinner-serving-summary-${value}`}
+                              type="button"
+                              size="sm"
+                              variant={String(dinnerServings) === value ? 'default' : 'outline'}
+                              onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
+                            >
+                              {value}x
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     <p className={cn('text-xs', calorieDelta > 0 ? 'text-destructive' : 'text-muted-foreground')}>
                       {calorieStatus}
@@ -2465,32 +2487,10 @@ export default function MealsPage() {
                 </div>
                 {isExpanded ? (
                   <>
-                    <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-                      <p className="text-xs text-muted-foreground">
-                        Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
-                        {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
-                      </p>
-                      {shouldShowDinnerBase && dinnerBase ? (
-                        <div className="min-w-[170px]">
-                          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Your dinner servings
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {['0', '0.5', '1', '1.5', '2'].map((value) => (
-                              <Button
-                                key={`${row.date}-dinner-serving-summary-${value}`}
-                                type="button"
-                                size="sm"
-                                variant={String(dinnerServings) === value ? 'default' : 'outline'}
-                                onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
-                              >
-                                {value}x
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Projected {projected.calories} cal • {projected.protein_g}P • {projected.carbs_g}C • {projected.fat_g}F
+                      {' '}| Target {macroTarget.calories} cal • {macroTarget.protein_g}P • {macroTarget.carbs_g}C • {macroTarget.fat_g}F
+                    </p>
                     {showDetailedMetrics ? (
                       <div className="mt-3 rounded-md border border-border bg-muted/10 p-3">
                         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
