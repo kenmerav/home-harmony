@@ -177,6 +177,9 @@ interface GridQuickAddContext {
 }
 
 type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
+type DinnerServingsByProfile = Record<string, Record<string, number>>;
+
+const DINNER_SERVINGS_STORAGE_KEY = 'homehub.mealPlannerDinnerServings.v1';
 
 function normalizeIntegerInput(value: string): string {
   const digitsOnly = value.replace(/\D/g, '');
@@ -204,6 +207,42 @@ const MEAL_GRID_ROWS: MealGridRow[] = [
 function metricProgress(current: number, target: number): number {
   if (!target || target <= 0) return 0;
   return Math.max(0, Math.min((current / target) * 100, 150));
+}
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function dinnerServingsStorageKey(userId?: string | null): string {
+  return `${DINNER_SERVINGS_STORAGE_KEY}:${userId || 'anon'}`;
+}
+
+function readDinnerServings(userId?: string | null): DinnerServingsByProfile {
+  if (!canUseStorage()) return {};
+  try {
+    const raw = window.localStorage.getItem(dinnerServingsStorageKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.entries(parsed).reduce<DinnerServingsByProfile>((acc, [profileId, values]) => {
+      if (!values || typeof values !== 'object' || Array.isArray(values)) return acc;
+      const normalized = Object.entries(values).reduce<Record<string, number>>((dates, [date, amount]) => {
+        const servings = Number(amount);
+        if (!Number.isFinite(servings)) return dates;
+        dates[date] = Math.min(6, Math.max(0, servings));
+        return dates;
+      }, {});
+      if (Object.keys(normalized).length > 0) acc[profileId] = normalized;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function writeDinnerServings(values: DinnerServingsByProfile, userId?: string | null) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(dinnerServingsStorageKey(userId), JSON.stringify(values));
 }
 
 export default function MealsPage() {
@@ -264,6 +303,7 @@ export default function MealsPage() {
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [plannerExpandedByDate, setPlannerExpandedByDate] = useState<Record<string, boolean>>({});
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
+  const [plannerDinnerServingsByProfile, setPlannerDinnerServingsByProfile] = useState<DinnerServingsByProfile>({});
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
   const [gridQuickAddContext, setGridQuickAddContext] = useState<GridQuickAddContext | null>(null);
@@ -340,6 +380,10 @@ export default function MealsPage() {
 
   useEffect(() => {
     setPlannerEntries(getPlannedFoodEntries(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    setPlannerDinnerServingsByProfile(readDinnerServings(user?.id));
   }, [user?.id]);
 
   useEffect(() => {
@@ -963,6 +1007,27 @@ export default function MealsPage() {
     });
   }
 
+  const getDinnerServingsForDate = (date: string) => {
+    const value = plannerDinnerServingsByProfile[plannerDashboardId]?.[date];
+    return Number.isFinite(value) ? Math.min(6, Math.max(0, value)) : 1;
+  };
+
+  const updateDinnerServingsForDate = (date: string, servings: number) => {
+    const normalized = Math.min(6, Math.max(0, Math.round(servings * 100) / 100));
+    setPlannerDinnerServingsByProfile((prev) => {
+      const nextProfile = {
+        ...(prev[plannerDashboardId] || {}),
+        [date]: normalized,
+      };
+      const next = {
+        ...prev,
+        [plannerDashboardId]: nextProfile,
+      };
+      writeDinnerServings(next, user?.id);
+      return next;
+    });
+  };
+
   const scopedPlannerEntries = plannerEntries.filter((entry) => {
     if (entry.mealType === 'dinner') {
       return !entry.personId;
@@ -988,12 +1053,13 @@ export default function MealsPage() {
     Record<string, { calories: number; protein_g: number; carbs_g: number; fat_g: number }>
   >((acc, row) => {
     const dinnerBase = dinnerBaseByDate.get(row.date);
+    const dinnerServings = getDinnerServingsForDate(row.date);
     const entries = entriesByDate[row.date] || [];
     const totals = {
-      calories: dinnerBase?.calories || 0,
-      protein_g: dinnerBase?.protein_g || 0,
-      carbs_g: dinnerBase?.carbs_g || 0,
-      fat_g: dinnerBase?.fat_g || 0,
+      calories: Math.round((dinnerBase?.calories || 0) * dinnerServings),
+      protein_g: Math.round((dinnerBase?.protein_g || 0) * dinnerServings),
+      carbs_g: Math.round((dinnerBase?.carbs_g || 0) * dinnerServings),
+      fat_g: Math.round((dinnerBase?.fat_g || 0) * dinnerServings),
     };
     for (const entry of entries) {
       totals.calories += entry.calories;
@@ -1007,12 +1073,13 @@ export default function MealsPage() {
 
   const getProjectedForDate = (date: string) => {
     const dinnerBase = dinnerBaseByDate.get(date);
+    const dinnerServings = getDinnerServingsForDate(date);
     const entries = entriesByDate[date] || [];
     const totals = {
-      calories: dinnerBase?.calories || 0,
-      protein_g: dinnerBase?.protein_g || 0,
-      carbs_g: dinnerBase?.carbs_g || 0,
-      fat_g: dinnerBase?.fat_g || 0,
+      calories: Math.round((dinnerBase?.calories || 0) * dinnerServings),
+      protein_g: Math.round((dinnerBase?.protein_g || 0) * dinnerServings),
+      carbs_g: Math.round((dinnerBase?.carbs_g || 0) * dinnerServings),
+      fat_g: Math.round((dinnerBase?.fat_g || 0) * dinnerServings),
     };
     for (const entry of entries) {
       totals.calories += entry.calories;
@@ -2192,6 +2259,7 @@ export default function MealsPage() {
 
             const dinnerBase = dinnerBaseByDate.get(row.date);
             const projected = projectedByDate[row.date] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+            const dinnerServings = getDinnerServingsForDate(row.date);
             const calorieDelta = projected.calories - macroTarget.calories;
             const calorieStatus =
               calorieDelta > 0
@@ -2304,10 +2372,35 @@ export default function MealsPage() {
                     <div className="mt-3 space-y-2">
                       {shouldShowDinnerBase && dinnerBase && (
                         <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                          <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {dinnerBase.calories} cal • {dinnerBase.protein_g}P • {dinnerBase.carbs_g}C • {dinnerBase.fat_g}F
-                          </p>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium">Dinner (scheduled): {dinnerBase.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {Math.round(dinnerBase.calories * dinnerServings)} cal • {Math.round(dinnerBase.protein_g * dinnerServings)}P • {Math.round(dinnerBase.carbs_g * dinnerServings)}C • {Math.round(dinnerBase.fat_g * dinnerServings)}F
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {dinnerBase.calories} cal per serving
+                              </p>
+                            </div>
+                            <div className="min-w-[170px]">
+                              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Your dinner servings
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                                  <Button
+                                    key={`${row.date}-dinner-serving-${value}`}
+                                    type="button"
+                                    size="sm"
+                                    variant={String(dinnerServings) === value ? 'default' : 'outline'}
+                                    onClick={() => updateDinnerServingsForDate(row.date, Number(value))}
+                                  >
+                                    {value}x
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
                       {filteredEntries.map((entry) => (
