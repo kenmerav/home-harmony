@@ -1347,6 +1347,19 @@ export default function MealsPage() {
       : focusedCalorieDelta < 0
       ? `${Math.abs(focusedCalorieDelta)} under target`
       : 'On target';
+  const focusedCalorieProgress = metricProgress(focusedProjected.calories, macroTarget.calories);
+  const focusedProteinProgress = metricProgress(focusedProjected.protein_g, macroTarget.protein_g);
+  const focusedCarbsProgress = metricProgress(focusedProjected.carbs_g, macroTarget.carbs_g);
+  const focusedFatProgress = metricProgress(focusedProjected.fat_g, macroTarget.fat_g);
+  const focusedProteinCals = Math.max(0, focusedProjected.protein_g * 4);
+  const focusedCarbsCals = Math.max(0, focusedProjected.carbs_g * 4);
+  const focusedFatCals = Math.max(0, focusedProjected.fat_g * 9);
+  const focusedMacroCalTotal = focusedProteinCals + focusedCarbsCals + focusedFatCals;
+  const focusedProteinDeg = focusedMacroCalTotal > 0 ? (focusedProteinCals / focusedMacroCalTotal) * 360 : 0;
+  const focusedCarbsDeg = focusedMacroCalTotal > 0 ? (focusedCarbsCals / focusedMacroCalTotal) * 360 : 0;
+  const focusedMacroPie = focusedMacroCalTotal > 0
+    ? `conic-gradient(#2f7d5b 0 ${focusedProteinDeg}deg, #d28f2a ${focusedProteinDeg}deg ${focusedProteinDeg + focusedCarbsDeg}deg, #b4506d ${focusedProteinDeg + focusedCarbsDeg}deg 360deg)`
+    : 'conic-gradient(#d1d5db 0 360deg)';
   const focusedDinnerServings = getDinnerServingsForDate(plannerDay);
   const focusedHasSharedDinner = Boolean(dinnerBaseByDate.get(plannerDay));
 
@@ -1878,7 +1891,28 @@ export default function MealsPage() {
           </AccordionTrigger>
           <AccordionContent className="pb-4">
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {focusedHasSharedDinner ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Dinner servings
+                    </span>
+                    {['0', '0.5', '1', '1.5', '2'].map((value) => (
+                      <Button
+                        key={`focused-dinner-serving-${plannerDay}-${value}`}
+                        type="button"
+                        size="sm"
+                        variant={String(focusedDinnerServings) === value ? 'default' : 'outline'}
+                        onClick={() => updateDinnerServingsForDate(plannerDay, Number(value))}
+                      >
+                        {value}x
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <div />
+                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-xs text-muted-foreground">Target profile</span>
                 <select
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1899,6 +1933,7 @@ export default function MealsPage() {
                   <Plus className="w-4 h-4 mr-1.5" />
                   Quick Add
                 </Button>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
                 Breakfast, lunch, snacks, desserts, and drinks are planned for the selected adult dashboard. Dinner stays shared for the household.
@@ -1942,27 +1977,50 @@ export default function MealsPage() {
             </p>
           </div>
         </div>
-        {focusedHasSharedDinner ? (
-          <div className="rounded-md border border-border bg-muted/10 px-3 py-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Your dinner servings for focused day
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {['0', '0.5', '1', '1.5', '2'].map((value) => (
-                <Button
-                  key={`focused-dinner-serving-${plannerDay}-${value}`}
-                  type="button"
-                  size="sm"
-                  variant={String(focusedDinnerServings) === value ? 'default' : 'outline'}
-                  onClick={() => updateDinnerServingsForDate(plannerDay, Number(value))}
-                >
-                  {value}x
-                </Button>
+        <div className="rounded-md border border-border bg-muted/10 p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+            <div className="space-y-2">
+              {[
+                { label: 'Calories', current: focusedProjected.calories, target: macroTarget.calories, progress: focusedCalorieProgress, color: 'bg-primary' },
+                { label: 'Protein', current: focusedProjected.protein_g, target: macroTarget.protein_g, progress: focusedProteinProgress, color: 'bg-emerald-500' },
+                { label: 'Carbs', current: focusedProjected.carbs_g, target: macroTarget.carbs_g, progress: focusedCarbsProgress, color: 'bg-amber-500' },
+                { label: 'Fat', current: focusedProjected.fat_g, target: macroTarget.fat_g, progress: focusedFatProgress, color: 'bg-rose-500' },
+              ].map((metric) => (
+                <div key={`focused-metric-${metric.label}`}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span>{metric.label}</span>
+                    <span className="text-muted-foreground">
+                      {Math.round(metric.current)}/{Math.round(metric.target)}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn('h-2 rounded-full transition-all', metric.color)}
+                      style={{ width: `${Math.min(metric.progress, 100)}%` }}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
+            <div className="flex flex-col items-center justify-center">
+              <div
+                className="relative h-20 w-20 rounded-full border border-border"
+                style={{ background: focusedMacroPie }}
+                aria-label="Focused day macro split chart"
+              >
+                <div className="absolute inset-3 rounded-full bg-background" />
+                <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
+                  {focusedMacroCalTotal > 0 ? 'Split' : 'No data'}
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#2f7d5b]" />P</span>
+                <span className="inline-flex items-center gap-1 mr-2"><span className="h-2 w-2 rounded-full bg-[#d28f2a]" />C</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b4506d]" />F</span>
+              </div>
+            </div>
           </div>
-        ) : null}
-
+        </div>
         <Accordion type="multiple" defaultValue={['planner-quick-add']} className="rounded-lg border border-border px-3">
           <AccordionItem value="planner-quick-add" className="border-b border-border">
             <AccordionTrigger className="py-3 hover:no-underline">
@@ -2441,7 +2499,7 @@ export default function MealsPage() {
               Boolean(dinnerBase) &&
               (plannerViewMode === 'daily-all' || plannerViewMode === 'weekly-dinners');
             const isExpanded = plannerExpandedByDate[row.date] ?? (plannerViewMode === 'daily-all');
-            const showDetailedMetrics = plannerViewMode === 'daily-all' && isExpanded;
+            const showDetailedMetrics = false;
             const plannedCount = filteredEntries.length + (shouldShowDinnerBase ? 1 : 0);
             const calorieProgress = metricProgress(projected.calories, macroTarget.calories);
             const proteinProgress = metricProgress(projected.protein_g, macroTarget.protein_g);
