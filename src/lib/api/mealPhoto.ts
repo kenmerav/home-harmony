@@ -72,3 +72,44 @@ export async function estimateMealFromPhoto(
     };
   }
 }
+
+export async function estimateMealFromDescription(
+  note: string,
+): Promise<{ success: boolean; error?: string; meal?: EstimatedMealFromPhoto }> {
+  try {
+    const trimmedNote = note.trim();
+    if (!trimmedNote) {
+      return { success: false, error: 'Describe what you ate first.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('estimate-meal-photo', {
+      body: {
+        note: trimmedNote,
+      },
+    });
+
+    if (error) {
+      console.error('Edge function error (estimate-meal-photo):', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to estimate meal photo',
+      };
+    }
+
+    const result = data as EstimateMealPhotoResponse;
+    if (!result?.success || !result.meal) {
+      return {
+        success: false,
+        error: result?.error || 'Could not estimate that meal from the description.',
+      };
+    }
+
+    return { success: true, meal: result.meal };
+  } catch (error) {
+    console.error('Error estimating meal from description:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to estimate meal description.',
+    };
+  }
+}

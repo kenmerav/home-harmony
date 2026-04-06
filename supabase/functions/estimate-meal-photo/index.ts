@@ -68,9 +68,10 @@ serve(async (req) => {
     const imageDataUrl = body?.imageDataUrl;
     const fileName = body?.fileName;
     const note = typeof body?.note === "string" ? body.note.trim() : "";
+    const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
 
-    if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-      return jsonOk({ success: false, error: "Valid image data is required" });
+    if (!hasImage && !note) {
+      return jsonOk({ success: false, error: "A meal photo or typed description is required" });
     }
 
     const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
@@ -82,7 +83,7 @@ serve(async (req) => {
     }
     const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 
-    const systemPrompt = `You estimate the macros of a single plated meal from a food photo.
+    const systemPrompt = `You estimate the macros of a single meal from either a food photo, a typed food description, or both.
 Return JSON only in this exact schema:
 {
   "meal": {
@@ -97,15 +98,24 @@ Return JSON only in this exact schema:
 }
 
 Rules:
-- Estimate the total macros for the meal shown in the photo, not per serving.
-- Use the optional note only as supporting context.
+- Estimate the total macros for the meal described by the user, not per serving unless the user explicitly describes servings and portions.
+- Use the typed note as primary context when present.
 - If the image shows ingredients or packaging, use that to improve the estimate.
 - If the portion size is unclear, make a reasonable estimate and explain the assumptions briefly.
-- If the image is too unclear to estimate one meal confidently, return a meal object with name "Unknown meal", 0 macros, and explain why in assumptions.`;
+- If the description or image is too unclear to estimate one meal confidently, return a meal object with name "Unknown meal", 0 macros, and explain why in assumptions.`;
 
-    const userPrompt = note
-      ? `Estimate the meal shown in this photo. Optional context from the user: ${note}. File: ${fileName || "meal photo"}.`
-      : `Estimate the meal shown in this photo. File: ${fileName || "meal photo"}.`;
+    const userPrompt = hasImage
+      ? note
+        ? `Estimate the meal shown in this photo. User description: ${note}. File: ${fileName || "meal photo"}.`
+        : `Estimate the meal shown in this photo. File: ${fileName || "meal photo"}.`
+      : `Estimate the macros for this meal description: ${note}.`;
+
+    const userContent = hasImage
+      ? [
+          { type: "text", text: userPrompt },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ]
+      : [{ type: "text", text: userPrompt }];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -121,10 +131,7 @@ Rules:
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: [
-              { type: "text", text: userPrompt },
-              { type: "image_url", image_url: { url: imageDataUrl } },
-            ],
+            content: userContent,
           },
         ],
         response_format: { type: "json_object" },

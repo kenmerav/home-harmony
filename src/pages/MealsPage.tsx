@@ -68,7 +68,7 @@ import {
 } from '@/lib/mealBudgetPlanner';
 import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/macroMealSuggestions';
 import { filterAlcoholPresets, findAlcoholPresetById } from '@/lib/alcoholPresets';
-import { estimateMealFromPhoto } from '@/lib/api/mealPhoto';
+import { estimateMealFromDescription, estimateMealFromPhoto } from '@/lib/api/mealPhoto';
 import { getMealLogs } from '@/lib/macroGame';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -904,6 +904,50 @@ export default function MealsPage() {
 
       toast({
         title: 'Meal estimated from photo',
+        description: result.meal.assumptions || `${result.meal.name} was added to the planner form.`,
+      });
+    } finally {
+      setEstimatingPlannerPhoto(false);
+    }
+  };
+
+  const handleEstimatePlannerMealDescription = async () => {
+    const trimmedNote = plannerPhotoNote.trim();
+    if (!trimmedNote) {
+      toast({
+        title: 'Describe the meal first',
+        description: 'Type what you ate so AI can estimate the calories and macros.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setEstimatingPlannerPhoto(true);
+    try {
+      const result = await estimateMealFromDescription(trimmedNote);
+      if (!result.success || !result.meal) {
+        toast({
+          title: 'Could not estimate meal',
+          description: result.error || 'Try adding a little more detail about what you ate.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setPlannerForm((prev) => ({
+        ...prev,
+        recipeId: '',
+        name: result.meal?.name || prev.name,
+        servings: '1',
+        calories: String(result.meal?.calories || 0),
+        protein_g: String(result.meal?.protein_g || 0),
+        carbs_g: String(result.meal?.carbs_g || 0),
+        fat_g: String(result.meal?.fat_g || 0),
+      }));
+      setPlannerRecipeQuery('');
+
+      toast({
+        title: 'Meal estimated from description',
         description: result.meal.assumptions || `${result.meal.name} was added to the planner form.`,
       });
     } finally {
@@ -2063,16 +2107,31 @@ export default function MealsPage() {
                 {plannerForm.mealType !== 'alcohol' ? (
                   <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
                     <div>
-                      <p className="text-xs font-medium text-muted-foreground">Estimate from meal photo</p>
+                      <p className="text-xs font-medium text-muted-foreground">Estimate from photo or description</p>
                       <p className="text-xs text-muted-foreground">
-                        Upload a photo of breakfast, lunch, dinner, or a snack and AI will estimate the macros for this planner slot.
+                        Type what you ate or upload a meal photo and AI will estimate calories and macros for this planner slot.
                       </p>
                     </div>
                     <Input
-                      placeholder="Optional note: tuna sandwich with mayo and pickles"
+                      placeholder="Describe what you ate: 3 servings deli chicken, 2 slices Sara Lee bread, Quest chips"
                       value={plannerPhotoNote}
                       onChange={(event) => setPlannerPhotoNote(event.target.value)}
                     />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleEstimatePlannerMealDescription()}
+                        disabled={estimatingPlannerPhoto}
+                      >
+                        {estimatingPlannerPhoto ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="mr-2 h-4 w-4" />
+                        )}
+                        Estimate from description
+                      </Button>
+                    </div>
                     <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
                       {estimatingPlannerPhoto ? (
                         <>
@@ -3122,16 +3181,31 @@ export default function MealsPage() {
             {plannerForm.mealType !== 'alcohol' ? (
               <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Estimate from meal photo</p>
+                  <p className="text-xs font-medium text-muted-foreground">Estimate from photo or description</p>
                   <p className="text-xs text-muted-foreground">
-                    Upload a meal photo or type what you had below, then adjust anything manually if needed.
+                    Type what you ate or upload a photo, then adjust anything manually if needed.
                   </p>
                 </div>
                 <Input
-                  placeholder="Optional note: tuna sandwich with mayo and chips"
+                  placeholder="Describe what you ate: 3 servings deli chicken, 2 slices Sara Lee bread, Quest chips"
                   value={plannerPhotoNote}
                   onChange={(event) => setPlannerPhotoNote(event.target.value)}
                 />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleEstimatePlannerMealDescription()}
+                    disabled={estimatingPlannerPhoto}
+                  >
+                    {estimatingPlannerPhoto ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Estimate from description
+                  </Button>
+                </div>
                 <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
                   {estimatingPlannerPhoto ? (
                     <>
