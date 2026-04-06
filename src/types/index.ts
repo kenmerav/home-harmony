@@ -46,6 +46,7 @@ export interface MealLog {
   recipeName: string;
   date: string; // ISO date string
   person: string;
+  mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | 'alcohol';
   servings: number;
   macros: Macros; // Snapshot at time of logging
   isQuickAdd: boolean;

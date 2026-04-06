@@ -373,6 +373,15 @@ function normalizeStoredMealLogs(input: unknown): StoredMealLog[] {
         recipeName,
         date,
         person,
+        mealType:
+          item.mealType === 'breakfast' ||
+          item.mealType === 'lunch' ||
+          item.mealType === 'dinner' ||
+          item.mealType === 'snack' ||
+          item.mealType === 'dessert' ||
+          item.mealType === 'alcohol'
+            ? item.mealType
+            : undefined,
         servings: Number.isFinite(servingsValue) && servingsValue > 0 ? servingsValue : 1,
         macros: {
           calories: Number.isFinite(Number(macros.calories)) ? Math.max(0, Number(macros.calories)) : 0,

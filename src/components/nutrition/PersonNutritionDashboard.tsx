@@ -173,6 +173,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       recipeName: tonightDinner.label,
       date: todayKey,
       person: personId,
+      mealType: 'dinner',
       servings: tonightDinner.defaultServings,
       macros: {
         calories: Math.round(tonightDinner.macros.calories * tonightDinner.defaultServings),

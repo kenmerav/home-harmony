@@ -499,6 +499,12 @@ export default function TodayPage() {
       recipeName: candidate.label,
       date: todayKey,
       person: target,
+      mealType:
+        logMealCategory === 'snacks'
+          ? 'snack'
+          : logMealCategory === 'drinks'
+            ? 'alcohol'
+            : logMealCategory,
       servings,
       macros: scaledMacros,
       isQuickAdd: false,
@@ -542,6 +548,12 @@ export default function TodayPage() {
       recipeName: input.name || 'Quick Add',
       date: todayKey,
       person: target,
+      mealType:
+        logMealCategory === 'snacks'
+          ? 'snack'
+          : logMealCategory === 'drinks'
+            ? 'alcohol'
+            : logMealCategory,
       servings: 1,
       macros: { calories, protein_g: protein, carbs_g: carbs, fat_g: fat },
       isQuickAdd: true,

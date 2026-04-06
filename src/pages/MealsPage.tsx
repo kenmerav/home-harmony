@@ -69,6 +69,7 @@ import {
 import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/macroMealSuggestions';
 import { filterAlcoholPresets, findAlcoholPresetById } from '@/lib/alcoholPresets';
 import { estimateMealFromPhoto } from '@/lib/api/mealPhoto';
+import { getMealLogs } from '@/lib/macroGame';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -299,6 +300,7 @@ export default function MealsPage() {
   const [pantryInput, setPantryInput] = useState('');
   const [pantryMatches, setPantryMatches] = useState<PantryMatch[]>([]);
   const [plannerEntries, setPlannerEntries] = useState<PlannedFoodEntry[]>([]);
+  const [mealLogRefreshTick, setMealLogRefreshTick] = useState(0);
   const [topMealsViewMode, setTopMealsViewMode] = useState<TopMealsViewMode>('dinner-list');
   const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>('daily-all');
   const [plannerDay, setPlannerDay] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -390,6 +392,12 @@ export default function MealsPage() {
     window.addEventListener('homehub:planned-food-updated', refresh);
     return () => window.removeEventListener('homehub:planned-food-updated', refresh);
   }, [user?.id]);
+
+  useEffect(() => {
+    const refresh = () => setMealLogRefreshTick((prev) => prev + 1);
+    window.addEventListener('homehub:macro-state-updated', refresh);
+    return () => window.removeEventListener('homehub:macro-state-updated', refresh);
+  }, []);
 
   useEffect(() => {
     setPlannerDinnerServingsByProfile(readDinnerServings(user?.id));
@@ -1101,6 +1109,16 @@ export default function MealsPage() {
     }
     return !entry.personId || entry.personId === plannerDashboardId;
   });
+  const scopedMealLogs = useMemo(
+    () =>
+      getMealLogs().filter((log) => {
+        if (plannerDashboardId === 'me') {
+          return !log.person || log.person === 'me';
+        }
+        return log.person === plannerDashboardId;
+      }),
+    [mealLogRefreshTick, plannerDashboardId],
+  );
 
   const entriesByDate = scopedPlannerEntries.reduce<Record<string, PlannedFoodEntry[]>>((acc, entry) => {
     if (!acc[entry.date]) acc[entry.date] = [];
@@ -1734,6 +1752,9 @@ export default function MealsPage() {
                 const mealType: PlannedMealType = topMealsViewMode === 'breakfast-list' ? 'breakfast' : 'lunch';
                 const label = mealType === 'breakfast' ? 'Breakfast' : 'Lunch';
                 const entries = (entriesByDate[row.date] || []).filter((entry) => entry.mealType === mealType);
+                const loggedEntries = scopedMealLogs.filter(
+                  (log) => log.date === row.date && log.mealType === mealType,
+                );
                 const date = format(new Date(`${row.date}T00:00:00`), 'd');
                 const isToday = row.date === format(new Date(), 'yyyy-MM-dd');
 
@@ -1778,6 +1799,21 @@ export default function MealsPage() {
                                 >
                                   <Trash2 className="w-4 h-4 text-muted-foreground" />
                                 </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : loggedEntries.length > 0 ? (
+                          loggedEntries.map((entry) => (
+                            <div key={entry.id} className="rounded-md border border-border bg-muted/10 px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {label}: {entry.recipeName}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Logged • {entry.macros.calories} cal • {entry.macros.protein_g}P • {entry.macros.carbs_g}C • {entry.macros.fat_g}F
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           ))
