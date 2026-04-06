@@ -2153,369 +2153,7 @@ export default function MealsPage() {
             </div>
           </div>
         </div>
-        <Accordion type="multiple" defaultValue={['planner-quick-add']} className="rounded-lg border border-border px-3">
-          <AccordionItem value="planner-quick-add" className="border-b border-border">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="text-left">
-                <p className="text-sm font-medium">Quick add planned meal/item</p>
-                <p className="text-xs text-muted-foreground">Choose a recipe or type a food, then add it to your plan.</p>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="pb-4">
-              <div className="space-y-3">
-                <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">1. Pick the day</p>
-                      <Input
-                        type="date"
-                        value={plannerForm.date}
-                        onChange={(event) => {
-                          setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
-                          setSuggestionDate(event.target.value);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">2. Pick the meal slot</p>
-                      <select
-                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={plannerForm.mealType}
-                        onChange={(event) => {
-                          const nextMealType = event.target.value as PlannedMealType;
-                          setPlannerForm((prev) => ({
-                            ...prev,
-                            mealType: nextMealType,
-                            recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
-                          }));
-                        }}
-                      >
-                        {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
-                          <option key={mealType} value={mealType}>
-                            {plannedMealTypeLabel[mealType]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="border-t border-border/60 pt-3">
-                    <p className="text-xs font-medium text-muted-foreground">3. Repeat pattern</p>
-                    <div className="mt-2 grid gap-2 md:grid-cols-3">
-                      <Button
-                        type="button"
-                        variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
-                        onClick={() => setPlannerRepeatModeSafe('once')}
-                      >
-                        Just this day
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
-                        onClick={() => setPlannerRepeatModeSafe('daily')}
-                      >
-                        Every day
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
-                        onClick={() => setPlannerRepeatModeSafe('selected_days')}
-                      >
-                        Certain days
-                      </Button>
-                    </div>
-                    {plannerRepeatMode === 'selected_days' ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {days.map((day) => (
-                          <Button
-                            key={`planner-repeat-${day}`}
-                            type="button"
-                            size="sm"
-                            variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
-                            onClick={() => togglePlannerRepeatDay(day)}
-                          >
-                            {dayLabels[day]}
-                          </Button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {plannerForm.mealType === 'alcohol' ? (
-                  <div className="space-y-2 rounded-md border border-border bg-muted/10 p-3">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Common alcohol drinks (auto-fills calories/macros)
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <Input
-                        placeholder="Search beer, wine, cocktails, shots..."
-                        value={alcoholPresetQuery}
-                        onChange={(event) => setAlcoholPresetQuery(event.target.value)}
-                      />
-                      <select
-                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        defaultValue=""
-                        onChange={(event) => {
-                          if (!event.target.value) return;
-                          applyAlcoholPreset(event.target.value);
-                          event.currentTarget.value = '';
-                        }}
-                      >
-                        <option value="">Choose common drink...</option>
-                        {alcoholPresetOptions.map((preset) => (
-                          <option key={preset.id} value={preset.id}>
-                            {preset.name} ({preset.serving}) - {preset.calories} cal
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">4. Choose how you want to add it</p>
-                        <p className="text-xs text-muted-foreground">
-                          Start from AI, a saved recipe, or a manual item, then review the meal details below.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={plannerQuickAddMode === 'estimate' ? 'default' : 'outline'}
-                          onClick={() => setPlannerQuickAddMode('estimate')}
-                        >
-                          <Sparkles className="mr-1.5 h-4 w-4" />
-                          Estimate
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={plannerQuickAddMode === 'recipe' ? 'default' : 'outline'}
-                          onClick={() => setPlannerQuickAddMode('recipe')}
-                        >
-                          Recipe
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={plannerQuickAddMode === 'manual' ? 'default' : 'outline'}
-                          onClick={() => setPlannerQuickAddMode('manual')}
-                        >
-                          Manual
-                        </Button>
-                      </div>
-                    </div>
-
-                    {plannerQuickAddMode === 'estimate' ? (
-                      <div className="space-y-3 border-t border-border/60 pt-3">
-                        <Input
-                          placeholder="Describe what you ate: 3 servings deli chicken, 2 slices Sara Lee bread, Quest chips"
-                          value={plannerPhotoNote}
-                          onChange={(event) => setPlannerPhotoNote(event.target.value)}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => void handleEstimatePlannerMealDescription()}
-                            disabled={estimatingPlannerPhoto}
-                          >
-                            {estimatingPlannerPhoto ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Sparkles className="mr-2 h-4 w-4" />
-                            )}
-                            Estimate from description
-                          </Button>
-                        </div>
-                        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
-                          {estimatingPlannerPhoto ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Estimating meal...
-                            </>
-                          ) : (
-                            <>
-                              <Camera className="h-4 w-4" />
-                              Upload meal photo
-                            </>
-                          )}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={estimatingPlannerPhoto}
-                            onChange={(event) => {
-                              const file = event.target.files?.[0] || null;
-                              void handleEstimatePlannerMealPhoto(file);
-                              event.currentTarget.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {plannerQuickAddMode === 'recipe' ? (
-                      <div className="space-y-3 border-t border-border/60 pt-3">
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <Input
-                            placeholder="Search recipes for planner..."
-                            value={plannerRecipeQuery}
-                            onChange={(event) => setPlannerRecipeQuery(event.target.value)}
-                          />
-                          <select
-                            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            value={plannerForm.recipeId}
-                            disabled={recipesLoading}
-                            onChange={(event) => selectRecipeForPlanner(event.target.value)}
-                          >
-                            <option value="">Optional: choose from recipes</option>
-                            {plannerRecipeOptions.map((recipe) => (
-                              <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
-                                {recipePickerLabel(recipe)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        {plannerRecipeTypeahead.length > 0 ? (
-                          <div className="rounded-md border border-border bg-background p-1">
-                            {plannerRecipeTypeahead.map((recipe) => (
-                              <button
-                                key={`planner-typeahead-${recipe.id}`}
-                                type="button"
-                                className={cn(
-                                  'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
-                                  recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
-                                )}
-                                onClick={() => selectRecipeForPlanner(recipe.id)}
-                                disabled={recipeNeedsInstructions(recipe)}
-                              >
-                                <span className="truncate">{recipe.name}</span>
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p className="text-xs text-muted-foreground">
-                          {recipesLoading
-                            ? 'Loading recipes...'
-                            : `Showing ${plannerRecipeOptions.length} recipe${plannerRecipeOptions.length !== 1 ? 's' : ''}.`}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {plannerQuickAddMode === 'manual' ? (
-                      <div className="border-t border-border/60 pt-3">
-                        <p className="text-xs text-muted-foreground">
-                          Type the meal below, set servings, and enter macros manually if you want to override the AI estimate.
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">5. Review meal details</p>
-                    <p className="text-xs text-muted-foreground">
-                      Adjust the meal name, servings, and macros before saving it to your plan.
-                    </p>
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-[1fr_140px]">
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">Meal name</p>
-                      <Input
-                        placeholder="Item name (ex: 3 eggs and toast)"
-                        value={plannerForm.name}
-                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">Servings</p>
-                      <Input
-                        type="number"
-                        step="0.25"
-                        min="0.1"
-                        value={plannerForm.servings}
-                        onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
-                      />
-                    </div>
-                  </div>
-
-                  <details className="rounded-md border border-border bg-background px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                      Manual macros (optional)
-                    </summary>
-                    <div className="mt-2 grid gap-2 md:grid-cols-4">
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Calories</p>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={plannerForm.calories}
-                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Protein</p>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={plannerForm.protein_g}
-                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Carbs</p>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={plannerForm.carbs_g}
-                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Fat</p>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={plannerForm.fat_g}
-                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
-                        />
-                      </div>
-                    </div>
-                  </details>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button onClick={addPlannerItem}>Add to plan</Button>
-                    {commonPlannedFoods.slice(0, 6).map((food) => (
-                      <Button
-                        key={food}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setPlannerQuickAddMode('manual');
-                          setPlannerForm((prev) => ({
-                            ...prev,
-                            recipeId: '',
-                            name: food,
-                          }));
-                        }}
-                      >
-                        {food}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
+        <Accordion type="single" collapsible className="rounded-lg border border-border px-3">
           <AccordionItem value="planner-ai" className="border-0">
             <AccordionTrigger className="py-3 hover:no-underline">
               <div className="text-left">
@@ -2577,6 +2215,374 @@ export default function MealsPage() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+
+        <div className="mt-4 rounded-xl border border-border bg-card px-4">
+          <Accordion type="single" collapsible defaultValue="planner-quick-add">
+            <AccordionItem value="planner-quick-add" className="border-0">
+              <AccordionTrigger className="py-4 hover:no-underline">
+                <div className="text-left">
+                  <h2 className="font-display text-xl">Quick Add Food Log</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Add a food, recipe, or AI-estimated meal into your plan for the selected day.
+                  </p>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4">
+                <div className="space-y-3">
+                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">1. Pick the day</p>
+                        <Input
+                          type="date"
+                          value={plannerForm.date}
+                          onChange={(event) => {
+                            setPlannerForm((prev) => ({ ...prev, date: event.target.value }));
+                            setSuggestionDate(event.target.value);
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">2. Pick the meal slot</p>
+                        <select
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={plannerForm.mealType}
+                          onChange={(event) => {
+                            const nextMealType = event.target.value as PlannedMealType;
+                            setPlannerForm((prev) => ({
+                              ...prev,
+                              mealType: nextMealType,
+                              recipeId: nextMealType === 'alcohol' ? '' : prev.recipeId,
+                            }));
+                          }}
+                        >
+                          {PLANNED_MEAL_TYPE_OPTIONS.map((mealType) => (
+                            <option key={mealType} value={mealType}>
+                              {plannedMealTypeLabel[mealType]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border/60 pt-3">
+                      <p className="text-xs font-medium text-muted-foreground">3. Repeat pattern</p>
+                      <div className="mt-2 grid gap-2 md:grid-cols-3">
+                        <Button
+                          type="button"
+                          variant={plannerRepeatMode === 'once' ? 'default' : 'outline'}
+                          onClick={() => setPlannerRepeatModeSafe('once')}
+                        >
+                          Just this day
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={plannerRepeatMode === 'daily' ? 'default' : 'outline'}
+                          onClick={() => setPlannerRepeatModeSafe('daily')}
+                        >
+                          Every day
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={plannerRepeatMode === 'selected_days' ? 'default' : 'outline'}
+                          onClick={() => setPlannerRepeatModeSafe('selected_days')}
+                        >
+                          Certain days
+                        </Button>
+                      </div>
+                      {plannerRepeatMode === 'selected_days' ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {days.map((day) => (
+                            <Button
+                              key={`planner-repeat-${day}`}
+                              type="button"
+                              size="sm"
+                              variant={plannerRepeatDays.has(day) ? 'default' : 'outline'}
+                              onClick={() => togglePlannerRepeatDay(day)}
+                            >
+                              {dayLabels[day]}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {plannerForm.mealType === 'alcohol' ? (
+                    <div className="space-y-2 rounded-md border border-border bg-muted/10 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Common alcohol drinks (auto-fills calories/macros)
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <Input
+                          placeholder="Search beer, wine, cocktails, shots..."
+                          value={alcoholPresetQuery}
+                          onChange={(event) => setAlcoholPresetQuery(event.target.value)}
+                        />
+                        <select
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          defaultValue=""
+                          onChange={(event) => {
+                            if (!event.target.value) return;
+                            applyAlcoholPreset(event.target.value);
+                            event.currentTarget.value = '';
+                          }}
+                        >
+                          <option value="">Choose common drink...</option>
+                          {alcoholPresetOptions.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {preset.name} ({preset.serving}) - {preset.calories} cal
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground">4. Choose how you want to add it</p>
+                          <p className="text-xs text-muted-foreground">
+                            Start from AI, a saved recipe, or a manual item, then review the meal details below.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={plannerQuickAddMode === 'estimate' ? 'default' : 'outline'}
+                            onClick={() => setPlannerQuickAddMode('estimate')}
+                          >
+                            <Sparkles className="mr-1.5 h-4 w-4" />
+                            Estimate
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={plannerQuickAddMode === 'recipe' ? 'default' : 'outline'}
+                            onClick={() => setPlannerQuickAddMode('recipe')}
+                          >
+                            Recipe
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={plannerQuickAddMode === 'manual' ? 'default' : 'outline'}
+                            onClick={() => setPlannerQuickAddMode('manual')}
+                          >
+                            Manual
+                          </Button>
+                        </div>
+                      </div>
+
+                      {plannerQuickAddMode === 'estimate' ? (
+                        <div className="space-y-3 border-t border-border/60 pt-3">
+                          <Input
+                            placeholder="Describe what you ate: 3 servings deli chicken, 2 slices Sara Lee bread, Quest chips"
+                            value={plannerPhotoNote}
+                            onChange={(event) => setPlannerPhotoNote(event.target.value)}
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => void handleEstimatePlannerMealDescription()}
+                              disabled={estimatingPlannerPhoto}
+                            >
+                              {estimatingPlannerPhoto ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="mr-2 h-4 w-4" />
+                              )}
+                              Estimate from description
+                            </Button>
+                          </div>
+                          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
+                            {estimatingPlannerPhoto ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Estimating meal...
+                              </>
+                            ) : (
+                              <>
+                                <Camera className="h-4 w-4" />
+                                Upload meal photo
+                              </>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={estimatingPlannerPhoto}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] || null;
+                                void handleEstimatePlannerMealPhoto(file);
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+
+                      {plannerQuickAddMode === 'recipe' ? (
+                        <div className="space-y-3 border-t border-border/60 pt-3">
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <Input
+                              placeholder="Search recipes for planner..."
+                              value={plannerRecipeQuery}
+                              onChange={(event) => setPlannerRecipeQuery(event.target.value)}
+                            />
+                            <select
+                              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              value={plannerForm.recipeId}
+                              disabled={recipesLoading}
+                              onChange={(event) => selectRecipeForPlanner(event.target.value)}
+                            >
+                              <option value="">Optional: choose from recipes</option>
+                              {plannerRecipeOptions.map((recipe) => (
+                                <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
+                                  {recipePickerLabel(recipe)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {plannerRecipeTypeahead.length > 0 ? (
+                            <div className="rounded-md border border-border bg-background p-1">
+                              {plannerRecipeTypeahead.map((recipe) => (
+                                <button
+                                  key={`planner-typeahead-${recipe.id}`}
+                                  type="button"
+                                  className={cn(
+                                    'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm',
+                                    recipeNeedsInstructions(recipe) ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted',
+                                  )}
+                                  onClick={() => selectRecipeForPlanner(recipe.id)}
+                                  disabled={recipeNeedsInstructions(recipe)}
+                                >
+                                  <span className="truncate">{recipe.name}</span>
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    {recipeNeedsInstructions(recipe) ? 'Needs instructions' : `${Math.round(recipe.calories || 0)} cal`}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p className="text-xs text-muted-foreground">
+                            {recipesLoading
+                              ? 'Loading recipes...'
+                              : `Showing ${plannerRecipeOptions.length} recipe${plannerRecipeOptions.length !== 1 ? 's' : ''}.`}
+                          </p>
+                        </div>
+                      ) : null}
+
+                      {plannerQuickAddMode === 'manual' ? (
+                        <div className="border-t border-border/60 pt-3">
+                          <p className="text-xs text-muted-foreground">
+                            Type the meal below, set servings, and enter macros manually if you want to override the AI estimate.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">5. Review meal details</p>
+                      <p className="text-xs text-muted-foreground">
+                        Adjust the meal name, servings, and macros before saving it to your plan.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-[1fr_140px]">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Meal name</p>
+                        <Input
+                          placeholder="Item name (ex: 3 eggs and toast)"
+                          value={plannerForm.name}
+                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Servings</p>
+                        <Input
+                          type="number"
+                          step="0.25"
+                          min="0.1"
+                          value={plannerForm.servings}
+                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
+                        />
+                      </div>
+                    </div>
+
+                    <details className="rounded-md border border-border bg-background px-3 py-2">
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                        Manual macros (optional)
+                      </summary>
+                      <div className="mt-2 grid gap-2 md:grid-cols-4">
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Calories</p>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={plannerForm.calories}
+                            onChange={(event) => setPlannerForm((prev) => ({ ...prev, calories: normalizeIntegerInput(event.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Protein</p>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={plannerForm.protein_g}
+                            onChange={(event) => setPlannerForm((prev) => ({ ...prev, protein_g: normalizeIntegerInput(event.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Carbs</p>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={plannerForm.carbs_g}
+                            onChange={(event) => setPlannerForm((prev) => ({ ...prev, carbs_g: normalizeIntegerInput(event.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Fat</p>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={plannerForm.fat_g}
+                            onChange={(event) => setPlannerForm((prev) => ({ ...prev, fat_g: normalizeIntegerInput(event.target.value) }))}
+                          />
+                        </div>
+                      </div>
+                    </details>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button onClick={addPlannerItem}>Add to plan</Button>
+                      {commonPlannedFoods.slice(0, 6).map((food) => (
+                        <Button
+                          key={food}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setPlannerQuickAddMode('manual');
+                            setPlannerForm((prev) => ({
+                              ...prev,
+                              recipeId: '',
+                              name: food,
+                            }));
+                          }}
+                        >
+                          {food}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
 
           <div className="grid gap-3">
           {plannerViewMode === 'weekly-meal-grid' ? (
