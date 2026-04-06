@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
-import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles } from 'lucide-react';
+import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles, Camera, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
 import {
@@ -68,6 +68,7 @@ import {
 } from '@/lib/mealBudgetPlanner';
 import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/macroMealSuggestions';
 import { filterAlcoholPresets, findAlcoholPresetById } from '@/lib/alcoholPresets';
+import { estimateMealFromPhoto } from '@/lib/api/mealPhoto';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -305,6 +306,8 @@ export default function MealsPage() {
   const [plannerDashboardId, setPlannerDashboardId] = useState('me');
   const [plannerDinnerServingsByProfile, setPlannerDinnerServingsByProfile] = useState<DinnerServingsByProfile>({});
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
+  const [plannerPhotoNote, setPlannerPhotoNote] = useState('');
+  const [estimatingPlannerPhoto, setEstimatingPlannerPhoto] = useState(false);
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
   const [gridQuickAddContext, setGridQuickAddContext] = useState<GridQuickAddContext | null>(null);
   const [plannerRepeatMode, setPlannerRepeatMode] = useState<PlannerRepeatMode>('once');
@@ -856,6 +859,41 @@ export default function MealsPage() {
       fat_g: String(preset.fat_g),
     }));
     setPlannerRecipeQuery('');
+  };
+
+  const handleEstimatePlannerMealPhoto = async (file: File | null) => {
+    if (!file) return;
+    setEstimatingPlannerPhoto(true);
+    try {
+      const result = await estimateMealFromPhoto(file, plannerPhotoNote);
+      if (!result.success || !result.meal) {
+        toast({
+          title: 'Could not estimate meal',
+          description: result.error || 'Try another photo or add a short note with what is in the meal.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setPlannerForm((prev) => ({
+        ...prev,
+        recipeId: '',
+        name: result.meal?.name || prev.name,
+        servings: '1',
+        calories: String(result.meal?.calories || 0),
+        protein_g: String(result.meal?.protein_g || 0),
+        carbs_g: String(result.meal?.carbs_g || 0),
+        fat_g: String(result.meal?.fat_g || 0),
+      }));
+      setPlannerRecipeQuery('');
+
+      toast({
+        title: 'Meal estimated from photo',
+        description: result.meal.assumptions || `${result.meal.name} was added to the planner form.`,
+      });
+    } finally {
+      setEstimatingPlannerPhoto(false);
+    }
   };
 
   const openManualDialog = async (day: DayOfWeek) => {
@@ -1872,6 +1910,46 @@ export default function MealsPage() {
                     ))}
                   </select>
                 </div>
+
+                {plannerForm.mealType !== 'alcohol' ? (
+                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Estimate from meal photo</p>
+                      <p className="text-xs text-muted-foreground">
+                        Upload a photo of breakfast, lunch, dinner, or a snack and AI will estimate the macros for this planner slot.
+                      </p>
+                    </div>
+                    <Input
+                      placeholder="Optional note: tuna sandwich with mayo and pickles"
+                      value={plannerPhotoNote}
+                      onChange={(event) => setPlannerPhotoNote(event.target.value)}
+                    />
+                    <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
+                      {estimatingPlannerPhoto ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Estimating meal...
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="h-4 w-4" />
+                          Upload meal photo
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={estimatingPlannerPhoto}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null;
+                          void handleEstimatePlannerMealPhoto(file);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
                 <div className="rounded-md border border-border bg-muted/10 p-3">
                   <p className="text-xs font-medium text-muted-foreground">Repeat this meal</p>
