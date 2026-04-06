@@ -46,6 +46,7 @@ import {
   getFamilyLeaderboard,
   getProfiles,
   getCurrentStreak,
+  hydrateMacroGameActivityFromAccount,
   listDashboardProfiles,
 } from '@/lib/macroGame';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
@@ -241,6 +242,29 @@ export default function TodayPage() {
     window.addEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
     return () => window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshMacroActivity = () => {
+      void hydrateMacroGameActivityFromAccount(user.id);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMacroActivity();
+      }
+    };
+
+    refreshMacroActivity();
+    window.addEventListener('focus', refreshMacroActivity);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', refreshMacroActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const triggerRefresh = () => setRefreshTick((prev) => prev + 1);

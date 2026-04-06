@@ -25,6 +25,7 @@ import {
   getMealLogs,
   getProfiles,
   getWeekPoints,
+  hydrateMacroGameActivityFromAccount,
   isDailyLogFullyLogged,
   toggleDashboardTodo,
 } from '@/lib/macroGame';
@@ -76,6 +77,35 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       cancelled = true;
     };
   }, [todayKey]);
+
+  useEffect(() => {
+    const handleMacroStateUpdated = () => setRefreshTick((prev) => prev + 1);
+    window.addEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+    return () => window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshMacroActivity = () => {
+      void hydrateMacroGameActivityFromAccount(user.id);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMacroActivity();
+      }
+    };
+
+    refreshMacroActivity();
+    window.addEventListener('focus', refreshMacroActivity);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', refreshMacroActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.id]);
 
   const profile = getProfiles()[personId];
   if (!profile) {
