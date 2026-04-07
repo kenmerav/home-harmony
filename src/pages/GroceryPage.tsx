@@ -661,13 +661,14 @@ export default function GroceryPage() {
     ],
   );
 
-  const stapleOnlyItems = useMemo(
+  const postOrderItems = useMemo(
     () =>
       buildGroceryList([], {}, {
         checkedKeys: new Set(currentWeekState.checkedKeys),
+        manualItems: currentWeekState.manualItems,
         recurringItems: groceryListState.recurringItems,
       }),
-    [currentWeekState.checkedKeys, groceryListState.recurringItems],
+    [currentWeekState.checkedKeys, currentWeekState.manualItems, groceryListState.recurringItems],
   );
 
   const loadNextWeekStatus = async () => {
@@ -783,7 +784,7 @@ export default function GroceryPage() {
           ...previous.weekStates,
           [currentWeekOf]: {
             ...weekState,
-            orderedAt: null,
+            orderedAt: weekState.orderedAt,
             manualItems: [...weekState.manualItems, nextItem],
           },
         },
@@ -849,8 +850,8 @@ export default function GroceryPage() {
 
   const visibleItems = useMemo(() => {
     if (!currentWeekOrderedAt) return items;
-    return stapleOnlyItems;
-  }, [currentWeekOrderedAt, items, stapleOnlyItems]);
+    return postOrderItems;
+  }, [currentWeekOrderedAt, items, postOrderItems]);
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = visibleItems.filter(item => item.category === category);
@@ -964,12 +965,13 @@ export default function GroceryPage() {
     setLastOrderCompletedAt(now);
     updateCurrentWeekState((weekState) => ({
       ...weekState,
-      checkedKeys: Array.from(new Set(items.map((item) => item.key))),
+      checkedKeys: [],
+      manualItems: [],
       orderedAt: now,
     }));
     toast({
       title: 'Order marked complete',
-      description: 'Meal-plan and one-time items are hidden now. Weekly staples stay visible until you regenerate the list.',
+      description: 'This order is cleared out. Your list is now fresh for the next order, with staples ready and room to add new items.',
     });
   };
 
