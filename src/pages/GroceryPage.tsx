@@ -39,6 +39,7 @@ import {
   GroceryListManualItem,
 } from '@/lib/groceryListStateStore';
 import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
+import { getNextWeekOf, setWeeklyGroceriesOrdered } from '@/lib/api/weeklyPlanningStatus';
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
 import { getRecipeImageUrl } from '@/data/recipeImages';
 import {
@@ -703,12 +704,28 @@ export default function GroceryPage() {
     }));
   };
 
-  const markCurrentWeekNotOrdered = () => {
+  const syncNextWeekReminderHandled = async (handled: boolean) => {
+    try {
+      await setWeeklyGroceriesOrdered(getNextWeekOf(), handled);
+    } catch (error) {
+      console.error('Could not sync grocery reminder state', error);
+      toast({
+        title: handled ? 'Ordered locally' : 'Reminder resumed locally',
+        description: handled
+          ? 'Your grocery list was cleared, but the reminder sync did not finish yet.'
+          : 'Your grocery list was restored, but the reminder sync did not finish yet.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const markCurrentWeekNotOrdered = async () => {
     updateCurrentWeekState((weekState) => ({
       ...weekState,
       checkedKeys: [],
       orderedAt: null,
     }));
+    await syncNextWeekReminderHandled(false);
     toast({
       title: 'Marked this week as not ordered',
       description: 'This week’s grocery list is visible again and unchecked so you can use it normally.',
@@ -941,7 +958,7 @@ export default function GroceryPage() {
     toast({ title: 'Grocery settings saved' });
   };
 
-  const markOrderDone = () => {
+  const markOrderDone = async () => {
     const now = new Date().toISOString();
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
@@ -951,9 +968,10 @@ export default function GroceryPage() {
       manualItems: [],
       orderedAt: now,
     }));
+    await syncNextWeekReminderHandled(true);
     toast({
       title: 'Order marked complete',
-      description: 'This order is cleared out. Your list is now fresh for the next order, with staples ready and room to add new items.',
+      description: 'This order is cleared out, and grocery reminders are considered handled until you reopen it.',
     });
   };
 
@@ -1115,7 +1133,7 @@ export default function GroceryPage() {
             <p className="text-sm font-semibold">This week grocery order</p>
             <p className="text-xs text-muted-foreground">
               {currentWeekOrderedAt
-                ? 'This order is finished. Meal-plan and one-time items are cleared out, while staples stay available for the next order.'
+                ? 'This order is finished. Meal-plan and one-time items are cleared out, staples stay available, and grocery reminders are treated as handled.'
                 : 'Check items off as you add them to your cart, then mark this week ordered when checkout is done.'}
             </p>
             {currentWeekOrderedAt && (
