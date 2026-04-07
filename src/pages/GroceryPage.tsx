@@ -838,10 +838,10 @@ export default function GroceryPage() {
     });
   };
 
-  const visibleItems = useMemo(
-    () => (currentWeekOrderedAt ? [] : items),
-    [currentWeekOrderedAt, items],
-  );
+  const visibleItems = useMemo(() => {
+    if (!currentWeekOrderedAt) return items;
+    return items.filter((item) => item.recurringItemIds.length > 0);
+  }, [currentWeekOrderedAt, items]);
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = visibleItems.filter(item => item.category === category);
@@ -960,7 +960,7 @@ export default function GroceryPage() {
     }));
     toast({
       title: 'Order marked complete',
-      description: 'This week’s grocery list is now cleared from view until you regenerate it.',
+      description: 'Meal-plan and one-time items are hidden now. Weekly staples stay visible until you regenerate the list.',
     });
   };
 
@@ -969,9 +969,6 @@ export default function GroceryPage() {
       setUpdatingNextWeekStatus(true);
       const status = await setWeeklyGroceriesOrdered(getNextWeekOf(), ordered);
       setNextWeekStatus(status);
-      if (ordered) {
-        checkAllItems();
-      }
       toast({
         title: ordered ? 'Marked next week as ordered' : 'Cleared ordered status',
         description: ordered
@@ -1070,7 +1067,7 @@ export default function GroceryPage() {
             <div>
               <p className="text-sm font-semibold">This week’s grocery list is marked ordered</p>
               <p className="text-xs text-muted-foreground">
-                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Generate the list again if checkout didn’t happen or you need to reopen it.
+                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Meal-plan and one-time items are hidden now. Weekly staples stay on the list.
               </p>
             </div>
             <Button size="sm" variant="outline" onClick={regenerateCurrentWeekList}>
