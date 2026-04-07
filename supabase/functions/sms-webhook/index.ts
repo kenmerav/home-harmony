@@ -128,6 +128,19 @@ type CalendarAddIntent = {
   description?: string | null;
 };
 
+type CalendarFollowUpIntent = {
+  layer?: string;
+  reminderLeadMinutes?: number;
+};
+
+type SmsAssistantContext = {
+  lastCalendarEvent?: {
+    eventId: string;
+    title: string;
+    updatedAt: string;
+  } | null;
+};
+
 type GroceryAddIntent = {
   name: string;
   quantity: string;
@@ -797,6 +810,25 @@ function setDocumentValue(document: Record<string, unknown>, path: string[], val
   return next;
 }
 
+function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const record = input as Record<string, unknown>;
+  const rawLast = record.lastCalendarEvent;
+  if (!rawLast || typeof rawLast !== "object" || Array.isArray(rawLast)) return {};
+  const last = rawLast as Record<string, unknown>;
+  const eventId = typeof last.eventId === "string" ? last.eventId.trim() : "";
+  const title = typeof last.title === "string" ? last.title.trim() : "";
+  const updatedAt = typeof last.updatedAt === "string" ? last.updatedAt.trim() : "";
+  if (!eventId || !updatedAt) return {};
+  return {
+    lastCalendarEvent: {
+      eventId,
+      title: title || "Event",
+      updatedAt,
+    },
+  };
+}
+
 async function loadProfileSettingsDocument(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -845,6 +877,25 @@ async function saveProfileSettingsDocument(
     .update({ onboarding_settings: document })
     .eq("id", userId);
   if (error) throw error;
+}
+
+async function loadSmsAssistantContext(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ document: Record<string, unknown>; context: SmsAssistantContext }> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const context = normalizeSmsAssistantContext(getDocumentValue(document, ["appPreferences", "smsAssistant"]));
+  return { document, context };
+}
+
+async function saveSmsAssistantContext(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  document: Record<string, unknown>,
+  context: SmsAssistantContext,
+): Promise<void> {
+  const nextDocument = setDocumentValue(document, ["appPreferences", "smsAssistant"], context);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
 }
 
 function firstNameFromFullName(fullName: string | null | undefined): string | null {
@@ -1363,7 +1414,7 @@ async function addCalendarEventBySms(
   userId: string,
   timezone: string,
   intent: CalendarAddIntent,
-): Promise<string> {
+): Promise<{ reply: string; eventId: string }> {
   const payload: Record<string, unknown> = {
     id: crypto.randomUUID(),
     owner_id: userId,
@@ -1446,12 +1497,132 @@ async function addCalendarEventBySms(
       const whenText = intent.allDay
         ? localStart.toFormat(dateFormat)
         : localStart.toFormat(`${dateFormat} 'at' h:mm a`);
-      return `Added ${intent.title} to ${intent.layer} for ${whenText}.`;
+      return {
+        reply: `Added ${intent.title} to ${intent.layer} for ${whenText}.`,
+        eventId: String(candidate.id),
+      };
     }
     lastError = error;
   }
 
   throw lastError instanceof Error ? lastError : new Error("Could not save calendar event.");
+}
+
+function parseCalendarFollowUpIntent(body: string): CalendarFollowUpIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+
+  const layerPatterns = [
+    /^change\s+it\s+to\s+(.+?)\s+calendar$/i,
+    /^change\s+it\s+to\s+(.+?)\s+filter$/i,
+    /^move\s+it\s+to\s+(.+?)\s+calendar$/i,
+    /^move\s+it\s+to\s+(.+?)\s+filter$/i,
+  ];
+
+  for (const pattern of layerPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      const layer = normalizeCalendarLayerName(match[1] || "");
+      if (layer) return { layer };
+    }
+  }
+
+  const reminderPatterns = [
+    /^change\s+(?:the\s+)?reminder(?:\s+time|\s+timing)?\s+to\s+(\d+)\s*(?:min|mins|minute|minutes)\s+before$/i,
+    /^change\s+it\s+to\s+(\d+)\s*(?:min|mins|minute|minutes)\s+before$/i,
+    /^remind\s+me\s+(\d+)\s*(?:min|mins|minute|minutes)\s+before$/i,
+    /^set\s+(?:the\s+)?reminder(?:\s+time|\s+timing)?\s+to\s+(\d+)\s*(?:min|mins|minute|minutes)\s+before$/i,
+  ];
+
+  for (const pattern of reminderPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      const lead = Number.parseInt(match[1] || "", 10);
+      if (Number.isFinite(lead) && lead >= 0) {
+        return { reminderLeadMinutes: Math.max(0, Math.min(240, lead)) };
+      }
+    }
+  }
+
+  if (/^(?:turn off|disable)\s+(?:the\s+)?reminder$/i.test(normalized)) {
+    return { reminderLeadMinutes: -1 };
+  }
+
+  if (/^(?:remind me|set reminder)(?:\s+at time|\s+on time)?$/i.test(normalized)) {
+    return { reminderLeadMinutes: 0 };
+  }
+
+  return null;
+}
+
+async function updateRecentCalendarEventBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  context: SmsAssistantContext,
+  intent: CalendarFollowUpIntent,
+): Promise<string | null> {
+  const lastEvent = context.lastCalendarEvent;
+  if (!lastEvent?.eventId) return null;
+
+  const updatedAt = DateTime.fromISO(lastEvent.updatedAt, { zone: timezone });
+  if (!updatedAt.isValid || updatedAt < DateTime.now().setZone(timezone).minus({ hours: 24 })) {
+    return null;
+  }
+
+  const { data: existing, error: loadError } = await supabase
+    .from("calendar_events")
+    .select("id,title,calendar_layer,event_reminder_enabled,event_reminder_lead_minutes")
+    .eq("owner_id", userId)
+    .eq("id", lastEvent.eventId)
+    .eq("source", "manual")
+    .eq("is_deleted", false)
+    .maybeSingle();
+
+  if (loadError) throw loadError;
+  if (!existing) return null;
+
+  const nextLayer = intent.layer || String(existing.calendar_layer || "family");
+  const nextReminderEnabled =
+    typeof intent.reminderLeadMinutes === "number"
+      ? intent.reminderLeadMinutes >= 0
+      : !!existing.event_reminder_enabled;
+  const nextReminderLead =
+    typeof intent.reminderLeadMinutes === "number" && intent.reminderLeadMinutes >= 0
+      ? intent.reminderLeadMinutes
+      : typeof existing.event_reminder_lead_minutes === "number"
+      ? existing.event_reminder_lead_minutes
+      : 0;
+
+  const updatePayload = {
+    calendar_layer: nextLayer,
+    event_reminder_enabled: nextReminderEnabled,
+    event_reminder_lead_minutes: nextReminderEnabled ? nextReminderLead : 0,
+  };
+
+  const { error: updateError } = await supabase
+    .from("calendar_events")
+    .update(updatePayload)
+    .eq("id", lastEvent.eventId)
+    .eq("owner_id", userId);
+
+  if (updateError) throw updateError;
+
+  const detailParts: string[] = [];
+  if (intent.layer) {
+    detailParts.push(`moved it to ${nextLayer}`);
+  }
+  if (typeof intent.reminderLeadMinutes === "number") {
+    if (intent.reminderLeadMinutes < 0) {
+      detailParts.push("turned the reminder off");
+    } else if (intent.reminderLeadMinutes === 0) {
+      detailParts.push("set the reminder for event time");
+    } else {
+      detailParts.push(`set the reminder for ${intent.reminderLeadMinutes} min before`);
+    }
+  }
+
+  const details = detailParts.length ? ` and ${detailParts.join(" and ")}` : "";
+  return `Updated ${existing.title || lastEvent.title}${details}.`;
 }
 
 async function addGroceryItemBySms(
@@ -2071,7 +2242,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar' or 'remind me 45 min before'\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -2114,8 +2285,17 @@ serve(async (req) => {
           return twiml("I couldn't pull one clear event from that screenshot. Try a tighter screenshot of the event details.");
         }
 
-        const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, intent);
-        return twiml(reply);
+        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, intent);
+        await saveSmsAssistantContext(supabase, pref.user_id, document, {
+          ...context,
+          lastCalendarEvent: {
+            eventId: result.eventId,
+            title: intent.title,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        return twiml(result.reply);
       } catch (error) {
         console.error("sms screenshot calendar add failed:", error);
         const detail = describeUnknownError(error);
@@ -2190,12 +2370,46 @@ serve(async (req) => {
     const calendarIntent = parseCalendarAddIntent(body, timezone);
     if (calendarIntent) {
       try {
-        const reply = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
-        return twiml(reply);
+        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
+        await saveSmsAssistantContext(supabase, pref.user_id, document, {
+          ...context,
+          lastCalendarEvent: {
+            eventId: result.eventId,
+            title: calendarIntent.title,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        return twiml(result.reply);
       } catch (error) {
         console.error("sms calendar add failed:", error);
         const detail = describeUnknownError(error);
         return twiml(`I could not add that calendar event right now: ${detail}`);
+      }
+    }
+
+    const followUpIntent = parseCalendarFollowUpIntent(body);
+    if (followUpIntent) {
+      try {
+        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, context, followUpIntent);
+        if (!reply) {
+          return twiml("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.");
+        }
+        await saveSmsAssistantContext(supabase, pref.user_id, document, {
+          ...context,
+          lastCalendarEvent: context.lastCalendarEvent
+            ? {
+                ...context.lastCalendarEvent,
+                updatedAt: new Date().toISOString(),
+              }
+            : null,
+        });
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms calendar follow-up failed:", error);
+        const detail = describeUnknownError(error);
+        return twiml(`I could not update that calendar event right now: ${detail}`);
       }
     }
 
