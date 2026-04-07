@@ -1084,6 +1084,12 @@ function normalizeCalendarLayerName(value: string): string {
   return titleCaseWords(trimmed);
 }
 
+function normalizeGroceryItemName(value: string): string {
+  const trimmed = trimTrailingPunctuation(value).replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  return titleCaseWords(trimmed.toLowerCase());
+}
+
 function parseCalendarAddIntent(body: string, timezone: string): CalendarAddIntent | null {
   const normalized = trimTrailingPunctuation(body);
   const verboseMatch = normalized.match(
@@ -1432,11 +1438,12 @@ async function addGroceryItemBySms(
 ): Promise<string> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const normalizedName = normalizeGroceryItemName(intent.name);
   const item: GroceryManualItem = {
     id: crypto.randomUUID(),
-    name: intent.name,
+    name: normalizedName || intent.name,
     quantity: intent.quantity,
-    category: guessGroceryCategory(intent.name),
+    category: guessGroceryCategory(normalizedName || intent.name),
     createdAt: new Date().toISOString(),
   };
 
@@ -1455,10 +1462,10 @@ async function addGroceryItemBySms(
   await saveProfileSettingsDocument(supabase, userId, nextDocument);
 
   return intent.weekly
-    ? `${intent.name} will now show up on your grocery list every week.`
+    ? `${item.name} will now show up on your grocery list every week.`
     : groceryState.weekStates[startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"))]?.orderedAt
-      ? `${intent.name} is now on your next grocery list.`
-      : `${intent.name} is now on this week’s grocery list.`;
+      ? `${item.name} is now on your next grocery list.`
+      : `${item.name} is now on this week’s grocery list.`;
 }
 
 async function addWaterLogBySms(
