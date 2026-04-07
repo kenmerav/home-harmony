@@ -1175,13 +1175,13 @@ export default function GroceryPage() {
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold">Next week grocery order</p>
+            <p className="text-sm font-semibold">Next week grocery reminder status</p>
             <p className="text-xs text-muted-foreground">
-              This only controls next week’s grocery reminder status so SMS knows groceries are handled.
+              This does not clear this week’s grocery list. It only controls whether Home Harmony should keep nudging you about next week’s order.
             </p>
             {nextWeekStatus?.groceries_ordered_at && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Marked ordered: {new Date(nextWeekStatus.groceries_ordered_at).toLocaleString()}
+                Next week marked handled: {new Date(nextWeekStatus.groceries_ordered_at).toLocaleString()}
               </p>
             )}
           </div>
@@ -1194,8 +1194,8 @@ export default function GroceryPage() {
             {updatingNextWeekStatus
               ? 'Saving...'
               : nextWeekStatus?.groceries_ordered
-              ? 'Mark as Not Ordered'
-              : 'Mark Ordered'}
+              ? 'Resume Next Week Reminder'
+              : 'Stop Next Week Reminder'}
           </Button>
         </div>
       </div>
