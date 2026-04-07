@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DateTime } from "npm:luxon@3.6.1";
 import { normalizePhone, verifyTwilioSignature } from "../_shared/twilio.ts";
+import { estimateInboundTextCostUsd, estimateOpenAiCostUsd, logUsageCostEvent } from "../_shared/costMeter.ts";
 
 function twiml(message: string, status = 200) {
   const escaped = message
@@ -474,6 +475,7 @@ async function parseCalendarScreenshotIntent(
   imageDataUrl: string,
   fileName: string,
   timezone: string,
+  userId: string | null,
 ): Promise<{ intent: CalendarAddIntent | null; clarification: string | null }> {
   const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openAiApiKey) {
@@ -535,8 +537,30 @@ Rules:
   }
 
   const aiResponse = await response.json().catch(() => null) as
-    | { choices?: Array<{ message?: { content?: string } }> }
+    | {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    }
     | null;
+  await logUsageCostEvent({
+    userId,
+    category: "ai",
+    provider: "openai",
+    meter: "sms_calendar_screenshot_parse",
+    estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResponse?.usage),
+    quantity: 1,
+    metadata: {
+      model: openAiModel,
+      promptTokens: aiResponse?.usage?.prompt_tokens ?? 0,
+      completionTokens: aiResponse?.usage?.completion_tokens ?? 0,
+      cachedPromptTokens: aiResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+  });
   const content = aiResponse?.choices?.[0]?.message?.content || "";
   let parsed: Record<string, unknown>;
   try {
@@ -2060,6 +2084,20 @@ serve(async (req) => {
     const mediaUrl = params.get("MediaUrl0")?.trim() || "";
     const mediaContentType = params.get("MediaContentType0")?.trim() || "";
 
+    await logUsageCostEvent({
+      userId: pref.user_id,
+      category: "sms",
+      provider: "twilio",
+      meter: Number.isFinite(numMedia) && numMedia > 0 ? "inbound_mms" : "inbound_sms",
+      estimatedCostUsd: estimateInboundTextCostUsd(body, Number.isFinite(numMedia) ? numMedia : 0),
+      quantity: 1,
+      metadata: {
+        from: normalizePhone(from),
+        mediaCount: Number.isFinite(numMedia) ? numMedia : 0,
+        bodyLength: body.length,
+      },
+    });
+
     if (Number.isFinite(numMedia) && numMedia > 0) {
       if (!mediaUrl || !mediaContentType.toLowerCase().startsWith("image/")) {
         return twiml("I can only read image screenshots right now. Send an image and say 'add this to calendar'.");
@@ -2068,7 +2106,7 @@ serve(async (req) => {
       try {
         const fileName = `calendar-screenshot.${extensionForImageContentType(mediaContentType)}`;
         const imageDataUrl = await fetchTwilioImageAsDataUrl(mediaUrl, mediaContentType);
-        const { intent, clarification } = await parseCalendarScreenshotIntent(imageDataUrl, fileName, timezone);
+        const { intent, clarification } = await parseCalendarScreenshotIntent(imageDataUrl, fileName, timezone, pref.user_id);
         if (clarification) {
           return twiml(clarification);
         }

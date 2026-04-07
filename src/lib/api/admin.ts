@@ -25,8 +25,32 @@ export interface AdminMetricsResponse {
   summary: AdminMetricsSummary;
   totals: AdminMetricsTotals;
   subscriptionsByStatus: Record<string, number>;
+  costSummary30d: {
+    estimatedCost30d: number;
+    smsEstimatedCost30d: number;
+    aiEstimatedCost30d: number;
+    emailEstimatedCost30d: number;
+    smsMessagesSent30d: number;
+    inboundTexts30d: number;
+    aiCalls30d: number;
+    emailSends30d: number;
+    activeMeteredUsers30d: number;
+  };
   moduleUsage30d: Record<string, number>;
   topGrowthEvents30d: Array<{ eventType: string; count: number }>;
+  topCostUsers30d: Array<{
+    id: string;
+    email: string | null;
+    totalEstimatedCost30d: number;
+    smsEstimatedCost30d: number;
+    aiEstimatedCost30d: number;
+    emailEstimatedCost30d: number;
+    smsMessagesSent30d: number;
+    inboundTexts30d: number;
+    aiCalls30d: number;
+    emailSends30d: number;
+    lastSeenAt: string | null;
+  }>;
   recentUsers: Array<{
     id: string;
     email: string | null;

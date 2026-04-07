@@ -8,7 +8,37 @@ type GrowthEventRow = {
   occurred_at: string;
 };
 
+type UsageCostEventRow = {
+  user_id: string | null;
+  category: string;
+  provider: string;
+  meter: string;
+  estimated_cost_usd: number | string | null;
+  quantity: number | null;
+  created_at: string;
+};
+
+type SmsNotificationLogRow = {
+  user_id: string;
+  status: string;
+  created_at: string;
+};
+
 type ModuleUsage = Record<string, number>;
+type CostCategory = "sms" | "ai" | "email";
+type UserCostAggregate = {
+  totalEstimatedCost30d: number;
+  smsEstimatedCost30d: number;
+  aiEstimatedCost30d: number;
+  emailEstimatedCost30d: number;
+  smsMessagesSent30d: number;
+  inboundTexts30d: number;
+  aiCalls30d: number;
+  emailSends30d: number;
+  lastSeenAt: string | null;
+};
+
+const ESTIMATED_OUTBOUND_SMS_COST_USD = 0.01;
 
 function parseAdminEmails(raw: string | null): Set<string> {
   if (!raw) return new Set<string>();
@@ -23,6 +53,11 @@ function parseAdminEmails(raw: string | null): Set<string> {
 function toTs(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -89,6 +124,66 @@ async function fetchGrowthEventsSince(
 
     if (error) throw new Error(`Failed loading growth events: ${error.message}`);
     const batch = (data || []) as GrowthEventRow[];
+    if (!batch.length) break;
+
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.slice(0, maxRows);
+}
+
+async function fetchUsageCostEventsSince(
+  service: ReturnType<typeof createClient>,
+  sinceIso: string,
+  maxRows = 50000,
+): Promise<UsageCostEventRow[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const rows: UsageCostEventRow[] = [];
+
+  while (rows.length < maxRows) {
+    const to = from + pageSize - 1;
+    const { data, error } = await service
+      .from("usage_cost_events")
+      .select("user_id,category,provider,meter,estimated_cost_usd,quantity,created_at")
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw new Error(`Failed loading usage cost events: ${error.message}`);
+    const batch = (data || []) as UsageCostEventRow[];
+    if (!batch.length) break;
+
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.slice(0, maxRows);
+}
+
+async function fetchSmsNotificationLogSince(
+  service: ReturnType<typeof createClient>,
+  sinceIso: string,
+  maxRows = 50000,
+): Promise<SmsNotificationLogRow[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const rows: SmsNotificationLogRow[] = [];
+
+  while (rows.length < maxRows) {
+    const to = from + pageSize - 1;
+    const { data, error } = await service
+      .from("sms_notification_log")
+      .select("user_id,status,created_at")
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw new Error(`Failed loading SMS notification log: ${error.message}`);
+    const batch = (data || []) as SmsNotificationLogRow[];
     if (!batch.length) break;
 
     rows.push(...batch);
@@ -181,6 +276,8 @@ serve(async (req) => {
       growthEventsAllTimeCount,
       onboardingCompletedCount,
       subscriptionsRows,
+      usageCostEvents30d,
+      smsNotificationLog30d,
     ] = await Promise.all([
       listAllAuthUsers(service),
       countRows(service, "profiles"),
@@ -191,6 +288,8 @@ serve(async (req) => {
       countRows(service, "growth_events"),
       countRowsSince(service, "profiles", "onboarding_completed_at", "1970-01-01T00:00:00.000Z"),
       service.from("subscriptions").select("status"),
+      fetchUsageCostEventsSince(service, thirtyDaysAgoIso),
+      fetchSmsNotificationLogSince(service, thirtyDaysAgoIso),
     ]);
 
     if (subscriptionsRows.error) {
@@ -252,6 +351,106 @@ serve(async (req) => {
       .slice(0, 20)
       .map(([eventType, count]) => ({ eventType, count }));
 
+    const userEmailById = new Map(allUsers.map((user) => [user.id, user.email] as const));
+    const userCosts = new Map<string, UserCostAggregate>();
+
+    const ensureUserAggregate = (userId: string) => {
+      const existing = userCosts.get(userId);
+      if (existing) return existing;
+      const created: UserCostAggregate = {
+        totalEstimatedCost30d: 0,
+        smsEstimatedCost30d: 0,
+        aiEstimatedCost30d: 0,
+        emailEstimatedCost30d: 0,
+        smsMessagesSent30d: 0,
+        inboundTexts30d: 0,
+        aiCalls30d: 0,
+        emailSends30d: 0,
+        lastSeenAt: null,
+      };
+      userCosts.set(userId, created);
+      return created;
+    };
+
+    let smsEstimatedCost30d = 0;
+    let aiEstimatedCost30d = 0;
+    let emailEstimatedCost30d = 0;
+    let inboundTexts30d = 0;
+    let aiCalls30d = 0;
+    let emailSends30d = 0;
+
+    for (const event of usageCostEvents30d) {
+      const userId = event.user_id;
+      const category = String(event.category || "").toLowerCase() as CostCategory;
+      const estimatedCost = toNumber(event.estimated_cost_usd);
+      const quantity = Math.max(1, Math.round(toNumber(event.quantity) || 1));
+      const createdAt = event.created_at || null;
+
+      if (category === "sms") {
+        smsEstimatedCost30d += estimatedCost;
+        inboundTexts30d += quantity;
+      } else if (category === "ai") {
+        aiEstimatedCost30d += estimatedCost;
+        aiCalls30d += quantity;
+      } else if (category === "email") {
+        emailEstimatedCost30d += estimatedCost;
+        emailSends30d += quantity;
+      }
+
+      if (!userId) continue;
+      const aggregate = ensureUserAggregate(userId);
+      aggregate.totalEstimatedCost30d += estimatedCost;
+      if (category === "sms") {
+        aggregate.smsEstimatedCost30d += estimatedCost;
+        aggregate.inboundTexts30d += quantity;
+      } else if (category === "ai") {
+        aggregate.aiEstimatedCost30d += estimatedCost;
+        aggregate.aiCalls30d += quantity;
+      } else if (category === "email") {
+        aggregate.emailEstimatedCost30d += estimatedCost;
+        aggregate.emailSends30d += quantity;
+      }
+      if (!aggregate.lastSeenAt || toTs(createdAt) > toTs(aggregate.lastSeenAt)) {
+        aggregate.lastSeenAt = createdAt;
+      }
+    }
+
+    let smsMessagesSent30d = 0;
+    for (const row of smsNotificationLog30d) {
+      if (String(row.status || "").toLowerCase() !== "sent") continue;
+      smsMessagesSent30d += 1;
+      smsEstimatedCost30d += ESTIMATED_OUTBOUND_SMS_COST_USD;
+
+      const aggregate = ensureUserAggregate(row.user_id);
+      aggregate.smsMessagesSent30d += 1;
+      aggregate.smsEstimatedCost30d += ESTIMATED_OUTBOUND_SMS_COST_USD;
+      aggregate.totalEstimatedCost30d += ESTIMATED_OUTBOUND_SMS_COST_USD;
+      if (!aggregate.lastSeenAt || toTs(row.created_at) > toTs(aggregate.lastSeenAt)) {
+        aggregate.lastSeenAt = row.created_at;
+      }
+    }
+
+    const topCostUsers30d = [...userCosts.entries()]
+      .map(([userId, aggregate]) => ({
+        id: userId,
+        email: userEmailById.get(userId) || null,
+        ...aggregate,
+      }))
+      .sort((a, b) => {
+        if (b.totalEstimatedCost30d !== a.totalEstimatedCost30d) {
+          return b.totalEstimatedCost30d - a.totalEstimatedCost30d;
+        }
+        return b.smsMessagesSent30d - a.smsMessagesSent30d;
+      })
+      .slice(0, 20)
+      .map((row) => ({
+        ...row,
+        totalEstimatedCost30d: Number(row.totalEstimatedCost30d.toFixed(4)),
+        smsEstimatedCost30d: Number(row.smsEstimatedCost30d.toFixed(4)),
+        aiEstimatedCost30d: Number(row.aiEstimatedCost30d.toFixed(4)),
+        emailEstimatedCost30d: Number(row.emailEstimatedCost30d.toFixed(4)),
+      }));
+
     return json({
       summary: {
         totalUsers: allUsers.length,
@@ -273,8 +472,20 @@ serve(async (req) => {
         growthEventsAllTime: growthEventsAllTimeCount,
       },
       subscriptionsByStatus,
+      costSummary30d: {
+        estimatedCost30d: Number((smsEstimatedCost30d + aiEstimatedCost30d + emailEstimatedCost30d).toFixed(4)),
+        smsEstimatedCost30d: Number(smsEstimatedCost30d.toFixed(4)),
+        aiEstimatedCost30d: Number(aiEstimatedCost30d.toFixed(4)),
+        emailEstimatedCost30d: Number(emailEstimatedCost30d.toFixed(4)),
+        smsMessagesSent30d,
+        inboundTexts30d,
+        aiCalls30d,
+        emailSends30d,
+      activeMeteredUsers30d: userCosts.size,
+      },
       moduleUsage30d: moduleUsage,
       topGrowthEvents30d: topGrowthEvents,
+      topCostUsers30d,
       recentUsers,
       generatedAt: new Date().toISOString(),
     });

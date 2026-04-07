@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { estimateEmailSendCostUsd, logUsageCostEvent } from "../_shared/costMeter.ts";
 
 type Action =
   | "send_welcome"
@@ -83,6 +84,18 @@ async function sendViaResend(args: SendEmailArgs) {
   }
 
   return await response.json().catch(() => ({}));
+}
+
+async function logEmailCost(userId: string | null, meter: string, metadata?: Record<string, unknown>) {
+  await logUsageCostEvent({
+    userId,
+    category: "email",
+    provider: "resend",
+    meter,
+    estimatedCostUsd: estimateEmailSendCostUsd(1),
+    quantity: 1,
+    metadata,
+  });
 }
 
 function lifecycleEmailTemplate(args: {
@@ -428,7 +441,7 @@ serve(async (req) => {
     const serviceRoleToken = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
     const isServiceRoleAuth = Boolean(serviceRoleToken && bearerToken === serviceRoleToken);
 
-    let authUser: { email?: string | null; user_metadata?: Record<string, unknown> } | null = null;
+    let authUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null = null;
     if (!isServiceRoleAuth) {
       const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
@@ -455,6 +468,7 @@ serve(async (req) => {
         html: template.html,
         text: template.text,
       });
+      await logEmailCost(authUser?.id || null, "welcome_email", { action, to: recipient });
 
       return json({ success: true, provider });
     }
@@ -477,6 +491,7 @@ serve(async (req) => {
         html: template.html,
         text: template.text,
       });
+      await logEmailCost(authUser?.id || null, "welcome_email_preview", { action, to: recipientEmail });
 
       return json({ success: true, provider });
     }
@@ -510,6 +525,7 @@ serve(async (req) => {
         html: template.html,
         text: template.text,
       });
+      await logEmailCost(authUser?.id || null, "lifecycle_email_preview", { action, templateKey, to: recipientEmail });
 
       return json({ success: true, provider });
     }
@@ -537,6 +553,7 @@ serve(async (req) => {
         html: template.html,
         text: template.text,
       });
+      await logEmailCost(authUser?.id || null, "family_invite_email", { action, role, to: recipientEmail });
 
       return json({ success: true, provider });
     }
@@ -559,6 +576,7 @@ serve(async (req) => {
         html: template.html,
         text: template.text,
       });
+      await logEmailCost(authUser?.id || null, "onboarding_preview_email", { action, to: recipientEmail });
 
       return json({ success: true, provider });
     }

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { estimateOpenAiCostUsd, logUsageCostEvent } from "../_shared/costMeter.ts";
 
 type ExtractedRecipe = {
   name: string;
@@ -231,7 +232,16 @@ Rules:
       });
     }
 
-    const aiResponse = await response.json();
+    const aiResponse = await response.json().catch(() => null) as
+      | {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: {
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            prompt_tokens_details?: { cached_tokens?: number };
+          };
+        }
+      | null;
     const content: string | undefined = aiResponse?.choices?.[0]?.message?.content;
     const rawRecipes = safeParseRecipesJson(content);
     if (!rawRecipes) {
@@ -244,6 +254,21 @@ Rules:
     const recipes = rawRecipes
       .map((recipe) => normalizeRecipe(recipe))
       .filter((recipe): recipe is ExtractedRecipe => Boolean(recipe));
+
+    await logUsageCostEvent({
+      userId: authData.user.id,
+      category: "ai",
+      provider: "openai",
+      meter: "parse_recipe_photo",
+      estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResponse?.usage),
+      quantity: 1,
+      metadata: {
+        model: openAiModel,
+        promptTokens: aiResponse?.usage?.prompt_tokens || 0,
+        completionTokens: aiResponse?.usage?.completion_tokens || 0,
+        recipeCount: recipes.length,
+      },
+    });
 
     return jsonOk({ success: true, recipes });
   } catch (error) {

@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { estimateOpenAiCostUsd, logUsageCostEvent } from "../_shared/costMeter.ts";
 
 type ExtractedRecipe = {
   name: string;
@@ -454,16 +456,25 @@ ${trimmedText}`;
     throw new Error(errorText || `AI processing failed (${response.status})`);
   }
 
-  const aiResponse = await response.json();
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
+      }
+    | null;
   const content: string | undefined = aiResponse?.choices?.[0]?.message?.content;
   const rawRecipes = safeParseRecipesJson(content);
-  if (!rawRecipes) return [];
+  if (!rawRecipes) return { recipes: [], usage: aiResponse?.usage || null };
 
   const recipes = rawRecipes
     .map((recipe) => normalizeRecipe(recipe))
     .filter((recipe): recipe is ExtractedRecipe => Boolean(recipe));
 
-  return uniqueByName(recipes);
+  return { recipes: uniqueByName(recipes), usage: aiResponse?.usage || null };
 }
 
 function isLikelySocialHost(hostname: string) {
@@ -484,6 +495,22 @@ serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    let userId: string | null = null;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (authHeader && supabaseUrl && supabaseAnonKey) {
+      try {
+        const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data: authData } = await authClient.auth.getUser();
+        userId = authData.user?.id || null;
+      } catch {
+        userId = null;
+      }
+    }
+
     const body = await req.json().catch(() => ({}));
     const sourceUrl = typeof body?.url === "string" ? body.url.trim() : "";
     if (!sourceUrl) {
@@ -545,7 +572,7 @@ serve(async (req) => {
       extractMetaTag(html, "name", "twitter:description");
     const pageText = extractVisibleText(html);
 
-    const aiRecipes = await extractRecipesWithAi({
+    const aiResult = await extractRecipesWithAi({
       openAiApiKey,
       openAiModel,
       sourceUrl: parsedUrl.toString(),
@@ -554,8 +581,24 @@ serve(async (req) => {
       pageText,
     });
 
-    if (aiRecipes.length > 0) {
-      return jsonOk({ success: true, recipes: aiRecipes });
+    await logUsageCostEvent({
+      userId,
+      category: "ai",
+      provider: "openai",
+      meter: "parse_recipe_url",
+      estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResult.usage),
+      quantity: 1,
+      metadata: {
+        model: openAiModel,
+        promptTokens: aiResult.usage?.prompt_tokens || 0,
+        completionTokens: aiResult.usage?.completion_tokens || 0,
+        recipeCount: aiResult.recipes.length,
+        host: parsedUrl.hostname,
+      },
+    });
+
+    if (aiResult.recipes.length > 0) {
+      return jsonOk({ success: true, recipes: aiResult.recipes });
     }
 
     return jsonOk({

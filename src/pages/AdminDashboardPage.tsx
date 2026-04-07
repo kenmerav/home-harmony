@@ -34,6 +34,15 @@ function numberFmt(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
+function usdFmt(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: value < 1 ? 3 : 2,
+    maximumFractionDigits: value < 1 ? 3 : 2,
+  }).format(value);
+}
+
 function percentFmt(part: number, whole: number): string {
   if (whole <= 0) return '0%';
   return `${Math.round((part / whole) * 100)}%`;
@@ -378,6 +387,80 @@ export default function AdminDashboardPage() {
                 <p className="mt-1 text-xl font-semibold">{numberFmt(metrics.totals.growthEventsAllTime)}</p>
               </div>
             </div>
+          </SectionCard>
+
+          <SectionCard title="Estimated Cost (30d)" subtitle="SMS is estimated from actual sends; AI and email are metered from live provider calls">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Total estimated cost</p>
+                <p className="mt-1 text-2xl font-semibold">{usdFmt(metrics.costSummary30d.estimatedCost30d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">SMS estimated cost</p>
+                <p className="mt-1 text-2xl font-semibold">{usdFmt(metrics.costSummary30d.smsEstimatedCost30d)}</p>
+                <p className="text-xs text-muted-foreground">{numberFmt(metrics.costSummary30d.smsMessagesSent30d)} outbound sends</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">AI estimated cost</p>
+                <p className="mt-1 text-2xl font-semibold">{usdFmt(metrics.costSummary30d.aiEstimatedCost30d)}</p>
+                <p className="text-xs text-muted-foreground">{numberFmt(metrics.costSummary30d.aiCalls30d)} AI calls</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Email estimated cost</p>
+                <p className="mt-1 text-2xl font-semibold">{usdFmt(metrics.costSummary30d.emailEstimatedCost30d)}</p>
+                <p className="text-xs text-muted-foreground">{numberFmt(metrics.costSummary30d.emailSends30d)} emails sent</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Inbound texts</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.costSummary30d.inboundTexts30d)}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Metered users</p>
+                <p className="mt-1 text-2xl font-semibold">{numberFmt(metrics.costSummary30d.activeMeteredUsers30d)}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              This is an operational estimate, not a billing ledger. Outbound SMS is approximated from actual send logs, while AI and email are tracked from live app calls after the metering deploy.
+            </p>
+          </SectionCard>
+
+          <SectionCard title="Highest-Cost Users (30d)" subtitle="Households generating the most estimated variable cost right now">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">SMS</TableHead>
+                  <TableHead className="text-right">AI</TableHead>
+                  <TableHead className="text-right">Email</TableHead>
+                  <TableHead className="text-right">SMS sends</TableHead>
+                  <TableHead className="text-right">AI calls</TableHead>
+                  <TableHead className="text-right">Last seen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {metrics.topCostUsers30d.length ? (
+                  metrics.topCostUsers30d.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.email || '(no email)'}</TableCell>
+                      <TableCell className="text-right">{usdFmt(row.totalEstimatedCost30d)}</TableCell>
+                      <TableCell className="text-right">{usdFmt(row.smsEstimatedCost30d)}</TableCell>
+                      <TableCell className="text-right">{usdFmt(row.aiEstimatedCost30d)}</TableCell>
+                      <TableCell className="text-right">{usdFmt(row.emailEstimatedCost30d)}</TableCell>
+                      <TableCell className="text-right">{numberFmt(row.smsMessagesSent30d)}</TableCell>
+                      <TableCell className="text-right">{numberFmt(row.aiCalls30d)}</TableCell>
+                      <TableCell className="text-right">{dateTimeFmt(row.lastSeenAt)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-sm text-muted-foreground">
+                      No cost telemetry yet. Once the updated functions are deployed and used, this table will fill in.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </SectionCard>
 
           <SectionCard title="Signals" subtitle="Automatic checks to catch issues quickly">
