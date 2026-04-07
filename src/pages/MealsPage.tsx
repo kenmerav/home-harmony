@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -191,6 +191,7 @@ type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
 type DinnerServingsByProfile = Record<string, Record<string, number>>;
 
 const DINNER_SERVINGS_STORAGE_KEY = 'homehub.mealPlannerDinnerServings.v1';
+const QUICK_ADD_DRAFT_STORAGE_KEY = 'homehub.mealsQuickAddDraft.v1';
 
 function normalizeIntegerInput(value: string): string {
   const digitsOnly = value.replace(/\D/g, '');
@@ -277,6 +278,10 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function canUseSessionStorage() {
+  return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
+}
+
 function dinnerServingsStorageKey(userId?: string | null): string {
   return `${DINNER_SERVINGS_STORAGE_KEY}:${userId || 'anon'}`;
 }
@@ -309,8 +314,59 @@ function writeDinnerServings(values: DinnerServingsByProfile, userId?: string | 
   window.localStorage.setItem(dinnerServingsStorageKey(userId), JSON.stringify(values));
 }
 
+function quickAddDraftStorageKey(userId?: string | null) {
+  return `${QUICK_ADD_DRAFT_STORAGE_KEY}:${userId || 'anon'}`;
+}
+
+type QuickAddDraft = {
+  context: GridQuickAddContext;
+  form: {
+    date: string;
+    mealType: PlannedMealType;
+    recipeId: string;
+    name: string;
+    servings: string;
+    calories: string;
+    protein_g: string;
+    carbs_g: string;
+    fat_g: string;
+  };
+  recipeQuery: string;
+  photoNote: string;
+  quickAddMode: 'estimate' | 'recipe' | 'manual';
+  repeatMode: PlannerRepeatMode;
+  repeatDays: DayOfWeek[];
+  plannerDay: string;
+  suggestionDate: string;
+  dashboardId: string;
+};
+
+function readQuickAddDraft(userId?: string | null): QuickAddDraft | null {
+  if (!canUseSessionStorage()) return null;
+  try {
+    const raw = window.sessionStorage.getItem(quickAddDraftStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as QuickAddDraft | null;
+    if (!parsed || typeof parsed !== 'object' || !parsed.context || !parsed.form) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeQuickAddDraft(userId: string | null | undefined, draft: QuickAddDraft | null) {
+  if (!canUseSessionStorage()) return;
+  const key = quickAddDraftStorageKey(userId);
+  if (!draft) {
+    window.sessionStorage.removeItem(key);
+    return;
+  }
+  window.sessionStorage.setItem(key, JSON.stringify(draft));
+}
+
 export default function MealsPage() {
   const { user } = useAuth();
+  const hasRestoredQuickAddDraftRef = useRef(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [meals, setMeals] = useState<DbPlannedMeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -466,6 +522,57 @@ export default function MealsPage() {
   useEffect(() => {
     setPlannerDinnerServingsByProfile(readDinnerServings(user?.id));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (hasRestoredQuickAddDraftRef.current) return;
+    const draft = readQuickAddDraft(user?.id);
+    hasRestoredQuickAddDraftRef.current = true;
+    if (!draft?.context) return;
+
+    setPlannerDashboardId(draft.dashboardId || 'me');
+    setPlannerForm(draft.form);
+    setPlannerRecipeQuery(draft.recipeQuery || '');
+    setPlannerPhotoNote(draft.photoNote || '');
+    setPlannerQuickAddMode(draft.quickAddMode || 'estimate');
+    setPlannerRepeatMode(draft.repeatMode || 'once');
+    setPlannerRepeatDays(new Set(draft.repeatDays || []));
+    setPlannerDay(draft.plannerDay || draft.form.date);
+    setSuggestionDate(draft.suggestionDate || draft.form.date);
+    setGridQuickAddContext(draft.context);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!hasRestoredQuickAddDraftRef.current) return;
+    if (!gridQuickAddContext) {
+      writeQuickAddDraft(user?.id, null);
+      return;
+    }
+
+    writeQuickAddDraft(user?.id, {
+      context: gridQuickAddContext,
+      form: plannerForm,
+      recipeQuery: plannerRecipeQuery,
+      photoNote: plannerPhotoNote,
+      quickAddMode: plannerQuickAddMode,
+      repeatMode: plannerRepeatMode,
+      repeatDays: Array.from(plannerRepeatDays),
+      plannerDay,
+      suggestionDate,
+      dashboardId: plannerDashboardId,
+    });
+  }, [
+    gridQuickAddContext,
+    plannerForm,
+    plannerRecipeQuery,
+    plannerPhotoNote,
+    plannerQuickAddMode,
+    plannerRepeatMode,
+    plannerRepeatDays,
+    plannerDay,
+    suggestionDate,
+    plannerDashboardId,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!menuRejuvenatePrefs.enabled) return;
