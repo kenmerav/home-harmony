@@ -137,8 +137,6 @@ const supabaseCalendarSync = supabase as unknown as SupabaseCalendarSyncClient;
 
 const MANUAL_EVENTS_KEY = 'homehub.calendar.manualEvents.v1';
 const GOOGLE_PREFS_KEY = 'homehub.calendar.googlePrefs.v1';
-const MANUAL_EVENT_BACKFILL_DONE = new Set<string>();
-
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
@@ -451,10 +449,10 @@ export async function fetchManualCalendarEventsInRange(
   const remoteEvents = await fetchRemoteManualEventsInRange(rangeStart, rangeEnd, userId);
 
   const merged = new Map<string, CalendarEvent>();
-  remoteEvents.forEach((event) => {
+  localEvents.forEach((event) => {
     merged.set(event.id, event);
   });
-  localEvents.forEach((event) => {
+  remoteEvents.forEach((event) => {
     merged.set(event.id, event);
   });
 
@@ -671,22 +669,6 @@ export function getManualCalendarEvents(userId?: string | null): CalendarEvent[]
   const rows = readJson<unknown[]>(scopedKey(MANUAL_EVENTS_KEY, userId), [])
     .map((row) => normalizeManualEvent(row))
     .filter((row): row is StoredManualEvent => Boolean(row));
-
-  if (userId && rows.length > 0 && !MANUAL_EVENT_BACKFILL_DONE.has(userId)) {
-    MANUAL_EVENT_BACKFILL_DONE.add(userId);
-    const timezoneName = guessUserTimeZone();
-    for (const row of rows) {
-      const remoteId = remoteIdFromLocalId(row.id);
-      if (!remoteId) continue;
-      void upsertManualEventRemote(remoteId, row, timezoneName, userId)
-        .then(({ error }: { error?: { message?: string } | null }) => {
-          if (error) console.error('Failed to backfill manual event to Supabase:', error.message || error);
-        })
-        .catch((error: unknown) => {
-          console.error('Failed to backfill manual event to Supabase:', error);
-        });
-    }
-  }
 
   return rows.map((row) => ({
     id: row.id,
