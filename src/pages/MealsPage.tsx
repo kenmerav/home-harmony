@@ -2506,6 +2506,9 @@ export default function MealsPage() {
 
                       {plannerQuickAddMode === 'estimate' ? (
                         <div className="space-y-3 border-t border-border/60 pt-3">
+                          <p className="text-xs text-muted-foreground">
+                            Estimate only. Manually entering your macros gives you the most reliable tracking.
+                          </p>
                           <Input
                             placeholder="Describe what you ate: 3 servings deli chicken, 2 slices Sara Lee bread, Quest chips"
                             value={plannerPhotoNote}
@@ -3530,6 +3533,9 @@ export default function MealsPage() {
                   <p className="text-xs font-medium text-muted-foreground">Estimate from photo or description</p>
                   <p className="text-xs text-muted-foreground">
                     Type what you ate or upload a photo, then adjust anything manually if needed.
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Estimate only. Manually entering your macros gives you the most reliable tracking.
                   </p>
                 </div>
                 <Input
