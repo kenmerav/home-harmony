@@ -448,10 +448,17 @@ export default function CalendarPlannerPage() {
     try {
       const rows = await fetchCalendarEventsForMonth(currentMonth, user?.id);
       setEvents(rows);
+    } catch (error) {
+      console.error('Failed loading calendar planner events:', error);
+      toast({
+        title: 'Could not load calendar planner',
+        description: error instanceof Error ? error.message : 'Please try refreshing the page.',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [currentMonth, user?.id]);
+  }, [currentMonth, toast, user?.id]);
 
   useEffect(() => {
     void refreshEvents();

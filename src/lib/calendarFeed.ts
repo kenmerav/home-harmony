@@ -14,7 +14,7 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
-import { getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
+import { getDinnerReminderPrefs, getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
 import { DayOfWeek } from '@/types';
 import type { Workout, CardioSession } from '@/workouts/types/workout';
@@ -531,6 +531,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
   const rangeStart = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
   const rangeEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 0 });
   const nextEvents: CalendarEvent[] = [];
+  const dinnerPrefs = getDinnerReminderPrefs();
 
   const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const weekOffsets: number[] = [];
