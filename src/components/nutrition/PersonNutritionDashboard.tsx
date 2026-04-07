@@ -786,6 +786,7 @@ function getProjectedDinnerForDate({
   date,
   personId,
   userId,
+  includePlannedDinner,
 }: {
   meals: DbPlannedMeal[];
   date: Date;
