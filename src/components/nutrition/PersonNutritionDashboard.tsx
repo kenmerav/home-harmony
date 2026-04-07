@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, differenceInCalendarDays, format, isValid, parseISO, subDays } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek, subDays } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,6 +15,7 @@ import { useCurrentDate } from '@/hooks/useCurrentDate';
 import { mockMealPlan } from '@/data/mockData';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
+import { getDinnerServingsForProfileDate } from '@/lib/mealPrefs';
 import {
   AdultId,
   addDashboardTodo,
@@ -78,8 +79,8 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     let cancelled = false;
     const loadTodayMeals = async () => {
       try {
-        const data = await fetchMealsForWeek(0);
-        if (!cancelled) setLiveMeals(data);
+        const [currentWeekMeals, previousWeekMeals] = await Promise.all([fetchMealsForWeek(0), fetchMealsForWeek(-1)]);
+        if (!cancelled) setLiveMeals([...previousWeekMeals, ...currentWeekMeals]);
       } catch (error) {
         console.error('Failed to load dashboard dinner candidate:', error);
       }
@@ -227,12 +228,22 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     const date = subDays(currentDate, 6 - i);
     const dateStr = format(date, 'yyyy-MM-dd');
     const score = getDailyScore(personId, dateStr);
+    const effectiveLogs = getEffectiveMealLogsForDate(personId, dateStr);
+    const projectedDinner = getProjectedDinnerForDate({
+      meals: liveMeals,
+      date,
+      personId,
+      userId: user?.id,
+      includePlannedDinner: !effectiveLogs.some((log) => log.mealType === 'dinner'),
+    });
+    const combinedCalories = score.calories + projectedDinner.calories;
+    const combinedProtein = score.protein_g + projectedDinner.protein_g;
     return {
       day: format(date, 'EEE'),
       date: dateStr,
-      calories: score.calories,
-      protein_g: score.protein_g,
-      fullyLogged: isDailyLogFullyLogged(personId, dateStr),
+      calories: combinedCalories,
+      protein_g: combinedProtein,
+      fullyLogged: isDailyLogFullyLogged(personId, dateStr) || combinedCalories >= targetCalories * 0.8,
       isToday: dateStr === todayKey,
     };
   });
@@ -768,4 +779,39 @@ function parseOptionalDate(value: string): Date | null {
   if (!value) return null;
   const parsed = parseISO(value);
   return isValid(parsed) ? parsed : null;
+}
+
+function getProjectedDinnerForDate({
+  meals,
+  date,
+  personId,
+  userId,
+}: {
+  meals: DbPlannedMeal[];
+  date: Date;
+  personId: AdultId;
+  userId?: string | null;
+  includePlannedDinner: boolean;
+}): { calories: number; protein_g: number; carbs_g: number; fat_g: number } {
+  if (!includePlannedDinner) {
+    return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  }
+  const dateKey = format(date, 'yyyy-MM-dd');
+  const weekOf = format(startOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const dayName = getCurrentDay(date);
+  const dinnerMeal = meals.find(
+    (meal) => meal.week_of === weekOf && meal.day === dayName && !meal.is_skipped && !!meal.recipes,
+  );
+
+  if (!dinnerMeal?.recipes) {
+    return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  }
+
+  const servings = getDinnerServingsForProfileDate(personId, dateKey, userId);
+  return {
+    calories: Math.round((dinnerMeal.recipes.calories || 0) * servings),
+    protein_g: Math.round((dinnerMeal.recipes.protein_g || 0) * servings),
+    carbs_g: Math.round((dinnerMeal.recipes.carbs_g || 0) * servings),
+    fat_g: Math.round((dinnerMeal.recipes.fat_g || 0) * servings),
+  };
 }

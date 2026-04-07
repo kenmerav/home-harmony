@@ -38,6 +38,7 @@ import {
   DinnerReminderPrefs,
   MenuRejuvenatePrefs,
   getDinnerReminderPrefs,
+  getDinnerServingsByProfile,
   getDinnerTimeForDay,
   getFavoriteIds,
   getKidFriendlyOverrides,
@@ -287,26 +288,7 @@ function dinnerServingsStorageKey(userId?: string | null): string {
 }
 
 function readDinnerServings(userId?: string | null): DinnerServingsByProfile {
-  if (!canUseStorage()) return {};
-  try {
-    const raw = window.localStorage.getItem(dinnerServingsStorageKey(userId));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return Object.entries(parsed).reduce<DinnerServingsByProfile>((acc, [profileId, values]) => {
-      if (!values || typeof values !== 'object' || Array.isArray(values)) return acc;
-      const normalized = Object.entries(values).reduce<Record<string, number>>((dates, [date, amount]) => {
-        const servings = Number(amount);
-        if (!Number.isFinite(servings)) return dates;
-        dates[date] = Math.min(6, Math.max(0, servings));
-        return dates;
-      }, {});
-      if (Object.keys(normalized).length > 0) acc[profileId] = normalized;
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
+  return getDinnerServingsByProfile(userId);
 }
 
 function writeDinnerServings(values: DinnerServingsByProfile, userId?: string | null) {

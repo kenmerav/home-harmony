@@ -10,6 +10,7 @@ const DINNER_REMINDER_LOG_KEY = 'homehub.dinnerReminderLog';
 
 type IdMap = Record<string, boolean>;
 type MultiplierMap = Record<string, number>;
+type DinnerServingsByProfile = Record<string, Record<string, number>>;
 
 export interface PlanRules {
   preferFavorites: boolean;
@@ -159,6 +160,38 @@ export function setMealMultiplier(mealId: string, multiplier: number) {
   if (multiplier <= 1) delete next[mealId];
   else next[mealId] = 2;
   writeJson(MEAL_MULTIPLIER_KEY, next);
+}
+
+function dinnerServingsStorageKey(userId?: string | null): string {
+  return `homehub.mealPlannerDinnerServings.v1:${userId || 'anon'}`;
+}
+
+export function getDinnerServingsByProfile(userId?: string | null): DinnerServingsByProfile {
+  if (!canUseStorage()) return {};
+  try {
+    const raw = window.localStorage.getItem(dinnerServingsStorageKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.entries(parsed).reduce<DinnerServingsByProfile>((acc, [profileId, values]) => {
+      if (!values || typeof values !== 'object' || Array.isArray(values)) return acc;
+      const normalized = Object.entries(values).reduce<Record<string, number>>((dates, [date, amount]) => {
+        const servings = Number(amount);
+        if (!Number.isFinite(servings)) return dates;
+        dates[date] = Math.min(6, Math.max(0, servings));
+        return dates;
+      }, {});
+      if (Object.keys(normalized).length > 0) acc[profileId] = normalized;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+export function getDinnerServingsForProfileDate(profileId: string, date: string, userId?: string | null): number {
+  const value = getDinnerServingsByProfile(userId)[profileId]?.[date];
+  return Number.isFinite(value) ? Math.min(6, Math.max(0, value)) : 1;
 }
 
 export function getPlanRules(): PlanRules {
