@@ -40,7 +40,14 @@ export async function sendWelcomePreviewEmail(payload: {
 export async function sendLifecyclePreviewEmail(payload: {
   email: string;
   userName?: string;
-  templateKey: 'welcome' | 'quickstart' | 'day2' | 'day4' | 'day7';
+  templateKey:
+    | 'welcome'
+    | 'plan_meals'
+    | 'review_grocery'
+    | 'invite_household'
+    | 'set_reminders'
+    | 'calendar_setup'
+    | 'power_up';
   appUrl?: string;
 }) {
   return invokeEmail({

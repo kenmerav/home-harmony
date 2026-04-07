@@ -9,7 +9,14 @@ type Action =
   | "send_welcome_preview"
   | "send_email_preview";
 
-type LifecycleTemplateKey = "welcome" | "quickstart" | "day2" | "day4" | "day7";
+type LifecycleTemplateKey =
+  | "welcome"
+  | "plan_meals"
+  | "review_grocery"
+  | "invite_household"
+  | "set_reminders"
+  | "calendar_setup"
+  | "power_up";
 
 interface SendEmailArgs {
   to: string;
@@ -213,135 +220,192 @@ function familyInviteTemplate(args: {
   };
 }
 
-function onboardingPreviewTemplate(args: { userName: string; appUrl: string }) {
+function planMealsTemplate(args: { userName: string; appUrl: string }) {
   const base = args.appUrl.replace(/\/$/, "");
   const familyUrl = `${base}/family`;
   const recipesUrl = `${base}/recipes`;
   const mealsUrl = `${base}/meals`;
   const groceryUrl = `${base}/grocery`;
-  const settingsUrl = `${base}/settings`;
-  const workoutsUrl = `${base}/workouts`;
 
   return lifecycleEmailTemplate({
     userName: args.userName,
-    subject: "Welcome to Home Harmony - your setup starts here",
-    badge: "Quick start",
-    title: "Here’s the fastest setup path, {name}",
-    intro: "If you want Home Harmony to feel useful right away, these are the setup steps that matter most.",
-    ctaLabel: "Finish Setup",
-    ctaUrl: base,
-    stepsTitle: "Fast setup path",
-    steps: [
-      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Set up your household</a> and invite spouse or kids.`,
-      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add recipes</a> so planning uses your real meals.`,
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build this week's meal plan</a> by generating or assigning meals manually.`,
-      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Confirm your grocery list</a> with rolled-up quantities.`,
-    ],
-    helpfulTitle: "Worth doing next",
-    helpfulItems: [
-      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> to enable SMS reminders.`,
-      `<a href="${workoutsUrl}" style="color:#2f7d5b;font-weight:600;">Optional: set macro goals</a> and workout tracking when you’re ready.`,
-    ],
-    footer: "Reply to this email anytime if you want help with setup.",
-  });
-}
-
-function onboardingDay2Template(userName: string, appUrl: string) {
-  const base = appUrl.replace(/\/$/, "");
-  const recipesUrl = `${base}/recipes`;
-  const mealsUrl = `${base}/meals`;
-  const groceryUrl = `${base}/grocery`;
-
-  return lifecycleEmailTemplate({
-    userName,
-    subject: "Need a quick win? Build one real meal week",
-    badge: "Day 2",
-    title: "One good week makes the app click, {name}",
-    intro: "The biggest unlock is simple: give Home Harmony real meals to work with, and it can take over the grocery planning for you.",
-    ctaLabel: "Plan This Week",
+    subject: "Build one real meal week and Home Harmony gets much better",
+    badge: "Meal planning",
+    title: "Plan one real week, {name}",
+    intro: "The meal plan is the engine for the rest of the app. Once your meals are real, groceries and daily planning start working for you.",
+    ctaLabel: "Open Meals",
     ctaUrl: mealsUrl,
-    stepsTitle: "Do this next",
+    stepsTitle: "Best next steps",
     steps: [
-      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add 5-8 real recipes</a> your family actually eats.`,
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Set dinners for the week</a> so the plan reflects your real schedule.`,
-      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Check the grocery list</a> and make sure it looks usable.`,
+      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add 5-8 recipes</a> your household actually eats.`,
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build this week's meal plan</a> with your real schedule in mind.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Check the grocery list</a> once the dinners are set.`,
     ],
     helpfulTitle: "Why this matters",
     helpfulItems: [
-      "Once the meals are real, the grocery list stops feeling generic and starts saving time.",
-      "You can still add breakfasts, lunches, snacks, and quick food logs later.",
+      "A real meal week is the fastest path to seeing whether Home Harmony fits your household.",
+      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite family later</a> if you want everyone to see the same plan.`,
+    ],
+    footer: "If you want, start with just dinners. That alone usually makes the app click.",
+  });
+}
+
+function reviewGroceryTemplate(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
+  const groceryUrl = `${base}/grocery`;
+  const mealsUrl = `${base}/meals`;
+  const recipesUrl = `${base}/recipes`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "Your grocery list can save time now",
+    badge: "Grocery flow",
+    title: "Review your grocery list, {name}",
+    intro: "Once meals are in, the grocery list becomes one of the most useful parts of Home Harmony. This is where you catch bad quantities, add staples, and prep the next order.",
+    ctaLabel: "Open Grocery List",
+    ctaUrl: groceryUrl,
+    stepsTitle: "Use it like this",
+    steps: [
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Check quantities</a> and make sure the rollup looks right.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Add weekly staples</a> for things you always buy.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Mark ordered when checkout is done</a> so the list resets into your next order.`,
+    ],
+    helpfulTitle: "Helpful if it looks thin",
+    helpfulItems: [
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Add more meals</a> if the grocery list feels too light.`,
+      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Tighten recipe ingredients</a> if quantities look off.`,
     ],
   });
 }
 
-function onboardingDay4Template(userName: string, appUrl: string) {
+function inviteHouseholdTemplate(userName: string, appUrl: string) {
   const base = appUrl.replace(/\/$/, "");
   const familyUrl = `${base}/family`;
-  const calendarUrl = `${base}/calendar`;
+  const choresUrl = `${base}/chores`;
+  const tasksUrl = `${base}/tasks`;
+  const mealsUrl = `${base}/meals`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "Bring your spouse or family into the same plan",
+    badge: "Family setup",
+    title: "Make this shared, {name}",
+    intro: "Home Harmony gets much more useful once the household is actually connected. That’s when tasks, meals, groceries, and reminders start feeling coordinated instead of solo.",
+    ctaLabel: "Open Family Setup",
+    ctaUrl: familyUrl,
+    stepsTitle: "Best ways to use family setup",
+    steps: [
+      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or partner</a> so they see the same meals, groceries, and calendar.`,
+      `<a href="${tasksUrl}" style="color:#2f7d5b;font-weight:600;">Assign tasks</a> so reminders can go to the right adult.`,
+      `<a href="${choresUrl}" style="color:#2f7d5b;font-weight:600;">Set up kids in chores</a> if you want points and recurring responsibilities.`,
+    ],
+    helpfulTitle: "Good to know",
+    helpfulItems: [
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Adult dashboards</a> can still have individualized breakfasts, lunches, snacks, and food logs.`,
+      "You can keep dinner shared for the household while personal items stay separate.",
+    ],
+  });
+}
+
+function setRemindersTemplate(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
   const settingsUrl = `${base}/settings`;
+  const calendarUrl = `${base}/calendar`;
   const tasksUrl = `${base}/tasks`;
 
   return lifecycleEmailTemplate({
     userName,
-    subject: "Get your household synced so reminders go to the right people",
-    badge: "Day 4",
-    title: "Bring the rest of the household in, {name}",
-    intro: "Home Harmony works best when the right people see the right meals, calendar items, and reminders.",
-    ctaLabel: "Open Family Setup",
-    ctaUrl: familyUrl,
-    stepsTitle: "Best next setup steps",
+    subject: "Set the reminders that actually help",
+    badge: "Reminders",
+    title: "Make reminders useful, not noisy, {name}",
+    intro: "The best reminder setup is light and practical. A few good texts are much better than getting pinged about everything.",
+    ctaLabel: "Open Settings",
+    ctaUrl: settingsUrl,
+    stepsTitle: "Good reminder setup",
     steps: [
-      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares the same household plan.`,
-      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Set phone numbers and reminder preferences</a> so texts go to the right person.`,
-      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review calendar filters</a> for Family, Ken, Katie, or anyone else you’ve set up.`,
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> so texts can route correctly.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Keep useful calendar reminders</a> like events and arrival timing.`,
+      `<a href="${tasksUrl}" style="color:#2f7d5b;font-weight:600;">Assign tasks to adults</a> if you want reminders to follow ownership.`,
     ],
-    helpfulTitle: "Optional cleanup",
+    helpfulTitle: "Keep it light",
     helpfulItems: [
-      `<a href="${tasksUrl}" style="color:#2f7d5b;font-weight:600;">Assign tasks to adults</a> so reminders are more useful.`,
-      "If you only want reminders by text and not on calendar feeds, you can control that in settings.",
+      "You can skip reminder types that feel noisy.",
+      "Home Harmony works best when reminders are the ones you’ll actually act on.",
     ],
   });
 }
 
-function onboardingDay7Template(userName: string, appUrl: string) {
+function calendarSetupTemplate(userName: string, appUrl: string) {
   const base = appUrl.replace(/\/$/, "");
-  const mealsUrl = `${base}/meals`;
-  const groceryUrl = `${base}/grocery`;
-  const settingsUrl = `${base}/settings`;
   const calendarUrl = `${base}/calendar`;
+  const appleCalendarUrl = `${base}/apple-calendar-connect`;
+  const settingsUrl = `${base}/settings`;
 
   return lifecycleEmailTemplate({
     userName,
-    subject: "A few smart tweaks can make Home Harmony feel automatic",
-    badge: "Day 7",
-    title: "Ready to make this run smoother, {name}?",
-    intro: "Once your first week is in place, a few small settings make the app feel much more automatic from here on out.",
-    ctaLabel: "Tune Your Setup",
-    ctaUrl: settingsUrl,
-    stepsTitle: "Good week-two upgrades",
+    subject: "Set up the shared calendar without making it messy",
+    badge: "Calendar",
+    title: "Make the calendar useful, {name}",
+    intro: "The calendar works best when it shows the real family schedule and only the reminders you actually want to see.",
+    ctaLabel: "Open Calendar",
+    ctaUrl: calendarUrl,
+    stepsTitle: "Best calendar setup",
     steps: [
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Set recurring meals</a> for breakfasts, lunches, or dinners you repeat often.`,
-      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Add weekly staples</a> so they show up automatically each order.`,
-      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Fine-tune calendar filters and reminders</a> so only the useful stuff surfaces.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Add your real family events</a> and use Family, Ken, Katie, or other filters where helpful.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Use arrive-by timing</a> when you care about being somewhere by a certain time.`,
+      `<a href="${appleCalendarUrl}" style="color:#2f7d5b;font-weight:600;">Connect Apple Calendar</a> if you want the feed outside the app.`,
     ],
-    helpfulTitle: "Keep it simple",
+    helpfulTitle: "Good cleanup moves",
     helpfulItems: [
-      "You do not need every feature turned on at once to get value.",
-      "The best setup is the one your household will actually keep using.",
+      "Keep clutter low by only turning on the reminder/event types you actually want surfaced.",
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Use settings and filters</a> to keep the calendar calm.`,
+    ],
+  });
+}
+
+function powerUpTemplate(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
+  const mealsUrl = `${base}/meals`;
+  const groceryUrl = `${base}/grocery`;
+  const workoutsUrl = `${base}/workouts`;
+  const settingsUrl = `${base}/settings`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "A few small upgrades can make Home Harmony feel automatic",
+    badge: "Power up",
+    title: "Ready for the smoother version, {name}?",
+    intro: "Once the basics are working, a few small upgrades make the app feel much more automatic week to week.",
+    ctaLabel: "Open Home Harmony",
+    ctaUrl: base,
+    stepsTitle: "Best week-two upgrades",
+    steps: [
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Set recurring meals</a> for things you repeat often.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Add weekly staples</a> so the grocery list starts closer to complete.`,
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Tune profiles and reminders</a> so everything feels personal but not noisy.`,
+    ],
+    helpfulTitle: "Optional extras",
+    helpfulItems: [
+      `<a href="${workoutsUrl}" style="color:#2f7d5b;font-weight:600;">Use workouts and macro tracking</a> if that part of Home Harmony matters to you.`,
+      "You do not need to turn on every feature to get strong value from the app.",
     ],
   });
 }
 
 function getLifecycleTemplate(templateKey: LifecycleTemplateKey, userName: string, appUrl: string) {
   switch (templateKey) {
-    case "quickstart":
-      return onboardingPreviewTemplate({ userName, appUrl });
-    case "day2":
-      return onboardingDay2Template(userName, appUrl);
-    case "day4":
-      return onboardingDay4Template(userName, appUrl);
-    case "day7":
-      return onboardingDay7Template(userName, appUrl);
+    case "plan_meals":
+      return planMealsTemplate({ userName, appUrl });
+    case "review_grocery":
+      return reviewGroceryTemplate(userName, appUrl);
+    case "invite_household":
+      return inviteHouseholdTemplate(userName, appUrl);
+    case "set_reminders":
+      return setRemindersTemplate(userName, appUrl);
+    case "calendar_setup":
+      return calendarSetupTemplate(userName, appUrl);
+    case "power_up":
+      return powerUpTemplate(userName, appUrl);
     case "welcome":
     default:
       return welcomeTemplate(userName, appUrl);
@@ -422,12 +486,14 @@ serve(async (req) => {
       const userName = typeof payload.userName === "string" ? payload.userName.trim() : inviterName;
       const templateKeyRaw = typeof payload.templateKey === "string" ? payload.templateKey.trim().toLowerCase() : "welcome";
       const templateKey: LifecycleTemplateKey = (
-        templateKeyRaw === "quickstart"
-        || templateKeyRaw === "day2"
-        || templateKeyRaw === "day4"
-        || templateKeyRaw === "day7"
+        templateKeyRaw === "plan_meals"
+        || templateKeyRaw === "review_grocery"
+        || templateKeyRaw === "invite_household"
+        || templateKeyRaw === "set_reminders"
+        || templateKeyRaw === "calendar_setup"
+        || templateKeyRaw === "power_up"
       )
-        ? templateKeyRaw
+        ? templateKeyRaw as LifecycleTemplateKey
         : "welcome";
       if (!recipientEmail) return json({ error: "Recipient email is required." }, 400);
       if (!isServiceRoleAuth) {
@@ -486,7 +552,7 @@ serve(async (req) => {
         }
       }
 
-      const template = onboardingPreviewTemplate({ userName, appUrl });
+      const template = planMealsTemplate({ userName, appUrl });
       const provider = await sendViaResend({
         to: recipientEmail,
         subject: template.subject,

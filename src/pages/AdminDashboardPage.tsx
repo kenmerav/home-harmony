@@ -55,27 +55,37 @@ const EMAIL_TEMPLATE_OPTIONS = [
   {
     value: 'welcome',
     label: 'Welcome',
-    description: 'Main signup welcome email with the best first-week setup steps.',
+    description: 'The main first email that gets a new user to one useful week quickly.',
   },
   {
-    value: 'quickstart',
-    label: 'Quick Start',
-    description: 'A setup-focused follow-up that points people to the core areas to finish first.',
+    value: 'plan_meals',
+    label: 'Plan Meals',
+    description: 'Pushes users toward adding real recipes and building their first useful meal week.',
   },
   {
-    value: 'day2',
-    label: 'Day 2',
-    description: 'Pushes them toward real recipes, meal planning, and the first useful grocery list.',
+    value: 'review_grocery',
+    label: 'Review Grocery',
+    description: 'Focuses on using the grocery list well once meals are in place.',
   },
   {
-    value: 'day4',
-    label: 'Day 4',
-    description: 'Focuses on inviting family, routing reminders, and syncing the household.',
+    value: 'invite_household',
+    label: 'Invite Household',
+    description: 'Encourages adding a spouse or family so the household actually runs in one place.',
   },
   {
-    value: 'day7',
-    label: 'Day 7',
-    description: 'Covers recurring meals, staples, and week-two polish to make the app feel automatic.',
+    value: 'set_reminders',
+    label: 'Set Reminders',
+    description: 'Helps users set texts and reminder routing without making the app noisy.',
+  },
+  {
+    value: 'calendar_setup',
+    label: 'Calendar Setup',
+    description: 'Shows how to make the calendar useful without turning it into clutter.',
+  },
+  {
+    value: 'power_up',
+    label: 'Power Up',
+    description: 'Week-two style upgrades like recurring meals, staples, and optional advanced features.',
   },
 ] as const;
 
