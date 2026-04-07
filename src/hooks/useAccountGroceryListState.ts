@@ -129,6 +129,56 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
     };
   }, [groceryListState, scopeKey, userId]);
 
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+
+    const refreshFromAccount = async () => {
+      if (activeScopeRef.current !== scopeKey) return;
+
+      const currentSnapshot = serializeState(latestStateRef.current);
+      if (persistedSnapshotRef.current && currentSnapshot !== persistedSnapshotRef.current) {
+        return;
+      }
+
+      try {
+        const remoteState = await loadAccountGroceryListState(userId);
+        if (cancelled || !remoteState) return;
+
+        const normalized = normalizeStoredGroceryListState(remoteState);
+        const remoteSnapshot = serializeState(normalized);
+        if (remoteSnapshot === serializeState(latestStateRef.current)) return;
+
+        saveLocalGroceryListState(normalized, userId);
+        latestStateRef.current = normalized;
+        persistedSnapshotRef.current = remoteSnapshot;
+        setInternalState(normalized);
+      } catch (error) {
+        console.error('Failed to refresh grocery list state:', error);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshFromAccount();
+      }
+    };
+
+    const handleFocus = () => {
+      void refreshFromAccount();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [scopeKey, userId]);
+
   const setGroceryListState = useCallback<Dispatch<SetStateAction<StoredGroceryListState>>>((value) => {
     setInternalState((previous) => {
       const next = normalizeStoredGroceryListState(applyStateAction(value, previous));
