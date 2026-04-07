@@ -51,6 +51,19 @@ export interface AdminMetricsResponse {
     emailSends30d: number;
     lastSeenAt: string | null;
   }>;
+  recentFeedback: Array<{
+    id: string;
+    email: string | null;
+    userName: string | null;
+    kind: 'feature_request' | 'bug_report' | 'general_feedback';
+    pagePath: string;
+    pageTitle: string | null;
+    pageUrl: string | null;
+    subject: string | null;
+    details: string;
+    status: string;
+    createdAt: string;
+  }>;
   recentUsers: Array<{
     id: string;
     email: string | null;

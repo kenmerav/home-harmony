@@ -60,6 +60,12 @@ function safeRatio(numerator: number, denominator: number): string {
   return (numerator / denominator).toFixed(1);
 }
 
+function feedbackKindLabel(kind: 'feature_request' | 'bug_report' | 'general_feedback'): string {
+  if (kind === 'feature_request') return 'Feature Request';
+  if (kind === 'bug_report') return 'Bug Report';
+  return 'General Feedback';
+}
+
 const EMAIL_TEMPLATE_OPTIONS = [
   {
     value: 'welcome',
@@ -522,6 +528,41 @@ export default function AdminDashboardPage() {
             <p className="mt-1 text-xs text-muted-foreground">
               This sends the live email template using the current production app URL so you can review it in a real inbox.
             </p>
+          </SectionCard>
+
+          <SectionCard title="Feedback Inbox" subtitle="Latest feature requests and bug reports from inside the app">
+            <div className="space-y-3">
+              {metrics.recentFeedback.length ? (
+                metrics.recentFeedback.map((row) => (
+                  <div key={row.id} className="rounded-lg border border-border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={row.kind === 'bug_report' ? 'destructive' : 'outline'}>
+                            {feedbackKindLabel(row.kind)}
+                          </Badge>
+                          <Badge variant="outline">{row.status}</Badge>
+                          <span className="text-xs text-muted-foreground">{dateTimeFmt(row.createdAt)}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">
+                            {row.subject?.trim() || '(No subject)'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {row.email || '(no email)'}
+                            {row.userName ? ` • ${row.userName}` : ''}
+                            {row.pagePath ? ` • ${row.pagePath}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{row.details}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No feedback submissions yet.</p>
+              )}
+            </div>
           </SectionCard>
 
           <SectionCard title="Module Usage (30d)" subtitle="Relative distribution of tracked events">

@@ -181,6 +181,51 @@ export type Database = {
         }
         Relationships: []
       }
+      feedback_submissions: {
+        Row: {
+          created_at: string
+          details: string
+          email: string | null
+          id: string
+          kind: string
+          page_path: string
+          page_title: string | null
+          page_url: string | null
+          status: string
+          subject: string | null
+          user_id: string
+          user_name: string | null
+        }
+        Insert: {
+          created_at?: string
+          details: string
+          email?: string | null
+          id?: string
+          kind: string
+          page_path: string
+          page_title?: string | null
+          page_url?: string | null
+          status?: string
+          subject?: string | null
+          user_id: string
+          user_name?: string | null
+        }
+        Update: {
+          created_at?: string
+          details?: string
+          email?: string | null
+          id?: string
+          kind?: string
+          page_path?: string
+          page_title?: string | null
+          page_url?: string | null
+          status?: string
+          subject?: string | null
+          user_id?: string
+          user_name?: string | null
+        }
+        Relationships: []
+      }
       lifecycle_flow_settings: {
         Row: {
           created_at: string

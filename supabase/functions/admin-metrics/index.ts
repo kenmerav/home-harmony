@@ -24,6 +24,21 @@ type SmsNotificationLogRow = {
   created_at: string;
 };
 
+type FeedbackSubmissionRow = {
+  id: string;
+  user_id: string;
+  email: string | null;
+  user_name: string | null;
+  kind: "feature_request" | "bug_report" | "general_feedback";
+  page_path: string;
+  page_title: string | null;
+  page_url: string | null;
+  subject: string | null;
+  details: string;
+  status: string;
+  created_at: string;
+};
+
 type ModuleUsage = Record<string, number>;
 type CostCategory = "sms" | "ai" | "email";
 type UserCostAggregate = {
@@ -194,6 +209,26 @@ async function fetchSmsNotificationLogSince(
   return rows.slice(0, maxRows);
 }
 
+async function fetchRecentFeedback(
+  service: ReturnType<typeof createClient>,
+  limit = 50,
+): Promise<FeedbackSubmissionRow[]> {
+  const { data, error } = await service
+    .from("feedback_submissions")
+    .select("id,user_id,email,user_name,kind,page_path,page_title,page_url,subject,details,status,created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    const lowered = error.message.toLowerCase();
+    if (lowered.includes("feedback_submissions") && lowered.includes("does not exist")) {
+      return [];
+    }
+    throw new Error(`Failed loading feedback submissions: ${error.message}`);
+  }
+  return (data || []) as FeedbackSubmissionRow[];
+}
+
 async function listAllAuthUsers(service: ReturnType<typeof createClient>) {
   const perPage = 1000;
   let page = 1;
@@ -278,6 +313,7 @@ serve(async (req) => {
       subscriptionsRows,
       usageCostEvents30d,
       smsNotificationLog30d,
+      recentFeedbackRows,
     ] = await Promise.all([
       listAllAuthUsers(service),
       countRows(service, "profiles"),
@@ -290,6 +326,7 @@ serve(async (req) => {
       service.from("subscriptions").select("status"),
       fetchUsageCostEventsSince(service, thirtyDaysAgoIso),
       fetchSmsNotificationLogSince(service, thirtyDaysAgoIso),
+      fetchRecentFeedback(service),
     ]);
 
     if (subscriptionsRows.error) {
@@ -486,6 +523,19 @@ serve(async (req) => {
       moduleUsage30d: moduleUsage,
       topGrowthEvents30d: topGrowthEvents,
       topCostUsers30d,
+      recentFeedback: recentFeedbackRows.map((row) => ({
+        id: row.id,
+        email: row.email,
+        userName: row.user_name,
+        kind: row.kind,
+        pagePath: row.page_path,
+        pageTitle: row.page_title,
+        pageUrl: row.page_url,
+        subject: row.subject,
+        details: row.details,
+        status: row.status,
+        createdAt: row.created_at,
+      })),
       recentUsers,
       generatedAt: new Date().toISOString(),
     });

@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { listDashboardProfiles, renameDashboardProfile } from '@/lib/macroGame';
 import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
 import { getHouseholdDashboard } from '@/lib/api/family';
+import { submitFeedback, type FeedbackKind } from '@/lib/api/feedback';
+import { useToast } from '@/hooks/use-toast';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -59,12 +64,18 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, isAdmin, user, profile } = useAuth();
+  const { toast } = useToast();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const [dashboards, setDashboards] = useState(() => listDashboardProfiles());
   const [mobileDashboardsOpen, setMobileDashboardsOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackKind, setFeedbackKind] = useState<FeedbackKind>('feature_request');
+  const [feedbackSubject, setFeedbackSubject] = useState('');
+  const [feedbackDetails, setFeedbackDetails] = useState('');
+  const [sendingFeedback, setSendingFeedback] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('homehub:sidebar-collapsed') === '1';
@@ -181,6 +192,62 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   const openFamilySetupPath = (path: string) => {
     closeFamilySetup();
     navigate(path);
+  };
+
+  const resetFeedbackForm = () => {
+    setFeedbackKind('feature_request');
+    setFeedbackSubject('');
+    setFeedbackDetails('');
+  };
+
+  const handleSendFeedback = async () => {
+    const details = feedbackDetails.trim();
+    if (!user?.id) {
+      toast({
+        title: 'Sign in required',
+        description: 'You need to be signed in to send feedback.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!details) {
+      toast({
+        title: 'Add a few details',
+        description: 'Tell us what you ran into or what you want us to build.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSendingFeedback(true);
+    try {
+      await submitFeedback({
+        userId: user.id,
+        email: user.email,
+        userName: profile?.fullName || null,
+        kind: feedbackKind,
+        pagePath: `${location.pathname}${location.search}`,
+        pageUrl: typeof window !== 'undefined' ? window.location.href : null,
+        pageTitle: typeof document !== 'undefined' ? document.title : null,
+        subject: feedbackSubject,
+        details,
+      });
+      toast({
+        title: feedbackKind === 'bug_report' ? 'Bug report sent' : 'Feedback sent',
+        description: 'Thanks. This is now in your admin feedback inbox.',
+      });
+      setFeedbackOpen(false);
+      resetFeedbackForm();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not send feedback.';
+      toast({
+        title: 'Could not send feedback',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingFeedback(false);
+    }
   };
 
   return (
@@ -488,6 +555,88 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
           navigate('/chores');
         }}
       />
+
+      <Button
+        type="button"
+        onClick={() => setFeedbackOpen(true)}
+        className="fixed bottom-24 right-4 z-40 shadow-lg md:bottom-6 md:right-6"
+      >
+        <MessageSquarePlus className="h-4 w-4" />
+        <span className="hidden sm:inline">Feedback</span>
+      </Button>
+
+      <Dialog
+        open={feedbackOpen}
+        onOpenChange={(open) => {
+          setFeedbackOpen(open);
+          if (!open && !sendingFeedback) resetFeedbackForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Send feedback or report an issue</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">What is this about?</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {([
+                  ['feature_request', 'Feature Request'],
+                  ['bug_report', 'Bug Report'],
+                  ['general_feedback', 'General Feedback'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFeedbackKind(value)}
+                    className={cn(
+                      'rounded-md border px-3 py-2 text-sm transition-gentle',
+                      feedbackKind === value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-background hover:bg-muted/40',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Short title</p>
+              <Input
+                value={feedbackSubject}
+                onChange={(event) => setFeedbackSubject(event.target.value)}
+                placeholder="Example: Grocery list reopens old items after checkout"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">What happened?</p>
+              <Textarea
+                value={feedbackDetails}
+                onChange={(event) => setFeedbackDetails(event.target.value)}
+                placeholder="Tell us what you expected, what happened instead, and anything that would help us reproduce it."
+                className="min-h-[140px]"
+              />
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              This report includes the current page automatically:
+              <span className="ml-1 font-medium text-foreground">{`${location.pathname}${location.search}`}</span>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setFeedbackOpen(false)} disabled={sendingFeedback}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSendFeedback()} disabled={sendingFeedback}>
+                {sendingFeedback ? 'Sending...' : 'Send Feedback'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
