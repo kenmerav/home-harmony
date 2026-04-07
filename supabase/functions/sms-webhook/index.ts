@@ -131,6 +131,10 @@ type CalendarAddIntent = {
 type CalendarFollowUpIntent = {
   layer?: string;
   reminderLeadMinutes?: number;
+  makeAllDay?: boolean;
+  moveDateText?: string;
+  moveTimeText?: string;
+  deleteEvent?: boolean;
 };
 
 type SmsAssistantContext = {
@@ -145,6 +149,10 @@ type GroceryAddIntent = {
   name: string;
   quantity: string;
   weekly: boolean;
+};
+
+type GroceryRemoveIntent = {
+  name: string;
 };
 
 type WaterLogIntent = {
@@ -1165,6 +1173,13 @@ function normalizeGroceryItemName(value: string): string {
   return titleCaseWords(trimmed.toLowerCase());
 }
 
+function groceryItemMatchesName(itemName: string, requestedName: string): boolean {
+  const itemKey = normalizeToken(itemName);
+  const requestedKey = normalizeToken(requestedName);
+  if (!itemKey || !requestedKey) return false;
+  return itemKey === requestedKey || itemKey.includes(requestedKey) || requestedKey.includes(itemKey);
+}
+
 function parseCalendarAddIntent(body: string, timezone: string): CalendarAddIntent | null {
   const normalized = trimTrailingPunctuation(body);
   const verboseMatch = normalized.match(
@@ -1289,6 +1304,32 @@ function parseGroceryAddIntent(body: string): GroceryAddIntent | null {
     quantity: "1x",
     weekly,
   };
+}
+
+function parseGroceryRemoveIntent(body: string): GroceryRemoveIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const match = normalized.match(
+    /^(?:remove|delete)\s+(.+?)\s+from\s+(?:the\s+)?grocery(?:\s+list)?$/i,
+  );
+  if (!match) return null;
+  const name = trimTrailingPunctuation(match[1] || "");
+  if (!name) return null;
+  return { name };
+}
+
+function groceryOrderIntent(body: string): "ordered" | "not_ordered" | null {
+  const normalized = trimTrailingPunctuation(body);
+  if (/^(?:mark\s+)?(?:groceries|grocery(?:\s+list)?)(?:\s+as)?\s+ordered$/i.test(normalized)) {
+    return "ordered";
+  }
+  if (/^(?:undo\s+grocery\s+order|mark\s+(?:groceries|grocery(?:\s+list)?)(?:\s+as)?\s+not\s+ordered)$/i.test(normalized)) {
+    return "not_ordered";
+  }
+  return null;
+}
+
+function asksForGroceryList(body: string): boolean {
+  return /(?:what(?:'s| is)\s+on\s+(?:the\s+)?grocery(?:\s+list)?|show\s+(?:me\s+)?(?:the\s+)?grocery(?:\s+list)?)/i.test(body);
 }
 
 function parseWaterLogIntent(body: string): WaterLogIntent | null {
@@ -1508,7 +1549,7 @@ async function addCalendarEventBySms(
   throw lastError instanceof Error ? lastError : new Error("Could not save calendar event.");
 }
 
-function parseCalendarFollowUpIntent(body: string): CalendarFollowUpIntent | null {
+function parseCalendarFollowUpIntent(body: string, timezone: string): CalendarFollowUpIntent | null {
   const normalized = trimTrailingPunctuation(body);
 
   const layerPatterns = [
@@ -1551,6 +1592,44 @@ function parseCalendarFollowUpIntent(body: string): CalendarFollowUpIntent | nul
     return { reminderLeadMinutes: 0 };
   }
 
+  if (/^(?:delete that|remove that|delete it|remove it|cancel that event|delete that event)$/i.test(normalized)) {
+    return { deleteEvent: true };
+  }
+
+  if (/^(?:make it all day|change it to all day|set it as all day)$/i.test(normalized)) {
+    return { makeAllDay: true };
+  }
+
+  const movePatterns = [
+    /^move\s+it\s+to\s+(.+?)\s+at\s+(.+)$/i,
+    /^change\s+it\s+to\s+(.+?)\s+at\s+(.+)$/i,
+    /^move\s+it\s+to\s+(.+)$/i,
+  ];
+
+  for (const pattern of movePatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    if (pattern === movePatterns[2]) {
+      const trailing = trimTrailingPunctuation(match[1] || "");
+      const dateWithTime = trailing.match(/^(.+?)\s+at\s+(.+)$/i);
+      if (dateWithTime) {
+        return {
+          moveDateText: trimTrailingPunctuation(dateWithTime[1] || ""),
+          moveTimeText: trimTrailingPunctuation(dateWithTime[2] || ""),
+        };
+      }
+      const parsedAsDate = parseUsDate(trailing, timezone);
+      if (parsedAsDate) {
+        return { moveDateText: trailing };
+      }
+      return { moveTimeText: trailing };
+    }
+    return {
+      moveDateText: trimTrailingPunctuation(match[1] || ""),
+      moveTimeText: trimTrailingPunctuation(match[2] || ""),
+    };
+  }
+
   return null;
 }
 
@@ -1571,7 +1650,7 @@ async function updateRecentCalendarEventBySms(
 
   const { data: existing, error: loadError } = await supabase
     .from("calendar_events")
-    .select("id,title,calendar_layer,event_reminder_enabled,event_reminder_lead_minutes")
+    .select("id,title,calendar_layer,event_reminder_enabled,event_reminder_lead_minutes,starts_at,ends_at,all_day")
     .eq("owner_id", userId)
     .eq("id", lastEvent.eventId)
     .eq("source", "manual")
@@ -1580,6 +1659,51 @@ async function updateRecentCalendarEventBySms(
 
   if (loadError) throw loadError;
   if (!existing) return null;
+
+  if (intent.deleteEvent) {
+    const { error: deleteError } = await supabase
+      .from("calendar_events")
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq("id", lastEvent.eventId)
+      .eq("owner_id", userId);
+
+    if (deleteError) throw deleteError;
+    return `Deleted ${existing.title || lastEvent.title}.`;
+  }
+
+  const currentStart = safeDateTime(String(existing.starts_at || ""), "utc")?.setZone(timezone);
+  const currentEnd = safeDateTime(String(existing.ends_at || ""), "utc")?.setZone(timezone);
+  let nextStartsAt = currentStart;
+  let nextEndsAt = currentEnd;
+  let nextAllDay = !!existing.all_day;
+
+  if (intent.makeAllDay && currentStart) {
+    nextAllDay = true;
+    nextStartsAt = currentStart.startOf("day").set({ hour: 12, minute: 0, second: 0, millisecond: 0 });
+    nextEndsAt = null;
+  } else if ((intent.moveDateText || intent.moveTimeText) && currentStart) {
+    let nextDate = currentStart.startOf("day");
+    if (intent.moveDateText) {
+      const parsedDate = parseUsDate(intent.moveDateText, timezone);
+      if (!parsedDate) return "I couldn't read the new date for that event. Try something like 'move it to tomorrow at 3 PM'.";
+      nextDate = parsedDate;
+    }
+    if (intent.moveTimeText) {
+      const parsedTime = parseTimeForZone(intent.moveTimeText, nextDate, timezone);
+      if (!parsedTime) return "I couldn't read the new time for that event. Try something like 'move it to 3:15 PM'.";
+      nextStartsAt = parsedTime;
+      nextAllDay = false;
+      const durationMinutes =
+        currentStart && currentEnd && currentEnd > currentStart
+          ? Math.max(15, Math.round(currentEnd.diff(currentStart, "minutes").minutes))
+          : 60;
+      nextEndsAt = nextStartsAt.plus({ minutes: durationMinutes });
+    } else {
+      nextAllDay = true;
+      nextStartsAt = nextDate.set({ hour: 12, minute: 0, second: 0, millisecond: 0 });
+      nextEndsAt = null;
+    }
+  }
 
   const nextLayer = intent.layer || String(existing.calendar_layer || "family");
   const nextReminderEnabled =
@@ -1597,6 +1721,9 @@ async function updateRecentCalendarEventBySms(
     calendar_layer: nextLayer,
     event_reminder_enabled: nextReminderEnabled,
     event_reminder_lead_minutes: nextReminderEnabled ? nextReminderLead : 0,
+    starts_at: nextStartsAt ? nextStartsAt.toUTC().toISO() : existing.starts_at,
+    ends_at: nextEndsAt ? nextEndsAt.toUTC().toISO() : null,
+    all_day: nextAllDay,
   };
 
   const { error: updateError } = await supabase
@@ -1618,6 +1745,16 @@ async function updateRecentCalendarEventBySms(
       detailParts.push("set the reminder for event time");
     } else {
       detailParts.push(`set the reminder for ${intent.reminderLeadMinutes} min before`);
+    }
+  }
+  if (intent.makeAllDay) {
+    detailParts.push("made it all day");
+  } else if (intent.moveDateText || intent.moveTimeText) {
+    const whenParts: string[] = [];
+    if (intent.moveDateText && nextStartsAt) whenParts.push(nextStartsAt.toFormat("LLL d"));
+    if (intent.moveTimeText && nextStartsAt) whenParts.push(nextStartsAt.toFormat("h:mm a"));
+    if (whenParts.length) {
+      detailParts.push(`moved it to ${whenParts.join(" at ")}`);
     }
   }
 
@@ -1661,6 +1798,84 @@ async function addGroceryItemBySms(
     : groceryState.weekStates[startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"))]?.orderedAt
       ? `${item.name} is now on your next grocery list.`
       : `${item.name} is now on this week’s grocery list.`;
+}
+
+async function removeGroceryItemBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: GroceryRemoveIntent,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+  const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+
+  const recurringBefore = groceryState.recurringItems.length;
+  groceryState.recurringItems = groceryState.recurringItems.filter((item) => !groceryItemMatchesName(item.name, intent.name));
+  const currentBefore = currentWeek.manualItems.length;
+  const nextWeekState: GroceryWeekState = {
+    ...currentWeek,
+    manualItems: currentWeek.manualItems.filter((item) => !groceryItemMatchesName(item.name, intent.name)),
+  };
+  groceryState.weekStates[weekOf] = nextWeekState;
+
+  const removedCount = (recurringBefore - groceryState.recurringItems.length) + (currentBefore - nextWeekState.manualItems.length);
+  if (removedCount === 0) {
+    return `I couldn't find ${intent.name} on your grocery list.`;
+  }
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "groceryList"], groceryState);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+  return `Removed ${titleCaseWords(intent.name.toLowerCase())} from your grocery list.`;
+}
+
+async function updateGroceryOrderBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  action: "ordered" | "not_ordered",
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+  const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+  groceryState.weekStates[weekOf] = {
+    ...currentWeek,
+    checkedKeys: action === "ordered" ? currentWeek.checkedKeys : [],
+    manualItems: action === "ordered" ? [] : currentWeek.manualItems,
+    orderedAt: action === "ordered" ? new Date().toISOString() : null,
+  };
+  const nextDocument = setDocumentValue(document, ["appPreferences", "groceryList"], groceryState);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+  return action === "ordered"
+    ? "Marked groceries ordered. Your finished order is cleared and new items will go onto your next list."
+    : "Marked groceries not ordered. Your current grocery list is open again.";
+}
+
+async function buildGroceryListReply(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+  const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+
+  const names = [
+    ...groceryState.recurringItems.map((item) => item.name),
+    ...currentWeek.manualItems.map((item) => item.name),
+  ];
+  const uniqueNames = [...new Set(names)].filter(Boolean);
+  if (!uniqueNames.length) {
+    return currentWeek.orderedAt
+      ? "Your current grocery order is marked done. Only new items or weekly staples will show for the next order."
+      : "Your grocery list is empty right now.";
+  }
+  const preview = uniqueNames.slice(0, 10).join(", ");
+  const more = uniqueNames.length > 10 ? `, +${uniqueNames.length - 10} more` : "";
+  return `Your grocery list has ${uniqueNames.length} items: ${preview}${more}.`;
 }
 
 async function addWaterLogBySms(
@@ -2242,7 +2457,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar' or 'remind me 45 min before'\n- add milk to grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -2356,6 +2571,38 @@ serve(async (req) => {
       }
     }
 
+    const groceryRemoveIntent = parseGroceryRemoveIntent(body);
+    if (groceryRemoveIntent) {
+      try {
+        const reply = await removeGroceryItemBySms(supabase, pref.user_id, timezone, groceryRemoveIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms grocery remove failed:", error);
+        return twiml("I could not remove that grocery item right now. Please try again in a moment.");
+      }
+    }
+
+    const groceryOrderAction = groceryOrderIntent(body);
+    if (groceryOrderAction) {
+      try {
+        const reply = await updateGroceryOrderBySms(supabase, pref.user_id, timezone, groceryOrderAction);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms grocery order update failed:", error);
+        return twiml("I could not update your grocery order status right now. Please try again in a moment.");
+      }
+    }
+
+    if (asksForGroceryList(body)) {
+      try {
+        const reply = await buildGroceryListReply(supabase, pref.user_id, timezone);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms grocery list reply failed:", error);
+        return twiml("I could not read your grocery list right now. Please try again in a moment.");
+      }
+    }
+
     const groceryIntent = parseGroceryAddIntent(body);
     if (groceryIntent) {
       try {
@@ -2388,7 +2635,7 @@ serve(async (req) => {
       }
     }
 
-    const followUpIntent = parseCalendarFollowUpIntent(body);
+    const followUpIntent = parseCalendarFollowUpIntent(body, timezone);
     if (followUpIntent) {
       try {
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
@@ -2398,12 +2645,14 @@ serve(async (req) => {
         }
         await saveSmsAssistantContext(supabase, pref.user_id, document, {
           ...context,
-          lastCalendarEvent: context.lastCalendarEvent
-            ? {
-                ...context.lastCalendarEvent,
-                updatedAt: new Date().toISOString(),
-              }
-            : null,
+          lastCalendarEvent: followUpIntent.deleteEvent
+            ? null
+            : context.lastCalendarEvent
+              ? {
+                  ...context.lastCalendarEvent,
+                  updatedAt: new Date().toISOString(),
+                }
+              : null,
         });
         return twiml(reply);
       } catch (error) {
