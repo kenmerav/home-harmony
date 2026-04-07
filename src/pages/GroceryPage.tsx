@@ -720,15 +720,15 @@ export default function GroceryPage() {
     }));
   };
 
-  const regenerateCurrentWeekList = () => {
+  const markCurrentWeekNotOrdered = () => {
     updateCurrentWeekState((weekState) => ({
       ...weekState,
       checkedKeys: [],
       orderedAt: null,
     }));
     toast({
-      title: 'Grocery list restored',
-      description: 'This week’s list is visible again in case you still need it.',
+      title: 'Marked this week as not ordered',
+      description: 'This week’s grocery list is visible again and unchecked so you can use it normally.',
     });
   };
 
@@ -1076,11 +1076,11 @@ export default function GroceryPage() {
             <div>
               <p className="text-sm font-semibold">This week’s grocery list is marked ordered</p>
               <p className="text-xs text-muted-foreground">
-                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Meal-plan and one-time items are hidden now. Weekly staples stay on the list.
+                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Meal-plan and one-time items are hidden now. Weekly staples stay on the list. Use Mark as Not Ordered if you still need this week’s list.
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={regenerateCurrentWeekList}>
-              Generate Grocery List
+            <Button size="sm" variant="outline" onClick={markCurrentWeekNotOrdered}>
+              Mark as Not Ordered
             </Button>
           </div>
         </div>
@@ -1169,7 +1169,7 @@ export default function GroceryPage() {
           <div>
             <p className="text-sm font-semibold">Next week grocery order</p>
             <p className="text-xs text-muted-foreground">
-              Mark this once you place checkout so SMS reminders know groceries are handled.
+              This only controls next week’s grocery reminder status so SMS knows groceries are handled.
             </p>
             {nextWeekStatus?.groceries_ordered_at && (
               <p className="mt-1 text-xs text-muted-foreground">
