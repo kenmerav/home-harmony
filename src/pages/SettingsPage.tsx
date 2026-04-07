@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -265,6 +265,26 @@ export default function SettingsPage() {
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const adultMacroProfiles = listDashboardProfiles();
 
+  const refreshSmsPrefs = useCallback(async () => {
+    const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
+    setSavedDepartureProfile(savedDepartureProfile);
+    setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
+    if (!canUseRemoteSms) {
+      setSmsPrefs((prev) => ({
+        ...prev,
+        home_address: savedDepartureProfile.homeAddress,
+        work_address: savedDepartureProfile.workAddress,
+      }));
+      return;
+    }
+    const sms = await loadSmsPreferences();
+    setSmsPrefs({
+      ...sms,
+      home_address: savedDepartureProfile.homeAddress || sms.home_address,
+      work_address: savedDepartureProfile.workAddress || sms.work_address,
+    });
+  }, [canUseRemoteSms, user?.id]);
+
   useEffect(() => {
     setAccountDetails({
       fullName: profile?.fullName || '',
@@ -287,19 +307,9 @@ export default function SettingsPage() {
         me: profiles.me.macroPlan.bodyUnitSystem || 'imperial',
         wife: profiles.wife.macroPlan.bodyUnitSystem || 'imperial',
       });
-      const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
-      setSavedDepartureProfile(savedDepartureProfile);
-      setCommonDepartureAddresses(loadCommonDepartureAddresses(user?.id));
       if (canUseRemoteSms) {
         try {
-          const sms = await loadSmsPreferences();
-          if (mounted) {
-            setSmsPrefs({
-              ...sms,
-              home_address: savedDepartureProfile.homeAddress || sms.home_address,
-              work_address: savedDepartureProfile.workAddress || sms.work_address,
-            });
-          }
+          await refreshSmsPrefs();
         } catch (error) {
           if (mounted) {
             toast({
@@ -310,11 +320,7 @@ export default function SettingsPage() {
           }
         }
       } else if (mounted) {
-        setSmsPrefs((prev) => ({
-          ...prev,
-          home_address: savedDepartureProfile.homeAddress,
-          work_address: savedDepartureProfile.workAddress,
-        }));
+        await refreshSmsPrefs();
       }
       setLoading(false);
     };
@@ -322,7 +328,43 @@ export default function SettingsPage() {
     return () => {
       mounted = false;
     };
-  }, [canUseRemoteSms, toast, user?.id]);
+  }, [canUseRemoteSms, refreshSmsPrefs, toast, user?.id]);
+
+  useEffect(() => {
+    if (!canUseRemoteSms) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const latest = await loadSmsPreferences();
+        if (cancelled) return;
+        setSmsPrefs((prev) => {
+          const next = {
+            ...latest,
+            home_address: prev.home_address || latest.home_address,
+            work_address: prev.work_address || latest.work_address,
+          };
+          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
+      } catch {
+        // Keep current view if refresh fails.
+      }
+    };
+    const onFocus = () => {
+      void sync();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void sync();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [canUseRemoteSms]);
 
   const limitReached = !answers.primaryGoals.includes('All of the above')
     && answers.primaryGoals.filter((item) => item !== 'All of the above').length >= 3;

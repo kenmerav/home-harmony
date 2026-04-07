@@ -340,6 +340,36 @@ export default function CalendarPlannerPage() {
   }, [canUseRemoteSms]);
 
   useEffect(() => {
+    if (!canUseRemoteSms) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const prefs = await loadSmsPreferences();
+        if (!cancelled) {
+          setSmsPrefs((prev) => (JSON.stringify(prev) === JSON.stringify(prefs) ? prev : prefs));
+        }
+      } catch {
+        // Keep current values if refresh fails.
+      }
+    };
+    const onFocus = () => {
+      void sync();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void sync();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [canUseRemoteSms]);
+
+  useEffect(() => {
     setFiltersExpanded(!isMobile);
   }, [isMobile]);
 
