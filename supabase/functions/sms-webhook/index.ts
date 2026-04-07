@@ -109,6 +109,7 @@ type GroceryManualItem = {
 type GroceryWeekState = {
   checkedKeys: string[];
   manualItems: GroceryManualItem[];
+  orderedAt?: string | null;
 };
 
 type StoredGroceryListState = {
@@ -996,6 +997,10 @@ function normalizeGroceryState(input: unknown): StoredGroceryListState {
     weeks[weekKey] = {
       checkedKeys,
       manualItems,
+      orderedAt:
+        typeof row.orderedAt === "string" && row.orderedAt.trim()
+          ? row.orderedAt.trim()
+          : null,
     };
     return weeks;
   }, {});
@@ -1439,7 +1444,7 @@ async function addGroceryItemBySms(
     groceryState.recurringItems = [...groceryState.recurringItems, item];
   } else {
     const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
-    const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [] };
+    const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
     groceryState.weekStates[weekOf] = {
       ...currentWeek,
       manualItems: [...currentWeek.manualItems, item],
@@ -1451,7 +1456,9 @@ async function addGroceryItemBySms(
 
   return intent.weekly
     ? `${intent.name} will now show up on your grocery list every week.`
-    : `${intent.name} is now on this week’s grocery list.`;
+    : groceryState.weekStates[startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"))]?.orderedAt
+      ? `${intent.name} is now on your next grocery list.`
+      : `${intent.name} is now on this week’s grocery list.`;
 }
 
 async function addWaterLogBySms(
