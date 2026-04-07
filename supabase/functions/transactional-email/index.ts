@@ -73,32 +73,70 @@ async function sendViaResend(args: SendEmailArgs) {
 
 function welcomeTemplate(userName: string, appUrl: string) {
   const safeName = escapeHtml(userName || "there");
-  const settingsUrl = `${appUrl.replace(/\/$/, "")}/settings`;
-  const mealsUrl = `${appUrl.replace(/\/$/, "")}/meals`;
-  const familyUrl = `${appUrl.replace(/\/$/, "")}/family`;
-  const calendarUrl = `${appUrl.replace(/\/$/, "")}/calendar`;
+  const base = appUrl.replace(/\/$/, "");
+  const settingsUrl = `${base}/settings`;
+  const mealsUrl = `${base}/meals`;
+  const familyUrl = `${base}/family`;
+  const groceryUrl = `${base}/grocery`;
+  const calendarUrl = `${base}/calendar`;
 
   return {
-    subject: "Welcome to Home Harmony - your setup is ready",
+    subject: "Welcome to Home Harmony - let’s set up your first week",
     text:
-      `Hi ${userName || "there"}, your Home Harmony account is ready.\n\n` +
+      `Hi ${userName || "there"},\n\n` +
+      `Welcome to Home Harmony. Your account is live, and the fastest way to make it useful is to set up your first week.\n\n` +
       `Start here:\n` +
-      `1) Add recipes and set your meal week: ${mealsUrl}\n` +
-      `2) Invite family members: ${familyUrl}\n` +
-      `3) Set text reminders and phone number: ${settingsUrl}\n` +
-      `4) Review your weekly calendar: ${calendarUrl}\n`,
+      `1) Add recipes and build your meal plan: ${mealsUrl}\n` +
+      `2) Review your grocery list: ${groceryUrl}\n` +
+      `3) Invite your spouse or family members: ${familyUrl}\n` +
+      `4) Add your phone number for reminders: ${settingsUrl}\n` +
+      `5) Review the calendar: ${calendarUrl}\n\n` +
+      `Open Home Harmony: ${base}\n`,
     html: `
-      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1f2937;">
-        <h1 style="font-size:24px;margin:0 0 12px;">Welcome to Home Harmony, ${safeName}</h1>
-        <p style="margin:0 0 16px;line-height:1.55;">Your account is live. Here is the fastest path to a useful first week.</p>
-        <ol style="margin:0 0 20px;padding-left:18px;line-height:1.7;">
-          <li><a href="${mealsUrl}">Set your weekly meals</a> and confirm recipes.</li>
-          <li><a href="${familyUrl}">Invite your family</a> so everyone sees tasks, meals, and chores.</li>
-          <li><a href="${settingsUrl}">Add your phone number</a> to enable SMS reminders and daily updates.</li>
-          <li>Review your <a href="${calendarUrl}">calendar plan</a> for the week.</li>
-        </ol>
-        <a href="${appUrl}" style="display:inline-block;background:#2f7d5b;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Open Home Harmony</a>
-        <p style="margin:18px 0 0;color:#6b7280;font-size:13px;">You can update reminder preferences anytime in Settings.</p>
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:28px 28px 16px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);border-bottom:1px solid #efe7da;">
+            <div style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef6f1;color:#2f7d5b;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+              Your account is ready
+            </div>
+            <h1 style="font-size:30px;line-height:1.15;margin:16px 0 12px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              Welcome to Home Harmony, ${safeName}
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.65;font-size:16px;color:#5f554c;">
+              The easiest way to get value this week is to set up meals, confirm groceries, and make sure your household is connected.
+            </p>
+            <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              Open Home Harmony
+            </a>
+          </div>
+
+          <div style="padding:24px 28px;">
+            <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
+                Start with these 3 steps
+              </p>
+              <ol style="margin:0;padding-left:20px;line-height:1.8;color:#2e2a26;">
+                <li><a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build your first meal plan</a> so Home Harmony can create a real grocery list.</li>
+                <li><a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Review your grocery list</a> and make sure the quantities look right.</li>
+                <li><a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares meals, tasks, and reminders.</li>
+              </ol>
+            </div>
+
+            <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;">
+              <p style="margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
+                Helpful next
+              </p>
+              <ul style="margin:0;padding-left:18px;line-height:1.8;color:#5f554c;">
+                <li><a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> for reminder texts and daily updates.</li>
+                <li><a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review your calendar</a> so meals and events line up with your week.</li>
+              </ul>
+            </div>
+
+            <p style="margin:0;color:#7a6f64;font-size:13px;line-height:1.6;">
+              You can reply to this email anytime if you want help getting your first week set up.
+            </p>
+          </div>
+        </div>
       </div>
     `,
   };
