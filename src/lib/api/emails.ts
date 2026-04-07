@@ -37,6 +37,23 @@ export async function sendWelcomePreviewEmail(payload: {
   });
 }
 
+export async function sendLifecyclePreviewEmail(payload: {
+  email: string;
+  userName?: string;
+  templateKey: 'welcome' | 'quickstart' | 'day2' | 'day4' | 'day7';
+  appUrl?: string;
+}) {
+  return invokeEmail({
+    action: 'send_email_preview',
+    email: payload.email,
+    userName: payload.userName,
+    templateKey: payload.templateKey,
+    appUrl:
+      payload.appUrl ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined),
+  });
+}
+
 export async function sendFamilyInviteEmail(payload: {
   email: string;
   role: 'spouse' | 'kid';

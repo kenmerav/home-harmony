@@ -5,6 +5,7 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +27,7 @@ import {
 import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { deleteAdminUser, fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
-import { sendWelcomePreviewEmail } from '@/lib/api/emails';
+import { sendLifecyclePreviewEmail } from '@/lib/api/emails';
 import { useAuth } from '@/contexts/AuthContext';
 
 function numberFmt(value: number): string {
@@ -50,6 +51,36 @@ function safeRatio(numerator: number, denominator: number): string {
   return (numerator / denominator).toFixed(1);
 }
 
+const EMAIL_TEMPLATE_OPTIONS = [
+  {
+    value: 'welcome',
+    label: 'Welcome',
+    description: 'Main signup welcome email with the best first-week setup steps.',
+  },
+  {
+    value: 'quickstart',
+    label: 'Quick Start',
+    description: 'A setup-focused follow-up that points people to the core areas to finish first.',
+  },
+  {
+    value: 'day2',
+    label: 'Day 2',
+    description: 'Pushes them toward real recipes, meal planning, and the first useful grocery list.',
+  },
+  {
+    value: 'day4',
+    label: 'Day 4',
+    description: 'Focuses on inviting family, routing reminders, and syncing the household.',
+  },
+  {
+    value: 'day7',
+    label: 'Day 7',
+    description: 'Covers recurring meals, staples, and week-two polish to make the app feel automatic.',
+  },
+] as const;
+
+type EmailTemplateOption = typeof EMAIL_TEMPLATE_OPTIONS[number]['value'];
+
 export default function AdminDashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -60,6 +91,7 @@ export default function AdminDashboardPage() {
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [welcomePreviewEmail, setWelcomePreviewEmail] = useState('kroberts035@gmail.com');
   const [welcomePreviewName, setWelcomePreviewName] = useState('Ken');
+  const [emailTemplate, setEmailTemplate] = useState<EmailTemplateOption>('welcome');
   const [sendingWelcomePreview, setSendingWelcomePreview] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -193,14 +225,15 @@ export default function AdminDashboardPage() {
 
     setSendingWelcomePreview(true);
     try {
-      await sendWelcomePreviewEmail({
+      await sendLifecyclePreviewEmail({
         email,
         userName: userName || 'Home Harmony User',
+        templateKey: emailTemplate,
         appUrl: window.location.origin,
       });
       toast({
-        title: 'Welcome email sent',
-        description: `Sent the live welcome email to ${email}.`,
+        title: 'Test email sent',
+        description: `Sent the ${EMAIL_TEMPLATE_OPTIONS.find((option) => option.value === emailTemplate)?.label || 'selected'} email to ${email}.`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not send the welcome email.';
@@ -212,7 +245,7 @@ export default function AdminDashboardPage() {
     } finally {
       setSendingWelcomePreview(false);
     }
-  }, [toast, welcomePreviewEmail, welcomePreviewName]);
+  }, [emailTemplate, toast, welcomePreviewEmail, welcomePreviewName]);
 
   return (
     <AppLayout contentWidthClassName="max-w-7xl">
@@ -350,8 +383,23 @@ export default function AdminDashboardPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Test Emails" subtitle="Send the real welcome email template to yourself before using it with new users">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(220px,0.7fr)_auto]">
+          <SectionCard title="Test Emails" subtitle="Send the live onboarding email templates to yourself before using them with new users">
+            <div className="grid gap-3 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.1fr)_minmax(220px,0.7fr)_auto]">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Template</p>
+                <Select value={emailTemplate} onValueChange={(value) => setEmailTemplate(value as EmailTemplateOption)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMAIL_TEMPLATE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <p className="text-sm font-medium">Recipient email</p>
                 <Input
@@ -371,12 +419,15 @@ export default function AdminDashboardPage() {
               </div>
               <div className="flex items-end">
                 <Button onClick={() => void handleSendWelcomePreview()} disabled={sendingWelcomePreview}>
-                  {sendingWelcomePreview ? 'Sending...' : 'Send Welcome Email'}
+                  {sendingWelcomePreview ? 'Sending...' : 'Send Test Email'}
                 </Button>
               </div>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              This sends the same live welcome email template your new users receive, using the current production app URL.
+              {EMAIL_TEMPLATE_OPTIONS.find((option) => option.value === emailTemplate)?.description}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This sends the live email template using the current production app URL so you can review it in a real inbox.
             </p>
           </SectionCard>
 

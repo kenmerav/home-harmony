@@ -2,7 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
-type Action = "send_welcome" | "send_family_invite" | "send_onboarding_preview" | "send_welcome_preview";
+type Action =
+  | "send_welcome"
+  | "send_family_invite"
+  | "send_onboarding_preview"
+  | "send_welcome_preview"
+  | "send_email_preview";
+
+type LifecycleTemplateKey = "welcome" | "quickstart" | "day2" | "day4" | "day7";
 
 interface SendEmailArgs {
   to: string;
@@ -71,8 +78,82 @@ async function sendViaResend(args: SendEmailArgs) {
   return await response.json().catch(() => ({}));
 }
 
+function lifecycleEmailTemplate(args: {
+  userName: string;
+  subject: string;
+  badge: string;
+  title: string;
+  intro: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  stepsTitle: string;
+  steps: string[];
+  helpfulTitle?: string;
+  helpfulItems?: string[];
+  footer?: string;
+}) {
+  const safeName = escapeHtml(args.userName || "there");
+  const stepListText = args.steps.map((step, index) => `${index + 1}) ${step.replace(/<[^>]+>/g, "")}`).join("\n");
+  const helpfulItemsText = (args.helpfulItems || []).map((item) => `- ${item.replace(/<[^>]+>/g, "")}`).join("\n");
+
+  return {
+    subject: args.subject,
+    text:
+      `Hi ${args.userName || "there"},\n\n` +
+      `${args.intro}\n\n` +
+      `${args.stepsTitle}:\n${stepListText}\n\n` +
+      `${args.helpfulItems?.length ? `${args.helpfulTitle || "Helpful next"}:\n${helpfulItemsText}\n\n` : ""}` +
+      `${args.ctaLabel}: ${args.ctaUrl}\n`,
+    html: `
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:28px 28px 16px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);border-bottom:1px solid #efe7da;">
+            <div style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef6f1;color:#2f7d5b;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+              ${escapeHtml(args.badge)}
+            </div>
+            <h1 style="font-size:30px;line-height:1.15;margin:16px 0 12px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              ${args.title.replace("{name}", safeName)}
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.65;font-size:16px;color:#5f554c;">
+              ${args.intro}
+            </p>
+            <a href="${args.ctaUrl}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              ${escapeHtml(args.ctaLabel)}
+            </a>
+          </div>
+
+          <div style="padding:24px 28px;">
+            <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
+                ${escapeHtml(args.stepsTitle)}
+              </p>
+              <ol style="margin:0;padding-left:20px;line-height:1.8;color:#2e2a26;">
+                ${args.steps.map((step) => `<li>${step}</li>`).join("")}
+              </ol>
+            </div>
+
+            ${args.helpfulItems?.length ? `
+              <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;">
+                <p style="margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
+                  ${escapeHtml(args.helpfulTitle || "Helpful next")}
+                </p>
+                <ul style="margin:0;padding-left:18px;line-height:1.8;color:#5f554c;">
+                  ${args.helpfulItems.map((item) => `<li>${item}</li>`).join("")}
+                </ul>
+              </div>
+            ` : ""}
+
+            <p style="margin:0;color:#7a6f64;font-size:13px;line-height:1.6;">
+              ${escapeHtml(args.footer || "You can reply to this email anytime if you want help getting set up.")}
+            </p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
+}
+
 function welcomeTemplate(userName: string, appUrl: string) {
-  const safeName = escapeHtml(userName || "there");
   const base = appUrl.replace(/\/$/, "");
   const settingsUrl = `${base}/settings`;
   const mealsUrl = `${base}/meals`;
@@ -80,66 +161,27 @@ function welcomeTemplate(userName: string, appUrl: string) {
   const groceryUrl = `${base}/grocery`;
   const calendarUrl = `${base}/calendar`;
 
-  return {
+  return lifecycleEmailTemplate({
+    userName,
     subject: "Welcome to Home Harmony - let’s set up your first week",
-    text:
-      `Hi ${userName || "there"},\n\n` +
-      `Welcome to Home Harmony. Your account is live, and the fastest way to make it useful is to set up your first week.\n\n` +
-      `Start here:\n` +
-      `1) Add recipes and build your meal plan: ${mealsUrl}\n` +
-      `2) Review your grocery list: ${groceryUrl}\n` +
-      `3) Invite your spouse or family members: ${familyUrl}\n` +
-      `4) Add your phone number for reminders: ${settingsUrl}\n` +
-      `5) Review the calendar: ${calendarUrl}\n\n` +
-      `Open Home Harmony: ${base}\n`,
-    html: `
-      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
-        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
-          <div style="padding:28px 28px 16px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);border-bottom:1px solid #efe7da;">
-            <div style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef6f1;color:#2f7d5b;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
-              Your account is ready
-            </div>
-            <h1 style="font-size:30px;line-height:1.15;margin:16px 0 12px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
-              Welcome to Home Harmony, ${safeName}
-            </h1>
-            <p style="margin:0 0 18px;line-height:1.65;font-size:16px;color:#5f554c;">
-              The easiest way to get value this week is to set up meals, confirm groceries, and make sure your household is connected.
-            </p>
-            <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
-              Open Home Harmony
-            </a>
-          </div>
-
-          <div style="padding:24px 28px;">
-            <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
-              <p style="margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
-                Start with these 3 steps
-              </p>
-              <ol style="margin:0;padding-left:20px;line-height:1.8;color:#2e2a26;">
-                <li><a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build your first meal plan</a> so Home Harmony can create a real grocery list.</li>
-                <li><a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Review your grocery list</a> and make sure the quantities look right.</li>
-                <li><a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares meals, tasks, and reminders.</li>
-              </ol>
-            </div>
-
-            <div style="margin:0 0 18px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;">
-              <p style="margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#8b7d70;">
-                Helpful next
-              </p>
-              <ul style="margin:0;padding-left:18px;line-height:1.8;color:#5f554c;">
-                <li><a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> for reminder texts and daily updates.</li>
-                <li><a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review your calendar</a> so meals and events line up with your week.</li>
-              </ul>
-            </div>
-
-            <p style="margin:0;color:#7a6f64;font-size:13px;line-height:1.6;">
-              You can reply to this email anytime if you want help getting your first week set up.
-            </p>
-          </div>
-        </div>
-      </div>
-    `,
-  };
+    badge: "Your account is ready",
+    title: "Welcome to Home Harmony, {name}",
+    intro: "The easiest way to get value this week is to set up meals, confirm groceries, and make sure your household is connected.",
+    ctaLabel: "Open Home Harmony",
+    ctaUrl: base,
+    stepsTitle: "Start with these 3 steps",
+    steps: [
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build your first meal plan</a> so Home Harmony can create a real grocery list.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Review your grocery list</a> and make sure the quantities look right.`,
+      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares meals, tasks, and reminders.`,
+    ],
+    helpfulTitle: "Helpful next",
+    helpfulItems: [
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> for reminder texts and daily updates.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review your calendar</a> so meals and events line up with your week.`,
+    ],
+    footer: "You can reply to this email anytime if you want help getting your first week set up.",
+  });
 }
 
 function familyInviteTemplate(args: {
@@ -172,7 +214,6 @@ function familyInviteTemplate(args: {
 }
 
 function onboardingPreviewTemplate(args: { userName: string; appUrl: string }) {
-  const safeName = escapeHtml(args.userName || "there");
   const base = args.appUrl.replace(/\/$/, "");
   const familyUrl = `${base}/family`;
   const recipesUrl = `${base}/recipes`;
@@ -181,40 +222,130 @@ function onboardingPreviewTemplate(args: { userName: string; appUrl: string }) {
   const settingsUrl = `${base}/settings`;
   const workoutsUrl = `${base}/workouts`;
 
-  return {
+  return lifecycleEmailTemplate({
+    userName: args.userName,
     subject: "Welcome to Home Harmony - your setup starts here",
-    text:
-      `Hi ${args.userName || "there"},\n\n` +
-      `Welcome to Home Harmony.\n\n` +
-      `Fast setup path:\n` +
-      `1) Set up household and invite spouse/kids: ${familyUrl}\n` +
-      `2) Add recipes: ${recipesUrl}\n` +
-      `3) Build this week's meal plan: ${mealsUrl}\n` +
-      `4) Confirm grocery list: ${groceryUrl}\n` +
-      `5) Add phone number for SMS reminders: ${settingsUrl}\n` +
-      `6) Optional: set macro goals and workout tracking: ${workoutsUrl}\n\n` +
-      `Open app: ${base}\n`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1f2937;">
-        <h1 style="font-size:24px;margin:0 0 12px;">Welcome to Home Harmony, ${safeName}</h1>
-        <p style="margin:0 0 16px;line-height:1.55;">
-          Welcome aboard. Here is the fastest path to get real value in your first week.
-        </p>
-        <ol style="margin:0 0 20px;padding-left:18px;line-height:1.7;">
-          <li><a href="${familyUrl}">Set up your household</a> and invite spouse/kids.</li>
-          <li><a href="${recipesUrl}">Add recipes</a> so planning uses your real meals.</li>
-          <li><a href="${mealsUrl}">Build this week's meal plan</a> (generate or assign manually).</li>
-          <li><a href="${groceryUrl}">Confirm grocery list</a> with rolled-up quantities.</li>
-          <li><a href="${settingsUrl}">Add your phone number</a> to enable SMS reminders.</li>
-          <li>Optional: track macros/workouts and family progress in one place.</li>
-        </ol>
-        <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Open Home Harmony</a>
-        <p style="margin:18px 0 0;color:#6b7280;font-size:13px;">
-          Reply to this email anytime if you want help with setup.
-        </p>
-      </div>
-    `,
-  };
+    badge: "Quick start",
+    title: "Here’s the fastest setup path, {name}",
+    intro: "If you want Home Harmony to feel useful right away, these are the setup steps that matter most.",
+    ctaLabel: "Finish Setup",
+    ctaUrl: base,
+    stepsTitle: "Fast setup path",
+    steps: [
+      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Set up your household</a> and invite spouse or kids.`,
+      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add recipes</a> so planning uses your real meals.`,
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build this week's meal plan</a> by generating or assigning meals manually.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Confirm your grocery list</a> with rolled-up quantities.`,
+    ],
+    helpfulTitle: "Worth doing next",
+    helpfulItems: [
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> to enable SMS reminders.`,
+      `<a href="${workoutsUrl}" style="color:#2f7d5b;font-weight:600;">Optional: set macro goals</a> and workout tracking when you’re ready.`,
+    ],
+    footer: "Reply to this email anytime if you want help with setup.",
+  });
+}
+
+function onboardingDay2Template(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
+  const recipesUrl = `${base}/recipes`;
+  const mealsUrl = `${base}/meals`;
+  const groceryUrl = `${base}/grocery`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "Need a quick win? Build one real meal week",
+    badge: "Day 2",
+    title: "One good week makes the app click, {name}",
+    intro: "The biggest unlock is simple: give Home Harmony real meals to work with, and it can take over the grocery planning for you.",
+    ctaLabel: "Plan This Week",
+    ctaUrl: mealsUrl,
+    stepsTitle: "Do this next",
+    steps: [
+      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add 5-8 real recipes</a> your family actually eats.`,
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Set dinners for the week</a> so the plan reflects your real schedule.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Check the grocery list</a> and make sure it looks usable.`,
+    ],
+    helpfulTitle: "Why this matters",
+    helpfulItems: [
+      "Once the meals are real, the grocery list stops feeling generic and starts saving time.",
+      "You can still add breakfasts, lunches, snacks, and quick food logs later.",
+    ],
+  });
+}
+
+function onboardingDay4Template(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
+  const familyUrl = `${base}/family`;
+  const calendarUrl = `${base}/calendar`;
+  const settingsUrl = `${base}/settings`;
+  const tasksUrl = `${base}/tasks`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "Get your household synced so reminders go to the right people",
+    badge: "Day 4",
+    title: "Bring the rest of the household in, {name}",
+    intro: "Home Harmony works best when the right people see the right meals, calendar items, and reminders.",
+    ctaLabel: "Open Family Setup",
+    ctaUrl: familyUrl,
+    stepsTitle: "Best next setup steps",
+    steps: [
+      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares the same household plan.`,
+      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Set phone numbers and reminder preferences</a> so texts go to the right person.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review calendar filters</a> for Family, Ken, Katie, or anyone else you’ve set up.`,
+    ],
+    helpfulTitle: "Optional cleanup",
+    helpfulItems: [
+      `<a href="${tasksUrl}" style="color:#2f7d5b;font-weight:600;">Assign tasks to adults</a> so reminders are more useful.`,
+      "If you only want reminders by text and not on calendar feeds, you can control that in settings.",
+    ],
+  });
+}
+
+function onboardingDay7Template(userName: string, appUrl: string) {
+  const base = appUrl.replace(/\/$/, "");
+  const mealsUrl = `${base}/meals`;
+  const groceryUrl = `${base}/grocery`;
+  const settingsUrl = `${base}/settings`;
+  const calendarUrl = `${base}/calendar`;
+
+  return lifecycleEmailTemplate({
+    userName,
+    subject: "A few smart tweaks can make Home Harmony feel automatic",
+    badge: "Day 7",
+    title: "Ready to make this run smoother, {name}?",
+    intro: "Once your first week is in place, a few small settings make the app feel much more automatic from here on out.",
+    ctaLabel: "Tune Your Setup",
+    ctaUrl: settingsUrl,
+    stepsTitle: "Good week-two upgrades",
+    steps: [
+      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Set recurring meals</a> for breakfasts, lunches, or dinners you repeat often.`,
+      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Add weekly staples</a> so they show up automatically each order.`,
+      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Fine-tune calendar filters and reminders</a> so only the useful stuff surfaces.`,
+    ],
+    helpfulTitle: "Keep it simple",
+    helpfulItems: [
+      "You do not need every feature turned on at once to get value.",
+      "The best setup is the one your household will actually keep using.",
+    ],
+  });
+}
+
+function getLifecycleTemplate(templateKey: LifecycleTemplateKey, userName: string, appUrl: string) {
+  switch (templateKey) {
+    case "quickstart":
+      return onboardingPreviewTemplate({ userName, appUrl });
+    case "day2":
+      return onboardingDay2Template(userName, appUrl);
+    case "day4":
+      return onboardingDay4Template(userName, appUrl);
+    case "day7":
+      return onboardingDay7Template(userName, appUrl);
+    case "welcome":
+    default:
+      return welcomeTemplate(userName, appUrl);
+  }
 }
 
 serve(async (req) => {
@@ -276,6 +407,37 @@ serve(async (req) => {
       }
 
       const template = welcomeTemplate(userName, appUrl);
+      const provider = await sendViaResend({
+        to: recipientEmail,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_email_preview") {
+      const recipientEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : inviterName;
+      const templateKeyRaw = typeof payload.templateKey === "string" ? payload.templateKey.trim().toLowerCase() : "welcome";
+      const templateKey: LifecycleTemplateKey = (
+        templateKeyRaw === "quickstart"
+        || templateKeyRaw === "day2"
+        || templateKeyRaw === "day4"
+        || templateKeyRaw === "day7"
+      )
+        ? templateKeyRaw
+        : "welcome";
+      if (!recipientEmail) return json({ error: "Recipient email is required." }, 400);
+      if (!isServiceRoleAuth) {
+        const allowedRecipients = parseAdminEmails(Deno.env.get("ADMIN_EMAILS"));
+        if (!allowedRecipients.has(recipientEmail)) {
+          return json({ error: "Forbidden." }, 403);
+        }
+      }
+
+      const template = getLifecycleTemplate(templateKey, userName, appUrl);
       const provider = await sendViaResend({
         to: recipientEmail,
         subject: template.subject,
