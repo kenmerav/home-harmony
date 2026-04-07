@@ -38,12 +38,6 @@ import {
   defaultGroceryWeekState,
   GroceryListManualItem,
 } from '@/lib/groceryListStateStore';
-import {
-  getNextWeekOf,
-  loadWeeklyPlanningStatus,
-  setWeeklyGroceriesOrdered,
-  WeeklyPlanningStatus,
-} from '@/lib/api/weeklyPlanningStatus';
 import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { ViewRecipeDialog } from '@/components/recipes/ViewRecipeDialog';
 import { getRecipeImageUrl } from '@/data/recipeImages';
@@ -507,8 +501,6 @@ export default function GroceryPage() {
   const [lastOrderCompletedAt, setLastOrderCompletedAt] = useState<string | null>(null);
   const [weeklyAdZip, setWeeklyAdZipState] = useState('');
   const [weeklyAdStoreIds, setWeeklyAdStoreIdsState] = useState<string[]>([]);
-  const [nextWeekStatus, setNextWeekStatus] = useState<WeeklyPlanningStatus | null>(null);
-  const [updatingNextWeekStatus, setUpdatingNextWeekStatus] = useState(false);
   const [excludePreppedMealPrep, setExcludePreppedMealPrep] = useState<boolean>(true);
   const [manualItemName, setManualItemName] = useState('');
   const [manualItemQuantity, setManualItemQuantity] = useState('');
@@ -534,7 +526,6 @@ export default function GroceryPage() {
     setWeeklyAdStoreIdsState(getWeeklyAdStoreIds());
     const excludeMealPrep = loadExcludePreppedMealPrepPreference();
     setExcludePreppedMealPrep(excludeMealPrep);
-    void loadNextWeekStatus();
     if (canUseRemoteSms) {
       void (async () => {
         try {
@@ -670,15 +661,6 @@ export default function GroceryPage() {
       }),
     [currentWeekState.checkedKeys, currentWeekState.manualItems, groceryListState.recurringItems],
   );
-
-  const loadNextWeekStatus = async () => {
-    try {
-      const status = await loadWeeklyPlanningStatus(getNextWeekOf());
-      setNextWeekStatus(status);
-    } catch (error) {
-      console.error('Failed to load next-week grocery order status:', error);
-    }
-  };
 
   const updateCurrentWeekState = (
     updater: (weekState: ReturnType<typeof defaultGroceryWeekState>) => ReturnType<typeof defaultGroceryWeekState>,
@@ -975,29 +957,6 @@ export default function GroceryPage() {
     });
   };
 
-  const toggleNextWeekOrdered = async (ordered: boolean) => {
-    try {
-      setUpdatingNextWeekStatus(true);
-      const status = await setWeeklyGroceriesOrdered(getNextWeekOf(), ordered);
-      setNextWeekStatus(status);
-      toast({
-        title: ordered ? 'Marked next week as ordered' : 'Cleared ordered status',
-        description: ordered
-          ? 'SMS reminders will stop for next week grocery ordering.'
-          : 'You can mark it ordered again after checkout.',
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not update order status.';
-      toast({
-        title: 'Could not update status',
-        description: message,
-        variant: 'destructive',
-      });
-    } finally {
-      setUpdatingNextWeekStatus(false);
-    }
-  };
-
   const toggleWeeklyAdStore = (storeId: string) => {
     setWeeklyAdStoreIdsState((prev) => {
       const next = prev.includes(storeId)
@@ -1031,12 +990,6 @@ export default function GroceryPage() {
         subtitle={loading ? 'Loading...' : `${checkedCount} of ${totalCount} items checked`}
         action={
           <div className="flex gap-2">
-            {totalCount > 0 && !currentWeekOrderedAt && (
-              <Button onClick={markOrderDone} variant="outline" size="sm">
-                <Check className="w-4 h-4 mr-2" />
-                Mark This Week Ordered
-              </Button>
-            )}
             <Button onClick={() => setAddItemOpen(true)} size="sm">
               <Plus className="w-4 h-4 mr-2" />
               Add Item
@@ -1075,22 +1028,6 @@ export default function GroceryPage() {
         <div className="mb-4 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
           {groceryListState.recurringItems.length} weekly staple
           {groceryListState.recurringItems.length === 1 ? '' : 's'} will be added automatically each week.
-        </div>
-      )}
-
-      {currentWeekOrderedAt && (
-        <div className="mb-4 rounded-xl border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">This week’s grocery list is marked ordered</p>
-              <p className="text-xs text-muted-foreground">
-                Ordered on {new Date(currentWeekOrderedAt).toLocaleString()}. Meal-plan and one-time items are hidden now. Weekly staples stay on the list. Use Mark as Not Ordered if you still need this week’s list.
-              </p>
-            </div>
-            <Button size="sm" variant="outline" onClick={markCurrentWeekNotOrdered}>
-              Mark as Not Ordered
-            </Button>
-          </div>
         </div>
       )}
 
@@ -1175,27 +1112,24 @@ export default function GroceryPage() {
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold">Next week grocery reminder status</p>
+            <p className="text-sm font-semibold">This week grocery order</p>
             <p className="text-xs text-muted-foreground">
-              This does not clear this week’s grocery list. It only controls whether Home Harmony should keep nudging you about next week’s order.
+              {currentWeekOrderedAt
+                ? 'This order is finished. Meal-plan and one-time items are cleared out, while staples stay available for the next order.'
+                : 'Check items off as you add them to your cart, then mark this week ordered when checkout is done.'}
             </p>
-            {nextWeekStatus?.groceries_ordered_at && (
+            {currentWeekOrderedAt && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Next week marked handled: {new Date(nextWeekStatus.groceries_ordered_at).toLocaleString()}
+                Marked ordered: {new Date(currentWeekOrderedAt).toLocaleString()}
               </p>
             )}
           </div>
           <Button
             size="sm"
-            variant={nextWeekStatus?.groceries_ordered ? 'outline' : 'default'}
-            onClick={() => void toggleNextWeekOrdered(!nextWeekStatus?.groceries_ordered)}
-            disabled={updatingNextWeekStatus}
+            variant={currentWeekOrderedAt ? 'outline' : 'default'}
+            onClick={currentWeekOrderedAt ? markCurrentWeekNotOrdered : markOrderDone}
           >
-            {updatingNextWeekStatus
-              ? 'Saving...'
-              : nextWeekStatus?.groceries_ordered
-              ? 'Resume Next Week Reminder'
-              : 'Stop Next Week Reminder'}
+            {currentWeekOrderedAt ? 'Mark as Not Ordered' : 'Mark Ordered'}
           </Button>
         </div>
       </div>
