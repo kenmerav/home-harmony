@@ -24,6 +24,7 @@ import {
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
 import { getWeeklyAdZip, setPreferredGroceryStoreId, setWeeklyAdPrefs } from '@/lib/groceryPrefs';
+import { getProfiles, updateFemaleHealthSettings } from '@/lib/macroGame';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -144,6 +145,12 @@ const HEALTH_TRACKING_OPTIONS = [
   'Not right now',
 ] as const;
 
+const FEMALE_WELLNESS_OPTIONS = [
+  'Cycle / period tracking',
+  'Pregnancy tracking',
+  'Not right now',
+] as const;
+
 const WELLNESS_GOAL_OPTIONS = [
   'Increase water intake',
   'Hit a daily step goal',
@@ -195,6 +202,7 @@ type PlanningStyle = (typeof PLANNING_STYLE_OPTIONS)[number];
 type GroceryPain = (typeof GROCERY_PAIN_OPTIONS)[number];
 type ChorePain = (typeof CHORE_PAIN_OPTIONS)[number];
 type HealthTrackingFocus = (typeof HEALTH_TRACKING_OPTIONS)[number];
+type FemaleWellnessFocus = (typeof FEMALE_WELLNESS_OPTIONS)[number];
 type WellnessGoal = (typeof WELLNESS_GOAL_OPTIONS)[number];
 type WaterTarget = (typeof WATER_TARGET_OPTIONS)[number];
 type StepTarget = (typeof STEP_TARGET_OPTIONS)[number];
@@ -234,6 +242,7 @@ type StepId =
   | 'groceryPain'
   | 'choresPain'
   | 'healthTracking'
+  | 'femaleWellness'
   | 'goalTracking'
   | 'scheduleText'
   | 'appointmentReminders'
@@ -270,6 +279,7 @@ interface OnboardingAnswers {
   groceryPain: GroceryPain | null;
   chorePain: ChorePain | null;
   healthTrackingFocus: HealthTrackingFocus[];
+  femaleWellnessFocus: FemaleWellnessFocus[];
   wellnessGoals: WellnessGoal[];
   waterTarget: WaterTarget | null;
   stepTarget: StepTarget | null;
@@ -324,6 +334,7 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   groceryPain: null,
   chorePain: null,
   healthTrackingFocus: [],
+  femaleWellnessFocus: [],
   wellnessGoals: [],
   waterTarget: null,
   stepTarget: null,
@@ -573,6 +584,9 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     `Grocery friction: ${answers.groceryPain || 'not provided'}.`,
     `Chore friction: ${answers.chorePain || 'not provided'}.`,
     `Health tracking: ${answers.healthTrackingFocus.join(', ') || 'none selected'}.`,
+    answers.femaleWellnessFocus.length > 0
+      ? `Female wellness tracking: ${answers.femaleWellnessFocus.join(', ')}.`
+      : null,
     answers.wellnessGoals.length > 0 ? `Wellness goals: ${answers.wellnessGoals.join(', ')}.` : null,
     answers.wakeUpTime ? `Wake-up time target: ${answers.wakeUpTime}.` : null,
     answers.sleepDurationTarget ? `Sleep duration target: ${answers.sleepDurationTarget}.` : null,
@@ -600,6 +614,7 @@ function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): Step
     'groceryPain',
     'choresPain',
     'healthTracking',
+    'femaleWellness',
     'goalTracking',
     'scheduleText',
     'appointmentReminders',
@@ -656,6 +671,8 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
       return answers.chorePain !== null;
     case 'healthTracking':
       return answers.healthTrackingFocus.length > 0;
+    case 'femaleWellness':
+      return answers.femaleWellnessFocus.length > 0;
     case 'goalTracking':
       if (answers.wellnessGoals.includes('Improve sleep consistency')) {
         return Boolean(answers.wakeUpTime && answers.sleepDurationTarget);
@@ -1102,6 +1119,19 @@ export default function OnboardingPage() {
           console.error('Failed saving onboarding SMS preferences:', smsError);
         }
       }
+
+      const femaleProfiles = Object.values(getProfiles()).filter(
+        (dashboardProfile) =>
+          dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
+      );
+      const wantsCycleTracking = resolvedAnswers.femaleWellnessFocus.includes('Cycle / period tracking');
+      const wantsPregnancyTracking = resolvedAnswers.femaleWellnessFocus.includes('Pregnancy tracking');
+      femaleProfiles.forEach((dashboardProfile) => {
+        updateFemaleHealthSettings(dashboardProfile.id, {
+          cycleTrackingEnabled: wantsCycleTracking,
+          pregnancyTrackingEnabled: wantsPregnancyTracking,
+        });
+      });
 
       const payload: StoredOnboardingResult = {
         completedAt: new Date().toISOString(),
@@ -1713,6 +1743,34 @@ export default function OnboardingPage() {
           primaryLabel="Continue"
           onPrimary={goNext}
           primaryDisabled={!isStepComplete('healthTracking', answers, account)}
+        />
+      );
+      break;
+
+    case 'femaleWellness':
+      content = (
+        <QuestionScreen
+          title="Do any female adult dashboards need cycle or pregnancy tracking?"
+          helper="If you want it, we will add it to the female adult dashboard so it is there when you need it."
+        >
+          <OptionList
+            options={FEMALE_WELLNESS_OPTIONS}
+            selected={answers.femaleWellnessFocus}
+            onToggle={(value) =>
+              setAnswers((prev) => ({
+                ...prev,
+                femaleWellnessFocus: toggleWithExclusive(prev.femaleWellnessFocus, value, 'Not right now'),
+              }))
+            }
+            multi
+          />
+        </QuestionScreen>
+      );
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('femaleWellness', answers, account)}
         />
       );
       break;

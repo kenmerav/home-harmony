@@ -52,11 +52,21 @@ export interface MacroPlan {
   alcoholLimitDrinks: number;
 }
 
+export interface FemaleHealthSettings {
+  cycleTrackingEnabled: boolean;
+  pregnancyTrackingEnabled: boolean;
+  lastPeriodStart: string;
+  cycleLengthDays: number;
+  pregnancyDueDate: string;
+  notes: string;
+}
+
 interface PersonGameProfile {
   id: AdultId;
   name: string;
   macroPlan: MacroPlan;
   memberType: HouseholdMemberType;
+  femaleHealth: FemaleHealthSettings;
   createdAt?: string;
 }
 
@@ -79,6 +89,38 @@ interface StoredState {
   profiles: Record<string, PersonGameProfile>;
   trackers: Record<string, Partial<Record<string, DayTracker>>>;
   todos: Record<string, DashboardTodoItem[]>;
+}
+
+function defaultFemaleHealthSettings(): FemaleHealthSettings {
+  return {
+    cycleTrackingEnabled: false,
+    pregnancyTrackingEnabled: false,
+    lastPeriodStart: '',
+    cycleLengthDays: 28,
+    pregnancyDueDate: '',
+    notes: '',
+  };
+}
+
+function normalizeFemaleHealthSettings(input: unknown): FemaleHealthSettings {
+  const fallback = defaultFemaleHealthSettings();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return fallback;
+  }
+
+  const value = input as Partial<FemaleHealthSettings>;
+  const cycleLengthDays = Number.isFinite(Number(value.cycleLengthDays))
+    ? Math.max(20, Math.min(45, Math.round(Number(value.cycleLengthDays))))
+    : fallback.cycleLengthDays;
+
+  return {
+    cycleTrackingEnabled: !!value.cycleTrackingEnabled,
+    pregnancyTrackingEnabled: !!value.pregnancyTrackingEnabled,
+    lastPeriodStart: typeof value.lastPeriodStart === 'string' ? value.lastPeriodStart.trim() : '',
+    cycleLengthDays,
+    pregnancyDueDate: typeof value.pregnancyDueDate === 'string' ? value.pregnancyDueDate.trim() : '',
+    notes: typeof value.notes === 'string' ? value.notes.trim() : '',
+  };
 }
 
 function sortDashboardTodos(items: DashboardTodoItem[]): DashboardTodoItem[] {
@@ -283,6 +325,7 @@ function initialState(): StoredState {
         name: meProfile?.name || 'Me',
         memberType: 'adult',
         macroPlan: mePlan,
+        femaleHealth: defaultFemaleHealthSettings(),
         createdAt: new Date().toISOString(),
       },
       wife: {
@@ -290,6 +333,7 @@ function initialState(): StoredState {
         name: wifeProfile?.name || 'Wife',
         memberType: 'adult',
         macroPlan: wifePlan,
+        femaleHealth: defaultFemaleHealthSettings(),
         createdAt: new Date().toISOString(),
       },
     },
@@ -324,6 +368,7 @@ function normalizeProfiles(
           ? 'adult'
           : normalizeHouseholdMemberType(incoming?.memberType ?? fallbackProfile?.memberType),
       createdAt: incoming?.createdAt || fallbackProfile?.createdAt || new Date().toISOString(),
+      femaleHealth: normalizeFemaleHealthSettings(incoming?.femaleHealth ?? fallbackProfile?.femaleHealth),
       macroPlan: {
         ...basePlan,
         ...incomingMacroPlan,
@@ -928,6 +973,7 @@ export function addHouseholdProfile(name: string, memberType: HouseholdMemberTyp
     name: finalName,
     memberType,
     createdAt: new Date().toISOString(),
+    femaleHealth: defaultFemaleHealthSettings(),
     macroPlan: defaultPlan(id, finalName),
   };
   state.profiles[id] = profile;
@@ -996,6 +1042,7 @@ function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile
     name: fallbackName,
     memberType: 'adult',
     createdAt: new Date().toISOString(),
+    femaleHealth: defaultFemaleHealthSettings(),
     macroPlan: defaultPlan(personId, fallbackName),
   };
   state.profiles[personId] = created;
@@ -1014,6 +1061,24 @@ export function updateMacroPlan(personId: AdultId, updates: Partial<MacroPlan>) 
       questionnaire: updates.questionnaire || current.questionnaire,
       bodyUnitSystem: updates.bodyUnitSystem || current.bodyUnitSystem || 'imperial',
     },
+  };
+  writeState(state);
+}
+
+export function getFemaleHealthSettings(personId: AdultId): FemaleHealthSettings {
+  const profile = getProfiles()[personId];
+  return normalizeFemaleHealthSettings(profile?.femaleHealth);
+}
+
+export function updateFemaleHealthSettings(personId: AdultId, updates: Partial<FemaleHealthSettings>) {
+  const state = readState();
+  const currentProfile = ensureProfile(state, personId);
+  state.profiles[personId] = {
+    ...currentProfile,
+    femaleHealth: normalizeFemaleHealthSettings({
+      ...currentProfile.femaleHealth,
+      ...updates,
+    }),
   };
   writeState(state);
 }

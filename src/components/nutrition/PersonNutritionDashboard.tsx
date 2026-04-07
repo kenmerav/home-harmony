@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format, subDays } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, isValid, parseISO, subDays } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -8,6 +8,7 @@ import { MacroBar } from '@/components/ui/MacroBar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
@@ -19,6 +20,7 @@ import {
   addDashboardTodo,
   addMealLog,
   deleteDashboardTodo,
+  getFemaleHealthSettings,
   getCurrentStreak,
   getDailyScore,
   getDashboardTodos,
@@ -28,6 +30,7 @@ import {
   hydrateMacroGameActivityFromAccount,
   isDailyLogFullyLogged,
   toggleDashboardTodo,
+  updateFemaleHealthSettings,
 } from '@/lib/macroGame';
 import { DayOfWeek, MealLog } from '@/types';
 import { Check, Flame, Plus, Target, Trash2, Trophy, TrendingUp } from 'lucide-react';
@@ -49,6 +52,15 @@ interface DinnerCandidate {
     fat_g: number;
     fiber_g?: number;
   };
+}
+
+interface FemaleHealthDraft {
+  cycleTrackingEnabled: boolean;
+  pregnancyTrackingEnabled: boolean;
+  lastPeriodStart: string;
+  cycleLengthDays: string;
+  pregnancyDueDate: string;
+  notes: string;
 }
 
 export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDashboardProps) {
@@ -108,6 +120,22 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   }, [user?.id]);
 
   const profile = getProfiles()[personId];
+  const [femaleHealthDraft, setFemaleHealthDraft] = useState<FemaleHealthDraft>(() =>
+    createFemaleHealthDraft(profile ? getFemaleHealthSettings(profile.id) : undefined),
+  );
+
+  useEffect(() => {
+    setFemaleHealthDraft(createFemaleHealthDraft(profile ? getFemaleHealthSettings(profile.id) : undefined));
+  }, [
+    personId,
+    profile?.femaleHealth?.cycleTrackingEnabled,
+    profile?.femaleHealth?.pregnancyTrackingEnabled,
+    profile?.femaleHealth?.lastPeriodStart,
+    profile?.femaleHealth?.cycleLengthDays,
+    profile?.femaleHealth?.pregnancyDueDate,
+    profile?.femaleHealth?.notes,
+  ]);
+
   if (!profile) {
     return (
       <AppLayout>
@@ -121,6 +149,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const allLogs = getMealLogs();
   const todos = getDashboardTodos(personId);
   const todaysLogs = allLogs.filter((log) => log.date === todayKey && log.person === personId);
+  const isFemaleDashboard = profile.macroPlan.questionnaire.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
   const weekPoints = getWeekPoints(personId, currentDate);
@@ -221,6 +250,25 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const accentBar = accent === 'primary' ? 'bg-primary' : 'bg-accent';
   const accentBarMuted = accent === 'primary' ? 'bg-primary/40' : 'bg-accent/40';
   const accentText = accent === 'primary' ? 'text-primary' : 'text-accent';
+  const cycleLengthDays = Number.parseInt(femaleHealthDraft.cycleLengthDays, 10);
+  const cycleStartDate = parseOptionalDate(femaleHealthDraft.lastPeriodStart);
+  const dueDate = parseOptionalDate(femaleHealthDraft.pregnancyDueDate);
+  const nextPeriodDate =
+    femaleHealthDraft.cycleTrackingEnabled && cycleStartDate && Number.isFinite(cycleLengthDays)
+      ? addDays(cycleStartDate, Math.max(20, Math.min(45, cycleLengthDays)))
+      : null;
+  const daysUntilNextPeriod = nextPeriodDate ? differenceInCalendarDays(nextPeriodDate, currentDate) : null;
+  const cycleDay =
+    femaleHealthDraft.cycleTrackingEnabled && cycleStartDate
+      ? Math.max(1, differenceInCalendarDays(currentDate, cycleStartDate) + 1)
+      : null;
+  const pregnancyStartDate = dueDate ? addDays(dueDate, -280) : null;
+  const pregnancyWeeks =
+    femaleHealthDraft.pregnancyTrackingEnabled && pregnancyStartDate
+      ? Math.max(1, Math.floor(differenceInCalendarDays(currentDate, pregnancyStartDate) / 7) + 1)
+      : null;
+  const daysUntilDueDate =
+    femaleHealthDraft.pregnancyTrackingEnabled && dueDate ? differenceInCalendarDays(dueDate, currentDate) : null;
 
   const handleAddTodo = () => {
     const created = addDashboardTodo(personId, todoDraft);
@@ -244,6 +292,25 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const handleDeleteTodo = (todoId: string) => {
     deleteDashboardTodo(personId, todoId);
     setRefreshTick((prev) => prev + 1);
+  };
+
+  const handleSaveFemaleHealth = () => {
+    updateFemaleHealthSettings(personId, {
+      cycleTrackingEnabled: femaleHealthDraft.cycleTrackingEnabled,
+      pregnancyTrackingEnabled: femaleHealthDraft.pregnancyTrackingEnabled,
+      lastPeriodStart: femaleHealthDraft.cycleTrackingEnabled ? femaleHealthDraft.lastPeriodStart : '',
+      cycleLengthDays:
+        femaleHealthDraft.cycleTrackingEnabled && Number.isFinite(cycleLengthDays)
+          ? Math.max(20, Math.min(45, cycleLengthDays))
+          : 28,
+      pregnancyDueDate: femaleHealthDraft.pregnancyTrackingEnabled ? femaleHealthDraft.pregnancyDueDate : '',
+      notes: femaleHealthDraft.notes,
+    });
+    setRefreshTick((prev) => prev + 1);
+    toast({
+      title: 'Tracking updated',
+      description: `${profile.name}'s cycle and pregnancy settings were saved.`,
+    });
   };
 
   return (
@@ -395,6 +462,182 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
           )}
         </SectionCard>
 
+        {isFemaleDashboard && (
+          <SectionCard
+            title="Cycle + Pregnancy"
+            subtitle="Optional planning tracker for female dashboards. This is for awareness only, not medical guidance."
+            action={
+              <Button size="sm" onClick={handleSaveFemaleHealth}>
+                Save
+              </Button>
+            }
+          >
+            <div className="grid gap-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-border p-4">
+                  <label className="flex items-start gap-3">
+                    <Checkbox
+                      checked={femaleHealthDraft.cycleTrackingEnabled}
+                      onCheckedChange={(checked) =>
+                        setFemaleHealthDraft((prev) => ({
+                          ...prev,
+                          cycleTrackingEnabled: checked === true,
+                        }))
+                      }
+                    />
+                    <div>
+                      <p className="font-medium text-sm">Track cycle / period</p>
+                      <p className="text-xs text-muted-foreground">
+                        Save the last period start and estimate the next one for planning.
+                      </p>
+                    </div>
+                  </label>
+                  {femaleHealthDraft.cycleTrackingEnabled && (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Last period start
+                        </p>
+                        <Input
+                          type="date"
+                          value={femaleHealthDraft.lastPeriodStart}
+                          onChange={(event) =>
+                            setFemaleHealthDraft((prev) => ({
+                              ...prev,
+                              lastPeriodStart: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Cycle length (days)
+                        </p>
+                        <Input
+                          type="number"
+                          min={20}
+                          max={45}
+                          value={femaleHealthDraft.cycleLengthDays}
+                          onChange={(event) =>
+                            setFemaleHealthDraft((prev) => ({
+                              ...prev,
+                              cycleLengthDays: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-border p-4">
+                  <label className="flex items-start gap-3">
+                    <Checkbox
+                      checked={femaleHealthDraft.pregnancyTrackingEnabled}
+                      onCheckedChange={(checked) =>
+                        setFemaleHealthDraft((prev) => ({
+                          ...prev,
+                          pregnancyTrackingEnabled: checked === true,
+                        }))
+                      }
+                    />
+                    <div>
+                      <p className="font-medium text-sm">Track pregnancy</p>
+                      <p className="text-xs text-muted-foreground">
+                        Save a due date so the dashboard can show a simple countdown.
+                      </p>
+                    </div>
+                  </label>
+                  {femaleHealthDraft.pregnancyTrackingEnabled && (
+                    <div className="mt-4">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Due date
+                      </p>
+                      <Input
+                        type="date"
+                        value={femaleHealthDraft.pregnancyDueDate}
+                        onChange={(event) =>
+                          setFemaleHealthDraft((prev) => ({
+                            ...prev,
+                            pregnancyDueDate: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {(femaleHealthDraft.cycleTrackingEnabled || femaleHealthDraft.pregnancyTrackingEnabled) && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-border bg-muted/20 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Cycle status</p>
+                    {femaleHealthDraft.cycleTrackingEnabled ? (
+                      cycleStartDate && nextPeriodDate ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-lg font-semibold">Day {cycleDay}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Next period around {format(nextPeriodDate, 'MMM d')}
+                            {typeof daysUntilNextPeriod === 'number'
+                              ? daysUntilNextPeriod >= 0
+                                ? ` (${daysUntilNextPeriod} day${daysUntilNextPeriod === 1 ? '' : 's'} away)`
+                                : ` (${Math.abs(daysUntilNextPeriod)} day${Math.abs(daysUntilNextPeriod) === 1 ? '' : 's'} ago)`
+                              : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">Add a last period date to start cycle estimates.</p>
+                      )
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">Cycle tracking is off for this dashboard.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-muted/20 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pregnancy status</p>
+                    {femaleHealthDraft.pregnancyTrackingEnabled ? (
+                      dueDate ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-lg font-semibold">
+                            {pregnancyWeeks ? `Week ${pregnancyWeeks}` : 'Due date saved'}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            Due {format(dueDate, 'MMM d')}
+                            {typeof daysUntilDueDate === 'number'
+                              ? daysUntilDueDate >= 0
+                                ? ` (${daysUntilDueDate} day${daysUntilDueDate === 1 ? '' : 's'} away)`
+                                : ` (${Math.abs(daysUntilDueDate)} day${Math.abs(daysUntilDueDate) === 1 ? '' : 's'} past due)`
+                              : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">Add a due date to show the pregnancy countdown.</p>
+                      )
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">Pregnancy tracking is off for this dashboard.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+                <Textarea
+                  rows={3}
+                  value={femaleHealthDraft.notes}
+                  onChange={(event) =>
+                    setFemaleHealthDraft((prev) => ({
+                      ...prev,
+                      notes: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional planning notes, symptoms, or things to remember."
+                />
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
         <SectionCard
           title="This Week"
           subtitle={`Final targets (editable): ${targetCalories} calories/day`}
@@ -501,4 +744,29 @@ function createMockDinnerCandidate(day: DayOfWeek): DinnerCandidate | null {
     defaultServings: 1,
     macros: mockDinner.macrosPerServing,
   };
+}
+
+function createFemaleHealthDraft(settings?: ReturnType<typeof getFemaleHealthSettings>): FemaleHealthDraft {
+  const source = settings || {
+    cycleTrackingEnabled: false,
+    pregnancyTrackingEnabled: false,
+    lastPeriodStart: '',
+    cycleLengthDays: 28,
+    pregnancyDueDate: '',
+    notes: '',
+  };
+  return {
+    cycleTrackingEnabled: source.cycleTrackingEnabled,
+    pregnancyTrackingEnabled: source.pregnancyTrackingEnabled,
+    lastPeriodStart: source.lastPeriodStart,
+    cycleLengthDays: String(source.cycleLengthDays || 28),
+    pregnancyDueDate: source.pregnancyDueDate,
+    notes: source.notes,
+  };
+}
+
+function parseOptionalDate(value: string): Date | null {
+  if (!value) return null;
+  const parsed = parseISO(value);
+  return isValid(parsed) ? parsed : null;
 }
