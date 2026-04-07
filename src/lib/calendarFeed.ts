@@ -238,6 +238,11 @@ export async function syncDerivedCalendarEvents(
       source: event.source,
       related_id: relatedKey,
       calendar_layer: calendarLayerForDerivedEvent(event),
+      event_reminder_enabled: !!event.eventReminderEnabled,
+      event_reminder_lead_minutes:
+        typeof event.eventReminderLeadMinutes === 'number' && Number.isFinite(event.eventReminderLeadMinutes)
+          ? event.eventReminderLeadMinutes
+          : null,
       timezone_name: timezoneName,
       location_text: event.location || null,
       recurrence_rule: null,
@@ -411,6 +416,8 @@ function collectDerivedEventsForRange(
         description: task.notes,
         assigneeId: task.assignedToId,
         assigneeName: task.assignedToName,
+        eventReminderEnabled: !!task.reminderEnabled,
+        eventReminderLeadMinutes: task.reminderEnabled ? 0 : null,
         startsAt: start.toISOString(),
         endsAt: task.frequency === 'once' ? undefined : addMinutes(start, 30).toISOString(),
         allDay: task.frequency === 'once',

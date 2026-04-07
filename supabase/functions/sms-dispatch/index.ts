@@ -1053,7 +1053,12 @@ serve(async (req) => {
           }
         }
 
-        if (row.event_reminders_enabled) {
+        const events = [...todayEvents, ...tomorrowEvents];
+        const hasTaskSpecificReminders = events.some(
+          (event) => event.module === "tasks" && !!event.eventReminderEnabled,
+        );
+
+        if (row.event_reminders_enabled || hasTaskSpecificReminders) {
           const offsets = [...new Set(
             Array.isArray(row.reminder_offsets_minutes)
               ? row.reminder_offsets_minutes
@@ -1062,12 +1067,15 @@ serve(async (req) => {
               : [],
           )].sort((a, b) => b - a);
           const normalizedOffsets = offsets.length > 0 ? offsets : [0];
-          const events = [...todayEvents, ...tomorrowEvents];
           for (const event of events) {
             if (!isUsableDateTime(event.startsAtLocal) || !isUsableDateTime(event.startsAtUtc)) continue;
             const manualUsesStartReminder = event.module === "manual" && !!event.eventReminderEnabled;
             const manualUsesLeaveReminder = event.module === "manual" && !!event.leaveReminderEnabled;
-            const shouldUseGlobalOffsets = !(event.module === "manual" && (manualUsesStartReminder || manualUsesLeaveReminder));
+            const taskUsesStartReminder = event.module === "tasks" && !!event.eventReminderEnabled;
+            const shouldUseGlobalOffsets =
+              row.event_reminders_enabled &&
+              !(event.module === "manual" && (manualUsesStartReminder || manualUsesLeaveReminder)) &&
+              !taskUsesStartReminder;
 
             if (shouldUseGlobalOffsets) {
               for (const offset of normalizedOffsets) {
@@ -1126,6 +1134,61 @@ serve(async (req) => {
                     errors.push(`event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
                     await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
                   }
+                }
+              }
+            }
+
+            if (taskUsesStartReminder) {
+              const leadMinutes = normalizeLeadMinutes(event.eventReminderLeadMinutes, 0);
+              const sendAt = event.startsAtLocal.minus({ minutes: leadMinutes });
+              if (!isUsableDateTime(sendAt)) continue;
+              const closeAt = sendAt.plus({ minutes: Math.max(windowMinutes + lateGraceMinutes, eventCatchupMinutes) });
+              if (!isUsableDateTime(closeAt)) continue;
+              if (localNow < sendAt || localNow >= closeAt) continue;
+
+              const sendAtUtc = sendAt.toUTC();
+              if (!isUsableDateTime(sendAtUtc)) continue;
+              const sendAtIso = sendAtUtc.toISO();
+              if (!sendAtIso) continue;
+
+              const dedupeKey = `task-reminder:${row.user_id}:${event.id}:${leadMinutes}:${event.startsAtUtc.toISO()}`;
+              const moduleRecipientsForEvent = filterRecipientsForOwner(
+                recipientListForModule(event.module, moduleRecipients, digestRecipients),
+                row.user_id,
+                recipientOwnership,
+              );
+              const eventRecipients = assignedTaskRecipients(event, taskRecipientContext, moduleRecipientsForEvent);
+              if (eventRecipients.length === 0) continue;
+
+              for (const recipient of eventRecipients) {
+                const recipientDedupeKey = `${dedupeKey}:${recipient}`;
+                const logId = await insertDedupeLog(
+                  supabase,
+                  row.user_id,
+                  recipientDedupeKey,
+                  "event_reminder",
+                  sendAtIso,
+                  { timezone, eventId: event.id, offsetMinutes: leadMinutes, to: recipient },
+                );
+                if (!logId) continue;
+
+                try {
+                  const eventTime = event.startsAtLocal.toFormat("h:mm a");
+                  const body =
+                    leadMinutes <= 0
+                      ? `Home Harmony reminder: ${event.title} starts now (${eventTime}).`
+                      : `Home Harmony reminder: ${event.title} starts at ${eventTime} (${leadMinutes} min).`;
+                  const result = await sendTwilioSms(recipient, body);
+                  messagesSent += 1;
+                  await markLogStatus(supabase, logId, "sent", result.sid, {
+                    timezone,
+                    eventId: event.id,
+                    eventStart: event.startsAtLocal.toISO(),
+                    to: recipient,
+                  });
+                } catch (sendError) {
+                  errors.push(`task-event:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                  await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
                 }
               }
             }
