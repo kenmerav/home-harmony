@@ -22,6 +22,21 @@ export async function sendWelcomeEmail(appUrl?: string) {
   });
 }
 
+export async function sendWelcomePreviewEmail(payload: {
+  email: string;
+  userName?: string;
+  appUrl?: string;
+}) {
+  return invokeEmail({
+    action: 'send_welcome_preview',
+    email: payload.email,
+    userName: payload.userName,
+    appUrl:
+      payload.appUrl ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined),
+  });
+}
+
 export async function sendFamilyInviteEmail(payload: {
   email: string;
   role: 'spouse' | 'kid';

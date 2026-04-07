@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
-type Action = "send_welcome" | "send_family_invite" | "send_onboarding_preview";
+type Action = "send_welcome" | "send_family_invite" | "send_onboarding_preview" | "send_welcome_preview";
 
 interface SendEmailArgs {
   to: string;
@@ -218,6 +218,28 @@ serve(async (req) => {
       const template = welcomeTemplate(inviterName, appUrl);
       const provider = await sendViaResend({
         to: recipient,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_welcome_preview") {
+      const recipientEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : inviterName;
+      if (!recipientEmail) return json({ error: "Recipient email is required." }, 400);
+      if (!isServiceRoleAuth) {
+        const allowedRecipients = parseAdminEmails(Deno.env.get("ADMIN_EMAILS"));
+        if (!allowedRecipients.has(recipientEmail)) {
+          return json({ error: "Forbidden." }, 403);
+        }
+      }
+
+      const template = welcomeTemplate(userName, appUrl);
+      const provider = await sendViaResend({
+        to: recipientEmail,
         subject: template.subject,
         html: template.html,
         text: template.text,

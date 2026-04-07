@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,6 +26,7 @@ import {
 import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { deleteAdminUser, fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
+import { sendWelcomePreviewEmail } from '@/lib/api/emails';
 import { useAuth } from '@/contexts/AuthContext';
 
 function numberFmt(value: number): string {
@@ -56,6 +58,9 @@ export default function AdminDashboardPage() {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<AdminMetricsResponse['recentUsers'][number] | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [welcomePreviewEmail, setWelcomePreviewEmail] = useState('kroberts035@gmail.com');
+  const [welcomePreviewName, setWelcomePreviewName] = useState('Ken');
+  const [sendingWelcomePreview, setSendingWelcomePreview] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -173,6 +178,41 @@ export default function AdminDashboardPage() {
       setDeletingUserId(null);
     }
   }, [pendingDeleteUser, refresh, toast]);
+
+  const handleSendWelcomePreview = useCallback(async () => {
+    const email = welcomePreviewEmail.trim().toLowerCase();
+    const userName = welcomePreviewName.trim();
+    if (!email) {
+      toast({
+        title: 'Email required',
+        description: 'Enter the email address that should receive the welcome email.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSendingWelcomePreview(true);
+    try {
+      await sendWelcomePreviewEmail({
+        email,
+        userName: userName || 'Home Harmony User',
+        appUrl: window.location.origin,
+      });
+      toast({
+        title: 'Welcome email sent',
+        description: `Sent the live welcome email to ${email}.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not send the welcome email.';
+      toast({
+        title: 'Email send failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingWelcomePreview(false);
+    }
+  }, [toast, welcomePreviewEmail, welcomePreviewName]);
 
   return (
     <AppLayout contentWidthClassName="max-w-7xl">
@@ -308,6 +348,36 @@ export default function AdminDashboardPage() {
                 </div>
               ))}
             </div>
+          </SectionCard>
+
+          <SectionCard title="Test Emails" subtitle="Send the real welcome email template to yourself before using it with new users">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(220px,0.7fr)_auto]">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Recipient email</p>
+                <Input
+                  type="email"
+                  value={welcomePreviewEmail}
+                  onChange={(event) => setWelcomePreviewEmail(event.target.value)}
+                  placeholder="name@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">First name</p>
+                <Input
+                  value={welcomePreviewName}
+                  onChange={(event) => setWelcomePreviewName(event.target.value)}
+                  placeholder="Ken"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button onClick={() => void handleSendWelcomePreview()} disabled={sendingWelcomePreview}>
+                  {sendingWelcomePreview ? 'Sending...' : 'Send Welcome Email'}
+                </Button>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              This sends the same live welcome email template your new users receive, using the current production app URL.
+            </p>
           </SectionCard>
 
           <SectionCard title="Module Usage (30d)" subtitle="Relative distribution of tracked events">
