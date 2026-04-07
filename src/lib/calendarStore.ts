@@ -808,14 +808,15 @@ export function updateManualCalendarEvent(
     .map((item) => normalizeManualEvent(item))
     .filter((item): item is StoredManualEvent => Boolean(item));
   const index = current.findIndex((item) => item.id === eventId);
-  if (index < 0) return null;
-
-  const existing = current[index];
   const normalizedLocation = input.location?.trim() || undefined;
   const normalizedTravelFromAddress = input.travelFromAddress?.trim() || undefined;
   const hasCommuteRouting = Boolean(normalizedLocation && normalizedTravelFromAddress);
+  const existing = index >= 0 ? current[index] : null;
+  const now = new Date().toISOString();
   const updated: StoredManualEvent = {
-    ...existing,
+    id: existing?.id || eventId,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
     module: input.module || 'manual',
@@ -846,10 +847,13 @@ export function updateManualCalendarEvent(
     startsAt: input.startsAt,
     endsAt: input.endsAt,
     allDay: input.allDay,
-    updatedAt: new Date().toISOString(),
   };
 
-  current[index] = updated;
+  if (index >= 0) {
+    current[index] = updated;
+  } else {
+    current.unshift(updated);
+  }
   writeJson(key, current);
 
   const remoteId = remoteIdFromLocalId(eventId);

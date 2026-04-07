@@ -126,6 +126,16 @@ export interface TaskCalendarEditInput {
   notes?: string;
   date?: string;
   time?: string;
+  reminderEnabled?: boolean;
+  assignedToId?: string;
+  assignedToName?: string;
+}
+
+function baseRelatedTaskId(value: string): string {
+  return String(value || '')
+    .trim()
+    .split('::')[0]
+    .trim();
 }
 
 export function updateTaskFromCalendarRelatedId(
@@ -133,7 +143,7 @@ export function updateTaskFromCalendarRelatedId(
   input: TaskCalendarEditInput,
   userId?: string | null,
 ): boolean {
-  const normalizedRelatedId = String(relatedId || '').trim();
+  const normalizedRelatedId = baseRelatedTaskId(relatedId);
   if (!normalizedRelatedId) return false;
 
   const tasks = loadTasks(userId);
@@ -155,7 +165,24 @@ export function updateTaskFromCalendarRelatedId(
     title: nextTitle || current.title,
     notes: nextNotes || undefined,
     reminderTime: nextReminderTime || current.reminderTime,
-    reminderEnabled: nextReminderTime ? true : current.reminderEnabled,
+    reminderEnabled:
+      typeof input.reminderEnabled === 'boolean'
+        ? input.reminderEnabled
+        : nextReminderTime
+        ? true
+        : current.reminderEnabled,
+    assignedToId:
+      typeof input.assignedToId === 'string' && input.assignedToId.trim()
+        ? input.assignedToId.trim()
+        : input.assignedToId === ''
+        ? undefined
+        : current.assignedToId,
+    assignedToName:
+      typeof input.assignedToName === 'string' && input.assignedToName.trim()
+        ? input.assignedToName.trim()
+        : input.assignedToId === ''
+        ? undefined
+        : current.assignedToName,
     dueDate: current.frequency === 'once' && isDateOnly ? input.date : current.dueDate,
   };
 
@@ -165,7 +192,7 @@ export function updateTaskFromCalendarRelatedId(
 }
 
 export function deleteTaskFromCalendarRelatedId(relatedId: string, userId?: string | null): boolean {
-  const normalizedRelatedId = String(relatedId || '').trim();
+  const normalizedRelatedId = baseRelatedTaskId(relatedId);
   if (!normalizedRelatedId) return false;
 
   const tasks = loadTasks(userId);
