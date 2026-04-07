@@ -661,6 +661,15 @@ export default function GroceryPage() {
     ],
   );
 
+  const stapleOnlyItems = useMemo(
+    () =>
+      buildGroceryList([], {}, {
+        checkedKeys: new Set(currentWeekState.checkedKeys),
+        recurringItems: groceryListState.recurringItems,
+      }),
+    [currentWeekState.checkedKeys, groceryListState.recurringItems],
+  );
+
   const loadNextWeekStatus = async () => {
     try {
       const status = await loadWeeklyPlanningStatus(getNextWeekOf());
@@ -840,8 +849,8 @@ export default function GroceryPage() {
 
   const visibleItems = useMemo(() => {
     if (!currentWeekOrderedAt) return items;
-    return items.filter((item) => item.recurringItemIds.length > 0);
-  }, [currentWeekOrderedAt, items]);
+    return stapleOnlyItems;
+  }, [currentWeekOrderedAt, items, stapleOnlyItems]);
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = visibleItems.filter(item => item.category === category);
