@@ -720,6 +720,17 @@ export default function GroceryPage() {
     }));
   };
 
+  const resetCurrentWeekChecks = () => {
+    updateCurrentWeekState((weekState) => ({
+      ...weekState,
+      checkedKeys: [],
+    }));
+    toast({
+      title: 'Current week reset',
+      description: 'This week’s grocery items are unchecked again.',
+    });
+  };
+
   const markCurrentWeekNotOrdered = () => {
     updateCurrentWeekState((weekState) => ({
       ...weekState,
@@ -1060,6 +1071,22 @@ export default function GroceryPage() {
       {excludePreppedMealPrep && (
         <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
           Meal prep recipes marked as already prepped are excluded from this grocery rollup.
+        </div>
+      )}
+
+      {checkedCount === totalCount && totalCount > 0 && !currentWeekOrderedAt && (
+        <div className="mb-4 rounded-xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">This week’s list is fully checked</p>
+              <p className="text-xs text-muted-foreground">
+                If this came from the earlier ordered-state bug, reset the checks and keep shopping from the current list.
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={resetCurrentWeekChecks}>
+              Reset Checks
+            </Button>
+          </div>
         </div>
       )}
 
