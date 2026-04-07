@@ -24,7 +24,7 @@ import {
   getCurrentStreak,
   getDailyScore,
   getDashboardTodos,
-  getMealLogs,
+  getEffectiveMealLogsForDate,
   getProfiles,
   getWeekPoints,
   hydrateMacroGameActivityFromAccount,
@@ -146,9 +146,8 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       </AppLayout>
     );
   }
-  const allLogs = getMealLogs();
   const todos = getDashboardTodos(personId);
-  const todaysLogs = allLogs.filter((log) => log.date === todayKey && log.person === personId);
+  const todaysLogs = getEffectiveMealLogsForDate(personId, todayKey);
   const isFemaleDashboard = profile.macroPlan.questionnaire.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);

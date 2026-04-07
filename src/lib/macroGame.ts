@@ -1,5 +1,6 @@
 import { format, subDays } from 'date-fns';
 import { mockMealLogs, mockProfiles } from '@/data/mockData';
+import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 import { Macros, MealLog } from '@/types';
 
@@ -1179,12 +1180,50 @@ function sumMacros(logs: MealLog[]): Macros {
   };
 }
 
+function normalizeMealLookup(value: string): string {
+  return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function buildMealIdentity(log: Pick<MealLog, 'person' | 'date' | 'mealType' | 'recipeName'>): string {
+  return `${log.person}::${log.date}::${log.mealType || 'uncategorized'}::${normalizeMealLookup(log.recipeName)}`;
+}
+
+export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey()): MealLog[] {
+  const state = readState();
+  const actualLogs = state.mealLogs
+    .map(fromStoredMealLog)
+    .filter((log) => log.person === personId && log.date === date);
+  const existingKeys = new Set(actualLogs.map((log) => buildMealIdentity(log)));
+  const supplementalPlannerLogs = getPlannedFoodEntries(currentStorageScopeUserId)
+    .filter((entry) => entry.personId === personId && entry.date === date && entry.mealType !== 'dinner')
+    .map<MealLog>((entry) => ({
+      id: `planner-log:${entry.id}`,
+      recipeId: entry.sourceRecipeId || undefined,
+      recipeName: entry.name,
+      date: entry.date,
+      person: personId,
+      mealType: entry.mealType,
+      servings: entry.servings,
+      macros: {
+        calories: entry.calories,
+        protein_g: entry.protein_g,
+        carbs_g: entry.carbs_g,
+        fat_g: entry.fat_g,
+      },
+      isQuickAdd: true,
+      createdAt: new Date(entry.createdAt),
+    }))
+    .filter((log) => !existingKeys.has(buildMealIdentity(log)));
+
+  return [...actualLogs, ...supplementalPlannerLogs].sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+  );
+}
+
 export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
   const state = readState();
   const profile = ensureProfile(state, personId);
-  const logs = state.mealLogs
-    .map(fromStoredMealLog)
-    .filter((log) => log.person === personId && log.date === date);
+  const logs = getEffectiveMealLogsForDate(personId, date);
   const totals = sumMacros(logs);
   const trackers = trackerForDate(state, date, personId);
   const plan = profile.macroPlan;
