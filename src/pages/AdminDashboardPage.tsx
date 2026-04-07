@@ -60,6 +60,11 @@ function safeRatio(numerator: number, denominator: number): string {
   return (numerator / denominator).toFixed(1);
 }
 
+function csvEscape(value: string | null | undefined): string {
+  const normalized = value ?? '';
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
 function feedbackKindLabel(kind: 'feature_request' | 'bug_report' | 'general_feedback'): string {
   if (kind === 'feature_request') return 'Feature Request';
   if (kind === 'bug_report') return 'Bug Report';
@@ -118,6 +123,9 @@ export default function AdminDashboardPage() {
   const [welcomePreviewName, setWelcomePreviewName] = useState('Ken');
   const [emailTemplate, setEmailTemplate] = useState<EmailTemplateOption>('welcome');
   const [sendingWelcomePreview, setSendingWelcomePreview] = useState(false);
+  const [feedbackSearch, setFeedbackSearch] = useState('');
+  const [feedbackKindFilter, setFeedbackKindFilter] = useState<'all' | 'feature_request' | 'bug_report' | 'general_feedback'>('all');
+  const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<'all' | 'new' | 'reviewed' | 'resolved'>('all');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -167,6 +175,30 @@ export default function AdminDashboardPage() {
       share: total > 0 ? Math.round((row.count / total) * 100) : 0,
     }));
   }, [metrics?.topGrowthEvents30d]);
+
+  const filteredFeedback = useMemo(() => {
+    const rows = metrics?.recentFeedback || [];
+    const search = feedbackSearch.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (feedbackKindFilter !== 'all' && row.kind !== feedbackKindFilter) return false;
+      if (feedbackStatusFilter !== 'all' && row.status !== feedbackStatusFilter) return false;
+      if (!search) return true;
+
+      const haystack = [
+        row.subject,
+        row.details,
+        row.email,
+        row.userName,
+        row.pagePath,
+        row.pageTitle,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+  }, [feedbackKindFilter, feedbackSearch, feedbackStatusFilter, metrics?.recentFeedback]);
 
   const derived = useMemo(() => {
     if (!metrics) return null;
@@ -271,6 +303,93 @@ export default function AdminDashboardPage() {
       setSendingWelcomePreview(false);
     }
   }, [emailTemplate, toast, welcomePreviewEmail, welcomePreviewName]);
+
+  const handleCopyFeedback = useCallback(async () => {
+    if (!filteredFeedback.length) {
+      toast({
+        title: 'Nothing to copy',
+        description: 'There are no feedback items in the current filter.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const text = filteredFeedback
+      .map((row, index) => [
+        `${index + 1}. ${feedbackKindLabel(row.kind)} | ${row.subject?.trim() || '(No subject)'}`,
+        `Submitted: ${dateTimeFmt(row.createdAt)}`,
+        `From: ${row.email || '(no email)'}${row.userName ? ` (${row.userName})` : ''}`,
+        `Page: ${row.pagePath}${row.pageTitle ? ` | ${row.pageTitle}` : ''}`,
+        `Status: ${row.status}`,
+        `Details: ${row.details}`,
+      ].join('\n'))
+      .join('\n\n---\n\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({
+        title: 'Feedback copied',
+        description: `Copied ${filteredFeedback.length} item${filteredFeedback.length === 1 ? '' : 's'} for review.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Could not copy feedback.',
+        variant: 'destructive',
+      });
+    }
+  }, [filteredFeedback, toast]);
+
+  const handleDownloadFeedbackCsv = useCallback(() => {
+    if (!filteredFeedback.length) {
+      toast({
+        title: 'Nothing to export',
+        description: 'There are no feedback items in the current filter.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const header = [
+      'created_at',
+      'kind',
+      'status',
+      'email',
+      'user_name',
+      'page_path',
+      'page_title',
+      'subject',
+      'details',
+    ].join(',');
+
+    const rows = filteredFeedback.map((row) => [
+      csvEscape(row.createdAt),
+      csvEscape(row.kind),
+      csvEscape(row.status),
+      csvEscape(row.email),
+      csvEscape(row.userName),
+      csvEscape(row.pagePath),
+      csvEscape(row.pageTitle),
+      csvEscape(row.subject),
+      csvEscape(row.details),
+    ].join(','));
+
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `home-harmony-feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    toast({
+      title: 'CSV downloaded',
+      description: `Exported ${filteredFeedback.length} feedback item${filteredFeedback.length === 1 ? '' : 's'}.`,
+    });
+  }, [filteredFeedback, toast]);
 
   return (
     <AppLayout contentWidthClassName="max-w-7xl">
@@ -532,8 +651,61 @@ export default function AdminDashboardPage() {
 
           <SectionCard title="Feedback Inbox" subtitle="Latest feature requests and bug reports from inside the app">
             <div className="space-y-3">
-              {metrics.recentFeedback.length ? (
-                metrics.recentFeedback.map((row) => (
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_220px_180px_auto_auto]">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Search</p>
+                  <Input
+                    value={feedbackSearch}
+                    onChange={(event) => setFeedbackSearch(event.target.value)}
+                    placeholder="Search subject, details, email, or page"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Type</p>
+                  <Select value={feedbackKindFilter} onValueChange={(value) => setFeedbackKindFilter(value as typeof feedbackKindFilter)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All types</SelectItem>
+                      <SelectItem value="feature_request">Feature Request</SelectItem>
+                      <SelectItem value="bug_report">Bug Report</SelectItem>
+                      <SelectItem value="general_feedback">General Feedback</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Status</p>
+                  <Select value={feedbackStatusFilter} onValueChange={(value) => setFeedbackStatusFilter(value as typeof feedbackStatusFilter)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="new">New</SelectItem>
+                      <SelectItem value="reviewed">Reviewed</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button variant="outline" onClick={() => void handleCopyFeedback()}>
+                    Copy for Codex
+                  </Button>
+                </div>
+                <div className="flex items-end">
+                  <Button variant="outline" onClick={() => handleDownloadFeedbackCsv()}>
+                    Download CSV
+                  </Button>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Showing {filteredFeedback.length} of {metrics.recentFeedback.length} feedback item{metrics.recentFeedback.length === 1 ? '' : 's'}.
+              </p>
+
+              {filteredFeedback.length ? (
+                filteredFeedback.map((row) => (
                   <div key={row.id} className="rounded-lg border border-border p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-2">
@@ -560,7 +732,9 @@ export default function AdminDashboardPage() {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground">No feedback submissions yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  {metrics.recentFeedback.length ? 'No feedback items match the current filters.' : 'No feedback submissions yet.'}
+                </p>
               )}
             </div>
           </SectionCard>
