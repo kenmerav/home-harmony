@@ -1060,7 +1060,7 @@ export default function MealsPage() {
     });
   };
 
-  const savePlannerFormAsCommonFood = () => {
+  const savePlannerFormAsCommonFood = (options: { silent?: boolean } = {}) => {
     const servings = Number.parseFloat(plannerForm.servings);
     const calories = Number.parseInt(plannerForm.calories, 10);
     const protein = Number.parseInt(plannerForm.protein_g, 10) || 0;
@@ -1093,10 +1093,12 @@ export default function MealsPage() {
       user?.id,
     );
 
-    toast({
-      title: 'Saved to common foods',
-      description: `${plannerForm.name.trim()} will now be easy to reuse without making it a recipe.`,
-    });
+    if (!options.silent) {
+      toast({
+        title: 'Saved to My Foods',
+        description: `${plannerForm.name.trim()} will now be easy to reuse without making it a recipe.`,
+      });
+    }
   };
 
   const selectRecipeForSwap = (recipeId: string) => {
@@ -1302,6 +1304,7 @@ export default function MealsPage() {
     const targetDates = [plannerForm.date];
     const targetPersonId = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
     const targetPersonName = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.name || null;
+    const shouldAutoSaveToFoods = !plannerForm.recipeId;
     if (gridQuickAddContext?.entryId) {
       updatePlannedFoodEntry(
         gridQuickAddContext.entryId,
@@ -1320,6 +1323,9 @@ export default function MealsPage() {
         },
         user?.id,
       );
+      if (shouldAutoSaveToFoods) {
+        savePlannerFormAsCommonFood({ silent: true });
+      }
       refreshPlannerEntries();
       toast({
         title: 'Planned meal updated',
@@ -1345,6 +1351,9 @@ export default function MealsPage() {
         },
         user?.id,
       );
+    }
+    if (shouldAutoSaveToFoods) {
+      savePlannerFormAsCommonFood({ silent: true });
     }
     resetPlannerItemFields(!!options.prepareAnother);
     refreshPlannerEntries();
@@ -2831,9 +2840,6 @@ export default function MealsPage() {
 
                     <div className="flex flex-wrap items-center gap-2">
                       <Button onClick={addPlannerItem}>Add to plan</Button>
-                      <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
-                        Save to My Foods
-                      </Button>
                       {commonFoodOptions.slice(0, 4).map((food) => (
                         <Button
                           key={food.id}
@@ -3891,9 +3897,6 @@ export default function MealsPage() {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeGridQuickAdd}>
                 Cancel
-              </Button>
-              <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
-                Save to My Foods
               </Button>
               {!gridQuickAddContext?.entryId ? (
                 <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
