@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
+import { loadOnboardingResult } from '@/lib/onboardingStore';
 import {
   defaultSmsPreferences,
   loadSmsPreferences,
@@ -17,7 +18,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { FEATURE_TUTORIALS } from '@/data/getStartedTutorials';
 
-const START_STEPS = [
+const DEFAULT_START_STEPS = [
   {
     title: 'Run onboarding first',
     detail: 'Finish onboarding so your household profile, meal preferences, and fixed-day rules are saved.',
@@ -44,8 +45,50 @@ const START_STEPS = [
   },
 ];
 
+interface LaunchChecklistItem {
+  title: string;
+  detail: string;
+  href: string;
+  cta: string;
+}
+
+function readLaunchChecklist(input: unknown): LaunchChecklistItem[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      detail: typeof item.detail === 'string' ? item.detail.trim() : '',
+      href: typeof item.href === 'string' ? item.href.trim() : '',
+      cta: typeof item.cta === 'string' ? item.cta.trim() : '',
+    }))
+    .filter((item) => item.title && item.detail && item.href && item.cta);
+}
+
+function buildWellnessSummary(input: unknown): string | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  const parts: string[] = [];
+  if (Number.isFinite(Number(value.waterTargetOz)) && Number(value.waterTargetOz) > 0) {
+    parts.push(`${Math.round(Number(value.waterTargetOz))} oz water`);
+  }
+  if (typeof value.stepGoal === 'string' && value.stepGoal.trim()) {
+    parts.push(`${value.stepGoal.trim()} steps`);
+  }
+  if (Number.isFinite(Number(value.alcoholLimitDrinks)) && Number(value.alcoholLimitDrinks) >= 0) {
+    parts.push(`${Number(value.alcoholLimitDrinks)} alcohol limit`);
+  }
+  if (typeof value.wakeUpTime === 'string' && value.wakeUpTime.trim()) {
+    parts.push(`wake-up ${value.wakeUpTime.trim()}`);
+  }
+  if (Number.isFinite(Number(value.sleepTargetHours)) && Number(value.sleepTargetHours) > 0) {
+    parts.push(`${Math.round(Number(value.sleepTargetHours))}h sleep`);
+  }
+  return parts.length > 0 ? parts.join(' • ') : null;
+}
+
 export default function GetStartedPage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone),
@@ -53,8 +96,44 @@ export default function GetStartedPage() {
   const [loadingSms, setLoadingSms] = useState(true);
   const [savingSms, setSavingSms] = useState(false);
   const [testingSms, setTestingSms] = useState(false);
+  const [startSteps, setStartSteps] = useState<LaunchChecklistItem[]>(DEFAULT_START_STEPS);
+  const [focusLabel, setFocusLabel] = useState('First-week setup');
+  const [focusRoute, setFocusRoute] = useState('/app');
+  const [wellnessSummary, setWellnessSummary] = useState<string | null>(null);
 
   const canUseRemoteSms = Boolean(user?.id);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadPlan = async () => {
+      const stored = await loadOnboardingResult(user?.id);
+      if (!mounted) return;
+      const launchChecklist = readLaunchChecklist(stored?.personalizedPlan?.launchChecklist);
+      const incomingFocusLabel = stored?.personalizedPlan?.focusLabel;
+      const incomingFocusRoute = stored?.personalizedPlan?.focusRoute;
+      const incomingWellnessSummary = buildWellnessSummary(stored?.personalizedPlan?.wellnessTargets);
+      if (launchChecklist.length > 0) {
+        setStartSteps(launchChecklist);
+      } else {
+        setStartSteps(DEFAULT_START_STEPS);
+      }
+      if (typeof incomingFocusLabel === 'string' && incomingFocusLabel.trim()) {
+        setFocusLabel(incomingFocusLabel.trim());
+      } else {
+        setFocusLabel('First-week setup');
+      }
+      if (typeof incomingFocusRoute === 'string' && incomingFocusRoute.trim()) {
+        setFocusRoute(incomingFocusRoute.trim());
+      } else {
+        setFocusRoute('/app');
+      }
+      setWellnessSummary(incomingWellnessSummary);
+    };
+    void loadPlan();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!canUseRemoteSms) {
@@ -129,16 +208,24 @@ export default function GetStartedPage() {
         title="Setup + tutorials"
         subtitle="Step-by-step guides with screenshots so your household can start clean and run smoothly"
         action={
-          <Link to="/app">
-            <Button size="sm">Go to dashboard</Button>
+          <Link to={focusRoute}>
+            <Button size="sm">Open {focusLabel}</Button>
           </Link>
         }
       />
 
       <div className="space-y-6">
-        <SectionCard title="Fast start path" subtitle="Use this order for your first week.">
+        <SectionCard
+          title="Fast start path"
+          subtitle={`Use this order for your first week. Your current setup is centered on ${focusLabel.toLowerCase()}.`}
+        >
+          {wellnessSummary ? (
+            <div className="mb-4 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Wellness targets from onboarding: <span className="font-medium text-foreground">{wellnessSummary}</span>
+            </div>
+          ) : null}
           <div className="space-y-3">
-            {START_STEPS.map((step, index) => (
+            {startSteps.map((step, index) => (
               <div key={step.title} className="rounded-lg border border-border p-3">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Step {index + 1}</p>
                 <p className="mt-1 font-medium">{step.title}</p>

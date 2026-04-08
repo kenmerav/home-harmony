@@ -24,7 +24,7 @@ import {
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
 import { getWeeklyAdZip, setPreferredGroceryStoreId, setWeeklyAdPrefs } from '@/lib/groceryPrefs';
-import { getProfiles, updateFemaleHealthSettings } from '@/lib/macroGame';
+import { getProfiles, updateFemaleHealthSettings, updateMacroPlan } from '@/lib/macroGame';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -300,6 +300,21 @@ interface PersonalizedPlan {
   weeklyPreview: {
     dinners: Array<{ day: string; recipe: string; cookMinutes: number }>;
     groceryPreview: string[];
+  };
+  focusRoute: string;
+  focusLabel: string;
+  launchChecklist: Array<{
+    title: string;
+    detail: string;
+    href: string;
+    cta: string;
+  }>;
+  wellnessTargets: {
+    waterTargetOz: number | null;
+    stepGoal: string | null;
+    alcoholLimitDrinks: number | null;
+    wakeUpTime: string | null;
+    sleepTargetHours: number | null;
   };
   summary: string;
 }
@@ -598,6 +613,129 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     .join(' ');
 }
 
+function getLaunchFocus(answers: OnboardingAnswers): { route: string; label: string } {
+  switch (answers.mainPainPoint) {
+    case 'Keeping up with the family schedule':
+    case 'Managing sports/school/activity logistics':
+      return { route: '/calendar', label: 'Family calendar' };
+    case 'Grocery planning and follow-through':
+      return { route: '/grocery', label: 'Grocery flow' };
+    case 'Building better routines':
+      return { route: '/tasks', label: 'Tasks + routines' };
+    case 'Reducing the mental load':
+      return { route: '/today', label: 'Today dashboard' };
+    case 'Figuring out dinner every night':
+    default:
+      return { route: '/meals', label: 'Weekly meals' };
+  }
+}
+
+function mapWaterTargetToOz(target: WaterTarget | null): number | null {
+  switch (target) {
+    case '64 oz':
+      return 64;
+    case '80 oz':
+      return 80;
+    case '100 oz+':
+      return 100;
+    default:
+      return null;
+  }
+}
+
+function mapAlcoholTargetToLimit(target: AlcoholTarget | null): number | null {
+  switch (target) {
+    case 'Limit to weekends':
+      return 2;
+    case 'Max 3 drinks/week':
+      return 0.5;
+    case 'Max 1 drink/day':
+      return 1;
+    default:
+      return null;
+  }
+}
+
+function mapSleepDurationToHours(target: SleepDurationTarget | null): number | null {
+  switch (target) {
+    case '7 hours':
+      return 7;
+    case '8 hours':
+      return 8;
+    case '9 hours':
+      return 9;
+    default:
+      return null;
+  }
+}
+
+function buildLaunchChecklist(
+  answers: OnboardingAnswers,
+  focus: { route: string; label: string },
+): PersonalizedPlan['launchChecklist'] {
+  const mealsStep = {
+    title: 'Build next week’s meals',
+    detail:
+      answers.desiredOutcome === 'Calmer evenings'
+        ? 'Generate dinners first so evenings feel decided before the day gets busy.'
+        : 'Turn your recipe library into an actual week so the app can start helping.',
+    href: '/meals',
+    cta: 'Open Meals',
+  };
+  const groceryStep = {
+    title: 'Review the grocery list',
+    detail:
+      answers.groceryPain === 'Yes, I am tired of bouncing between recipes and grocery lists'
+        ? 'Use the merged grocery list as your one place to shop instead of bouncing back into recipes.'
+        : 'Check the list once before your order so meals and grocery stay in sync.',
+    href: '/grocery',
+    cta: 'Open Grocery',
+  };
+  const calendarStep = {
+    title:
+      answers.calendarSystem === 'Google Calendar' || answers.calendarSystem === 'Apple Calendar'
+        ? 'Connect your calendar'
+        : 'Set up your family calendar',
+    detail:
+      answers.mainPainPoint === 'Managing sports/school/activity logistics'
+        ? 'Get sports, school, and family events into one weekly view so dinner and reminders follow the real schedule.'
+        : 'Put your real events into the planner so reminders and meal timing work off the right week.',
+    href: '/calendar',
+    cta: 'Open Calendar',
+  };
+  const tasksStep = {
+    title: 'Set up recurring tasks',
+    detail:
+      answers.chorePain === 'Yes, I am tired of repeating chores and reminders'
+        ? 'Add the repeating tasks you always end up reminding people about so the system carries more of the load.'
+        : 'Start with a couple recurring tasks so routines are visible instead of living in your head.',
+    href: '/tasks',
+    cta: 'Open Tasks',
+  };
+  const remindersStep = {
+    title: answers.morningTextChoice?.startsWith('Yes') ? 'Check your reminders' : 'Turn on helpful reminders',
+    detail: answers.morningTextChoice?.startsWith('Yes')
+      ? 'Your schedule texts are on. Do a quick check so tomorrow’s reminders feel right from day one.'
+      : 'Add the reminder nudges you actually want so Home Harmony helps without becoming noisy.',
+    href: '/settings',
+    cta: 'Open Settings',
+  };
+
+  if (focus.route === '/calendar') {
+    return [calendarStep, mealsStep, remindersStep];
+  }
+  if (focus.route === '/grocery') {
+    return [mealsStep, groceryStep, remindersStep];
+  }
+  if (focus.route === '/tasks') {
+    return [tasksStep, calendarStep, remindersStep];
+  }
+  if (focus.route === '/today') {
+    return [mealsStep, calendarStep, remindersStep];
+  }
+  return [mealsStep, groceryStep, remindersStep];
+}
+
 function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): StepId[] {
   const steps: StepId[] = ['welcome', 'painPoint', 'aha', 'household'];
   if (answers.kidsCount > 0) steps.push('kidDetails');
@@ -847,31 +985,47 @@ export default function OnboardingPage() {
   );
 
   const personalizedPlan = useMemo<PersonalizedPlan>(
-    () => ({
-      enabledModules: [
-        'meals',
-        'groceries',
-        'chores',
-        'tasks',
-        ...(answers.healthTrackingFocus.includes('Workout tracking') ? (['workouts'] as PlanModule[]) : []),
-      ],
-      suggestedLists: [
-        "This week's dinner plan (auto-matched)",
-        'Grocery list grouped by store run',
-        'Busy-night fallback meal list',
-        'Weekly reset checklist',
-        ...(answers.weeklyStaples.length > 0 ? ['Recurring staple nights'] : []),
-      ],
-      weeklyPreview: {
-        dinners: previewWeek.map((item) => ({
-          day: item.day,
-          recipe: item.recipe.name,
-          cookMinutes: item.cookMinutes,
-        })),
-        groceryPreview,
-      },
-      summary: `Built for ${householdSummary(answers)} with ${answers.mealStylePreferences.join(', ').toLowerCase()} meals and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`,
-    }),
+    () => {
+      const focus = getLaunchFocus(answers);
+      const waterTargetOz = mapWaterTargetToOz(answers.waterTarget);
+      const alcoholLimitDrinks = mapAlcoholTargetToLimit(answers.alcoholTarget);
+      const sleepTargetHours = mapSleepDurationToHours(answers.sleepDurationTarget);
+      return {
+        enabledModules: [
+          'meals',
+          'groceries',
+          'chores',
+          'tasks',
+          ...(answers.healthTrackingFocus.includes('Workout tracking') ? (['workouts'] as PlanModule[]) : []),
+        ],
+        suggestedLists: [
+          "This week's dinner plan (auto-matched)",
+          'Grocery list grouped by store run',
+          'Busy-night fallback meal list',
+          'Weekly reset checklist',
+          ...(answers.weeklyStaples.length > 0 ? ['Recurring staple nights'] : []),
+        ],
+        weeklyPreview: {
+          dinners: previewWeek.map((item) => ({
+            day: item.day,
+            recipe: item.recipe.name,
+            cookMinutes: item.cookMinutes,
+          })),
+          groceryPreview,
+        },
+        focusRoute: focus.route,
+        focusLabel: focus.label,
+        launchChecklist: buildLaunchChecklist(answers, focus),
+        wellnessTargets: {
+          waterTargetOz,
+          stepGoal: answers.stepTarget === 'No target right now' ? null : answers.stepTarget,
+          alcoholLimitDrinks,
+          wakeUpTime: answers.wakeUpTime || null,
+          sleepTargetHours,
+        },
+        summary: `Built for ${householdSummary(answers)} with a first focus on ${focus.label.toLowerCase()}, ${answers.mealStylePreferences.join(', ').toLowerCase()} meals, and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`,
+      };
+    },
     [answers, groceryPreview, previewWeek],
   );
 
@@ -1124,6 +1278,14 @@ export default function OnboardingPage() {
         (dashboardProfile) =>
           dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
       );
+      const primaryWaterTarget = personalizedPlan.wellnessTargets.waterTargetOz;
+      const primaryAlcoholLimit = personalizedPlan.wellnessTargets.alcoholLimitDrinks;
+      if (primaryWaterTarget !== null || primaryAlcoholLimit !== null) {
+        updateMacroPlan('me', {
+          ...(primaryWaterTarget !== null ? { waterTargetOz: primaryWaterTarget } : {}),
+          ...(primaryAlcoholLimit !== null ? { alcoholLimitDrinks: primaryAlcoholLimit } : {}),
+        });
+      }
       const wantsCycleTracking = resolvedAnswers.femaleWellnessFocus.includes('Cycle / period tracking');
       const wantsPregnancyTracking = resolvedAnswers.femaleWellnessFocus.includes('Pregnancy tracking');
       femaleProfiles.forEach((dashboardProfile) => {
@@ -1189,7 +1351,8 @@ export default function OnboardingPage() {
         const setupMode = answers.calendarSystem === 'Google Calendar' ? 'google' : 'apple';
         navigate(`/calendar/connect-apple?platform=${setupMode}&source=onboarding`, { replace: true });
       } else {
-        navigate(getPostAuthRoute(isSubscribed), { replace: true });
+        const fallbackRoute = getPostAuthRoute(isSubscribed);
+        navigate(fallbackRoute === '/app' ? personalizedPlan.focusRoute : fallbackRoute, { replace: true });
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not finish onboarding. Please try again.';
