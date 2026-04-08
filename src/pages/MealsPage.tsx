@@ -949,72 +949,6 @@ export default function MealsPage() {
       .map((entry) => entry.date);
   };
 
-  const findPreviousPlannerEntries = useCallback(
-    (targetDate: string, mealType: PlannedMealType) => {
-      const targetPersonId = mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
-      const entriesDescending = plannerEntries
-        .filter((entry) => entry.mealType === mealType)
-        .filter((entry) => (mealType === 'dinner' ? !entry.personId : (entry.personId || null) === (targetPersonId || null)))
-        .filter((entry) => entry.date < targetDate)
-        .sort((a, b) => b.date.localeCompare(a.date) || a.createdAt.localeCompare(b.createdAt));
-
-      if (entriesDescending.length === 0) return [];
-
-      const previousDate = entriesDescending[0].date;
-      return entriesDescending
-        .filter((entry) => entry.date === previousDate)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    },
-    [plannerDashboard, plannerDashboardId, plannerEntries],
-  );
-
-  const copyPreviousDayEntriesToPlannerDate = useCallback(
-    (targetDate: string, mealType: PlannedMealType) => {
-      const sourceEntries = findPreviousPlannerEntries(targetDate, mealType);
-      if (sourceEntries.length === 0) {
-        toast({
-          title: `No previous ${mealType} found`,
-          description: `There is not a saved ${plannedMealTypeLabel[mealType].toLowerCase()} from an earlier day to copy yet.`,
-          variant: 'destructive',
-        });
-        return false;
-      }
-
-      const targetPersonId = mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
-      const targetPersonName = mealType === 'dinner' ? null : plannerDashboard?.name || null;
-
-      deletePlannedFoodEntriesByDateAndMealType(targetDate, mealType, targetPersonId, user?.id);
-
-      sourceEntries.forEach((entry) => {
-        addPlannedFoodEntry(
-          {
-            date: targetDate,
-            mealType,
-            personId: targetPersonId,
-            personName: targetPersonName,
-            name: entry.name,
-            servings: entry.servings,
-            calories: entry.calories,
-            protein_g: entry.protein_g,
-            carbs_g: entry.carbs_g,
-            fat_g: entry.fat_g,
-            sourceRecipeId: entry.sourceRecipeId || null,
-          },
-          user?.id,
-        );
-      });
-
-      refreshPlannerEntries();
-      const sourceDate = format(new Date(`${sourceEntries[0].date}T00:00:00`), 'EEE, MMM d');
-      toast({
-        title: `${plannedMealTypeLabel[mealType]} copied`,
-        description: `Copied ${sourceEntries.length} item${sourceEntries.length === 1 ? '' : 's'} from ${sourceDate}.`,
-      });
-      return true;
-    },
-    [findPreviousPlannerEntries, plannerDashboard, plannerDashboardId, refreshPlannerEntries, toast, user?.id],
-  );
-
   const closeGridQuickAdd = () => {
     setGridQuickAddContext(null);
     setPlannerRepeatMode('once');
@@ -2274,14 +2208,6 @@ export default function MealsPage() {
                         <Plus className="w-4 h-4 mr-1" />
                         Add {label}
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        onClick={() => void copyPreviousDayEntriesToPlannerDate(row.date, mealType)}
-                      >
-                        Copy Prev
-                      </Button>
                     </div>
                   </div>
                 );
@@ -2800,16 +2726,8 @@ export default function MealsPage() {
                         <Plus className="mr-1.5 h-4 w-4" />
                         Add Food
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void copyPreviousDayEntriesToPlannerDate(plannerForm.date, plannerForm.mealType)}
-                      >
-                        Copy previous day
-                      </Button>
                       <p className="text-xs text-muted-foreground">
-                        Reuse something from a previous day or save the current one as a food for later.
+                        Save the current item as a food for later so you can find it quickly next time.
                       </p>
                     </div>
                     <div className="grid gap-2 md:grid-cols-[1fr_140px]">
@@ -3803,22 +3721,8 @@ export default function MealsPage() {
                 <Plus className="mr-1.5 h-4 w-4" />
                 Add Food
               </Button>
-              {!gridQuickAddContext?.entryId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (copyPreviousDayEntriesToPlannerDate(plannerForm.date, plannerForm.mealType)) {
-                      closeGridQuickAdd();
-                    }
-                  }}
-                >
-                  Copy previous day
-                </Button>
-              ) : null}
               <p className="text-xs text-muted-foreground">
-                Use Add Food for everyday items, or copy the last {plannedMealTypeLabel[plannerForm.mealType].toLowerCase()} into this day.
+                Use Add Food for everyday items, then save the ones you repeat most to My Foods.
               </p>
             </div>
             <select
