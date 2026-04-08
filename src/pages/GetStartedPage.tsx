@@ -108,10 +108,11 @@ export default function GetStartedPage() {
     const loadPlan = async () => {
       const stored = await loadOnboardingResult(user?.id);
       if (!mounted) return;
-      const launchChecklist = readLaunchChecklist(stored?.personalizedPlan?.launchChecklist);
-      const incomingFocusLabel = stored?.personalizedPlan?.focusLabel;
-      const incomingFocusRoute = stored?.personalizedPlan?.focusRoute;
-      const incomingWellnessSummary = buildWellnessSummary(stored?.personalizedPlan?.wellnessTargets);
+      const plan = stored?.personalizedPlan as Record<string, unknown> | undefined;
+      const launchChecklist = readLaunchChecklist(plan?.launchChecklist);
+      const incomingFocusLabel = plan?.focusLabel;
+      const incomingFocusRoute = plan?.focusRoute;
+      const incomingWellnessSummary = buildWellnessSummary(plan?.wellnessTargets);
       if (launchChecklist.length > 0) {
         setStartSteps(launchChecklist);
       } else {

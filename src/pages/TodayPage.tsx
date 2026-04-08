@@ -55,6 +55,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
 import { getPlannedFoodEntries, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
+import { loadOnboardingResult } from '@/lib/onboardingStore';
 
 const getCurrentDay = (date = new Date()): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -170,6 +171,53 @@ function loadPendingChoreDetails(userId?: string | null): PendingChoreDetail[] {
 
 type TodaySummaryView = 'schedule' | 'tasks' | 'chores' | 'actions';
 
+interface FocusPrompt {
+  focusLabel: string;
+  focusRoute: string;
+  launchChecklist: Array<{
+    title: string;
+    detail: string;
+    href: string;
+    cta: string;
+  }>;
+  wellnessSummary: string | null;
+}
+
+function readLaunchChecklist(input: unknown): FocusPrompt['launchChecklist'] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      detail: typeof item.detail === 'string' ? item.detail.trim() : '',
+      href: typeof item.href === 'string' ? item.href.trim() : '',
+      cta: typeof item.cta === 'string' ? item.cta.trim() : '',
+    }))
+    .filter((item) => item.title && item.detail && item.href && item.cta);
+}
+
+function buildWellnessSummary(input: unknown): string | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  const parts: string[] = [];
+  if (Number.isFinite(Number(value.waterTargetOz)) && Number(value.waterTargetOz) > 0) {
+    parts.push(`${Math.round(Number(value.waterTargetOz))} oz water`);
+  }
+  if (typeof value.stepGoal === 'string' && value.stepGoal.trim()) {
+    parts.push(`${value.stepGoal.trim()} steps`);
+  }
+  if (Number.isFinite(Number(value.alcoholLimitDrinks)) && Number(value.alcoholLimitDrinks) >= 0) {
+    parts.push(`${Number(value.alcoholLimitDrinks)} drink limit`);
+  }
+  if (typeof value.wakeUpTime === 'string' && value.wakeUpTime.trim()) {
+    parts.push(`wake-up ${value.wakeUpTime.trim()}`);
+  }
+  if (Number.isFinite(Number(value.sleepTargetHours)) && Number(value.sleepTargetHours) > 0) {
+    parts.push(`${Math.round(Number(value.sleepTargetHours))}h sleep`);
+  }
+  return parts.length > 0 ? parts.join(' • ') : null;
+}
+
 export default function TodayPage() {
   const { user } = useAuth();
   const currentDate = useCurrentDate();
@@ -203,6 +251,40 @@ export default function TodayPage() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [summaryView, setSummaryView] = useState<TodaySummaryView>('schedule');
+  const [focusPrompt, setFocusPrompt] = useState<FocusPrompt>({
+    focusLabel: 'First-week setup',
+    focusRoute: '/app',
+    launchChecklist: [],
+    wellnessSummary: null,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    const loadPrompt = async () => {
+      const stored = await loadOnboardingResult(user?.id);
+      if (!mounted) return;
+      const plan = stored?.personalizedPlan as Record<string, unknown> | undefined;
+      const launchChecklist = readLaunchChecklist(plan?.launchChecklist).slice(0, 3);
+      const focusLabel =
+        typeof plan?.focusLabel === 'string' && plan.focusLabel.trim()
+          ? plan.focusLabel.trim()
+          : 'First-week setup';
+      const focusRoute =
+        typeof plan?.focusRoute === 'string' && plan.focusRoute.trim()
+          ? plan.focusRoute.trim()
+          : '/app';
+      setFocusPrompt({
+        focusLabel,
+        focusRoute,
+        launchChecklist,
+        wellnessSummary: buildWellnessSummary(plan?.wellnessTargets),
+      });
+    };
+    void loadPrompt();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -670,6 +752,38 @@ export default function TodayPage() {
       <PageHeader title="Today" subtitle={todayLabel} />
 
       <div className="space-y-6 stagger-children">
+        {(focusPrompt.launchChecklist.length > 0 || focusPrompt.wellnessSummary) && (
+          <SectionCard
+            title="Your Focus This Week"
+            subtitle={`Home Harmony is currently prioritizing ${focusPrompt.focusLabel.toLowerCase()} for your setup.`}
+            action={
+              <Link to={focusPrompt.focusRoute}>
+                <Button size="sm" variant="outline">Open {focusPrompt.focusLabel}</Button>
+              </Link>
+            }
+          >
+            {focusPrompt.wellnessSummary ? (
+              <div className="mb-4 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Wellness targets: <span className="font-medium text-foreground">{focusPrompt.wellnessSummary}</span>
+              </div>
+            ) : null}
+            {focusPrompt.launchChecklist.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-3">
+                {focusPrompt.launchChecklist.map((step, index) => (
+                  <div key={`${step.title}-${index}`} className="rounded-lg border border-border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Next step {index + 1}</p>
+                    <p className="mt-1 font-medium">{step.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{step.detail}</p>
+                    <Link to={step.href} className="mt-3 inline-block">
+                      <Button size="sm" variant="outline">{step.cta}</Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </SectionCard>
+        )}
+
         <SectionCard
           title="Daily Command Center"
           subtitle="Everything important for today, in one place"

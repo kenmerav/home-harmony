@@ -736,6 +736,68 @@ function buildLaunchChecklist(
   return [mealsStep, groceryStep, remindersStep];
 }
 
+function buildOnboardingSmsPreferences(
+  answers: OnboardingAnswers,
+  phoneE164: string,
+  timezoneGuess: string,
+) {
+  const base = defaultSmsPreferences(timezoneGuess);
+  const reminderOffsets =
+    answers.appointmentReminder === '30 minutes before'
+      ? [30]
+      : answers.appointmentReminder === '1 hour before'
+      ? [60]
+      : answers.appointmentReminder === 'Both 1 hour and 30 minutes'
+      ? [60, 30]
+      : [];
+
+  const includeModules = new Set(base.include_modules);
+  if (
+    answers.mainPainPoint === 'Keeping up with the family schedule' ||
+    answers.mainPainPoint === 'Managing sports/school/activity logistics'
+  ) {
+    includeModules.add('manual');
+    includeModules.add('tasks');
+  }
+  if (answers.mainPainPoint === 'Figuring out dinner every night') {
+    includeModules.add('meals');
+    includeModules.add('reminders');
+  }
+  if (answers.chorePain === 'Yes, I am tired of repeating chores and reminders') {
+    includeModules.add('tasks');
+  }
+
+  const reminderStyle =
+    answers.morningTextChoice === 'Yes, send me a daily schedule text each morning'
+      ? 'balanced'
+      : answers.appointmentReminder === 'No reminders'
+      ? 'minimal'
+      : 'balanced';
+
+  const morningDigestEnabled = answers.morningTextChoice === 'Yes, send me a daily schedule text each morning';
+  const persistent = answers.desiredOutcome === 'More organized weeks' || answers.mainPainPoint === 'Reducing the mental load';
+
+  return {
+    ...base,
+    enabled: true,
+    phone_e164: phoneE164,
+    morning_digest_enabled: morningDigestEnabled,
+    morning_digest_time: reminderStyle === 'balanced' ? '07:00' : '07:30',
+    night_before_enabled: persistent || answers.mainPainPoint === 'Keeping up with the family schedule',
+    night_before_time: persistent ? '19:30' : '20:00',
+    grocery_reminder_enabled:
+      answers.mainPainPoint === 'Grocery planning and follow-through' ||
+      answers.groceryPain !== 'No, grocery flow is fine right now',
+    grocery_reminder_day: answers.groceryShoppingMode === 'Delivery' ? 'friday' : 'saturday',
+    grocery_reminder_time: '17:00',
+    event_reminders_enabled: reminderOffsets.length > 0,
+    reminder_offsets_minutes: reminderOffsets.length > 0 ? reminderOffsets : [0],
+    include_modules: Array.from(includeModules),
+    quiet_hours_start: answers.wakeUpTime ? '21:30' : base.quiet_hours_start,
+    quiet_hours_end: answers.wakeUpTime || base.quiet_hours_end,
+  };
+}
+
 function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): StepId[] {
   const steps: StepId[] = ['welcome', 'painPoint', 'aha', 'household'];
   if (answers.kidsCount > 0) steps.push('kidDetails');
@@ -1245,30 +1307,18 @@ export default function OnboardingPage() {
         }
       }
 
-      if (
-        resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning' &&
-        normalizedPhone
-      ) {
+      const shouldSaveSmsPrefs =
+        Boolean(normalizedPhone) &&
+        (
+          resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning' ||
+          resolvedAnswers.appointmentReminder !== 'No reminders'
+        );
+
+      if (shouldSaveSmsPrefs && normalizedPhone) {
         try {
           const timezoneGuess =
             typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'America/New_York';
-          const reminderOffsets =
-            resolvedAnswers.appointmentReminder === '30 minutes before'
-              ? [30]
-              : resolvedAnswers.appointmentReminder === '1 hour before'
-              ? [60]
-              : resolvedAnswers.appointmentReminder === 'Both 1 hour and 30 minutes'
-              ? [60, 30]
-              : [];
-
-          await saveSmsPreferences({
-            ...defaultSmsPreferences(timezoneGuess),
-            enabled: true,
-            phone_e164: normalizedPhone,
-            morning_digest_enabled: true,
-            event_reminders_enabled: reminderOffsets.length > 0,
-            reminder_offsets_minutes: reminderOffsets.length > 0 ? reminderOffsets : [0],
-          });
+          await saveSmsPreferences(buildOnboardingSmsPreferences(resolvedAnswers, normalizedPhone, timezoneGuess));
         } catch (smsError) {
           console.error('Failed saving onboarding SMS preferences:', smsError);
         }
