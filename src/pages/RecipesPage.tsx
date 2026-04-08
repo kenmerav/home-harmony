@@ -45,6 +45,7 @@ import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } 
 import { inferKidFriendly } from '@/lib/kidFriendly';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getNextWeekOf, loadWeeklyPlanningStatus, type WeeklyPlanningStatus } from '@/lib/api/weeklyPlanningStatus';
+import { getCommonFoods, type CommonFood } from '@/lib/mealBudgetPlanner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -66,6 +67,15 @@ const dayLabels: Record<DayOfWeek, string> = {
   friday: 'Friday',
   saturday: 'Saturday',
   sunday: 'Sunday',
+};
+
+const savedFoodMealLabels: Record<NonNullable<CommonFood['defaultMealType']>, string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack',
+  dessert: 'Dessert',
+  alcohol: 'Drink',
 };
 
 type RecipeInspirationStyle =
@@ -460,6 +470,7 @@ export default function RecipesPage() {
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [nextWeekPlanning, setNextWeekPlanning] = useState<WeeklyPlanningStatus | null>(null);
   const [planningLoading, setPlanningLoading] = useState(false);
+  const [savedFoods, setSavedFoods] = useState<CommonFood[]>([]);
   const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
   const hasLoadedImportJobsRef = useRef(false);
   const hasHydratedDraftRef = useRef(false);
@@ -505,6 +516,33 @@ export default function RecipesPage() {
     setKidFriendlyOverrides(getKidFriendlyOverrides());
     void loadRecipes();
   }, [loadRecipes]);
+
+  const loadSavedFoods = useCallback(() => {
+    setSavedFoods(getCommonFoods(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadSavedFoods();
+  }, [loadSavedFoods]);
+
+  useEffect(() => {
+    const handleSavedFoodsRefresh = () => loadSavedFoods();
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        loadSavedFoods();
+      }
+    };
+
+    window.addEventListener('homehub:planned-food-updated', handleSavedFoodsRefresh);
+    window.addEventListener('focus', handleSavedFoodsRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      window.removeEventListener('homehub:planned-food-updated', handleSavedFoodsRefresh);
+      window.removeEventListener('focus', handleSavedFoodsRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
+  }, [loadSavedFoods]);
 
   useEffect(() => {
     const draft = loadRecipeUploadDraft();
@@ -733,6 +771,25 @@ export default function RecipesPage() {
     const matchesFavorite = !favoritesOnly || !!recipe.isFavorite;
     const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
     return matchesSearch && matchesFavorite && matchesKidFriendly;
+  });
+  const normalizedSearchQuery = searchQuery
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[’'`]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const filteredSavedFoods = savedFoods.filter((food) => {
+    if (!normalizedSearchQuery) return true;
+    const normalizedName = food.name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[’'`]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return (
+      normalizedName.includes(normalizedSearchQuery) ||
+      normalizedSearchQuery.split(' ').filter(Boolean).every((term) => normalizedName.includes(term))
+    );
   });
   const filteredBoardRecommendations = PINTEREST_BOARD_RECOMMENDATIONS.filter(
     (board) => recipeStyleFilter === 'all' || board.styles.includes(recipeStyleFilter),
@@ -1757,11 +1814,51 @@ export default function RecipesPage() {
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search recipes..."
+          placeholder="Search recipes or saved foods..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-10"
         />
+      </div>
+
+      <div className="mb-6 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Saved Foods</p>
+            <p className="text-sm text-muted-foreground">
+              Everyday foods you have logged from Meals so you can find and reuse them quickly.
+            </p>
+          </div>
+          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            {savedFoods.length}
+          </span>
+        </div>
+
+        {filteredSavedFoods.length > 0 ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredSavedFoods.map((food) => (
+              <div key={food.id} className="rounded-lg border border-border/80 bg-background p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium leading-tight">{food.name}</p>
+                  {food.defaultMealType ? (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {savedFoodMealLabels[food.defaultMealType] || food.defaultMealType}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {food.servings}x • {food.calories} cal • {food.protein_g}P • {food.carbs_g}C • {food.fat_g}F
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-border/80 bg-background px-4 py-5 text-sm text-muted-foreground">
+            {savedFoods.length === 0
+              ? 'No saved foods yet. Add a manual or estimated food from Meals once, and it will show up here automatically.'
+              : 'No saved foods match that search yet.'}
+          </div>
+        )}
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
