@@ -3277,7 +3277,7 @@ export default function MealsPage() {
 
       {/* Planner Rules */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-display">Planner Rules</DialogTitle>
             <DialogDescription>Controls how meals are generated.</DialogDescription>
@@ -3470,7 +3470,7 @@ export default function MealsPage() {
 
       {/* Swap Meal Dialog */}
       <Dialog open={!!swapDialogMeal} onOpenChange={(open) => !open && setSwapDialogMeal(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-display">Swap Meal</DialogTitle>
             <DialogDescription>
@@ -3573,7 +3573,7 @@ export default function MealsPage() {
 
       {/* Grid Quick Add Dialog */}
       <Dialog open={!!gridQuickAddContext} onOpenChange={(open) => !open && closeGridQuickAdd()}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {gridQuickAddContext?.entryId ? 'Edit ' : 'Add '}{plannedMealTypeLabel[plannerForm.mealType]}
@@ -3921,7 +3921,7 @@ export default function MealsPage() {
 
       {/* Manual Add Meal Dialog */}
       <Dialog open={!!manualDialogDay} onOpenChange={(open) => !open && setManualDialogDay(null)}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Add Meal</DialogTitle>
             <DialogDescription>
@@ -4006,7 +4006,7 @@ export default function MealsPage() {
 
       {/* Pantry Matcher */}
       <Dialog open={pantryOpen} onOpenChange={setPantryOpen}>
-        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Have X Ingredients, What Can I Make?</DialogTitle>
             <DialogDescription>Enter ingredients you have. We'll suggest best matches.</DialogDescription>
