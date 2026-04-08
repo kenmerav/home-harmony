@@ -949,6 +949,40 @@ export default function MealsPage() {
       .map((entry) => entry.date);
   };
 
+  const updatePlannerFormServings = (nextValue: string) => {
+    setPlannerForm((prev) => {
+      const normalizedServings = normalizeDecimalInput(nextValue);
+      const previousServings = Number.parseFloat(prev.servings);
+      const nextServings = Number.parseFloat(normalizedServings);
+
+      if (
+        !normalizedServings ||
+        !Number.isFinite(previousServings) ||
+        previousServings <= 0 ||
+        !Number.isFinite(nextServings) ||
+        nextServings <= 0
+      ) {
+        return { ...prev, servings: normalizedServings };
+      }
+
+      const scaleValue = (value: string) => {
+        if (!value.trim()) return '';
+        const parsed = Number.parseFloat(value);
+        if (!Number.isFinite(parsed)) return value;
+        return String(Math.max(0, Math.round((parsed / previousServings) * nextServings)));
+      };
+
+      return {
+        ...prev,
+        servings: normalizedServings,
+        calories: scaleValue(prev.calories),
+        protein_g: scaleValue(prev.protein_g),
+        carbs_g: scaleValue(prev.carbs_g),
+        fat_g: scaleValue(prev.fat_g),
+      };
+    });
+  };
+
   const closeGridQuickAdd = () => {
     setGridQuickAddContext(null);
     setPlannerRepeatMode('once');
@@ -2746,7 +2780,7 @@ export default function MealsPage() {
                           step="0.25"
                           min="0.1"
                           value={plannerForm.servings}
-                          onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
+                          onChange={(event) => updatePlannerFormServings(event.target.value)}
                         />
                       </div>
                     </div>
@@ -3808,7 +3842,7 @@ export default function MealsPage() {
                   step="0.25"
                   min="0.1"
                   value={plannerForm.servings}
-                  onChange={(event) => setPlannerForm((prev) => ({ ...prev, servings: normalizeDecimalInput(event.target.value) }))}
+                  onChange={(event) => updatePlannerFormServings(event.target.value)}
                 />
               </div>
               <div className="space-y-1">
