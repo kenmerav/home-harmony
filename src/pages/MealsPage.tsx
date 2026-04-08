@@ -896,7 +896,7 @@ export default function MealsPage() {
   const commonFoodOptions = getCommonFoods(user?.id);
   const commonFoodTypeahead = plannerRecipeQuery.trim()
     ? commonFoodOptions.filter((food) => recipeTitleMatchesQuery(food.name, plannerRecipeQuery)).slice(0, 8)
-    : commonFoodOptions.slice(0, 8);
+    : [];
   const chooseRecipeOptions = recipeOptions.filter((recipe) =>
     chooseRecipeQuery.trim()
       ? recipeTitleMatchesQuery(recipe.name, chooseRecipeQuery)
@@ -3780,24 +3780,11 @@ export default function MealsPage() {
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              defaultValue=""
-              onChange={(event) => {
-                if (!event.target.value) return;
-                selectCommonFoodForPlanner(event.target.value);
-                event.currentTarget.value = '';
-              }}
-            >
-              <option value="">Choose a saved food</option>
-              {commonFoodOptions.map((food) => (
-                <option key={`dialog-common-food-${food.id}`} value={food.id}>
-                  {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
-                </option>
-              ))}
-            </select>
             {commonFoodTypeahead.length > 0 ? (
               <div className="rounded-md border border-border bg-background p-1">
+                <p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Saved Foods
+                </p>
                 {commonFoodTypeahead.map((food) => (
                   <button
                     key={`dialog-common-food-chip-${food.id}`}
@@ -3815,6 +3802,9 @@ export default function MealsPage() {
             ) : null}
             {plannerRecipeTypeahead.length > 0 ? (
               <div className="rounded-md border border-border bg-background p-1">
+                <p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Recipes
+                </p>
                 {plannerRecipeTypeahead.map((recipe) => (
                   <button
                     key={`grid-planner-typeahead-${recipe.id}`}
