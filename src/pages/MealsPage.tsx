@@ -3780,23 +3780,6 @@ export default function MealsPage() {
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setPlannerForm((prev) => ({ ...prev, recipeId: '' }));
-                  setPlannerRecipeQuery('');
-                }}
-              >
-                <Plus className="mr-1.5 h-4 w-4" />
-                Add Food
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Use Add Food for everyday items, then save the ones you repeat most to My Foods.
-              </p>
-            </div>
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               defaultValue=""
