@@ -66,8 +66,10 @@ import {
 } from '@/lib/macroGame';
 import {
   addPlannedFoodEntry,
+  addOrUpdateCommonFood,
   deletePlannedFoodEntry,
   deletePlannedFoodEntriesByDateAndMealType,
+  getCommonFoods,
   getPlannedFoodEntries,
   listCommonPlannedFoods,
   updatePlannedFoodEntry,
@@ -872,6 +874,10 @@ export default function MealsPage() {
       ? recipeTitleMatchesQuery(recipe.name, plannerRecipeQuery)
       : true,
   );
+  const commonFoodOptions = getCommonFoods(user?.id);
+  const commonFoodTypeahead = plannerRecipeQuery.trim()
+    ? commonFoodOptions.filter((food) => recipeTitleMatchesQuery(food.name, plannerRecipeQuery)).slice(0, 8)
+    : commonFoodOptions.slice(0, 8);
   const chooseRecipeOptions = recipeOptions.filter((recipe) =>
     chooseRecipeQuery.trim()
       ? recipeTitleMatchesQuery(recipe.name, chooseRecipeQuery)
@@ -983,6 +989,67 @@ export default function MealsPage() {
     // Collapse typeahead list after a recipe is selected.
     setPlannerRecipeQuery('');
     setPlannerQuickAddMode('recipe');
+  };
+
+  const selectCommonFoodForPlanner = (commonFoodId: string) => {
+    const commonFood = commonFoodOptions.find((entry) => entry.id === commonFoodId);
+    if (!commonFood) return;
+    setPlannerForm((prev) => ({
+      ...prev,
+      recipeId: '',
+      name: commonFood.name,
+      servings: String(commonFood.servings),
+      calories: String(commonFood.calories),
+      protein_g: String(commonFood.protein_g),
+      carbs_g: String(commonFood.carbs_g),
+      fat_g: String(commonFood.fat_g),
+      mealType: commonFood.defaultMealType || prev.mealType,
+    }));
+    setPlannerRecipeQuery('');
+    setPlannerQuickAddMode('manual');
+    toast({
+      title: 'Common food loaded',
+      description: `${commonFood.name} is ready to add or adjust.`,
+    });
+  };
+
+  const savePlannerFormAsCommonFood = () => {
+    const servings = Number.parseFloat(plannerForm.servings);
+    const calories = Number.parseInt(plannerForm.calories, 10);
+    const protein = Number.parseInt(plannerForm.protein_g, 10) || 0;
+    const carbs = Number.parseInt(plannerForm.carbs_g, 10) || 0;
+    const fat = Number.parseInt(plannerForm.fat_g, 10) || 0;
+
+    if (!plannerForm.name.trim()) {
+      toast({ title: 'Add a food name first', variant: 'destructive' });
+      return;
+    }
+    if (!Number.isFinite(servings) || servings <= 0) {
+      toast({ title: 'Servings must be greater than 0', variant: 'destructive' });
+      return;
+    }
+    if (!Number.isFinite(calories) || calories < 0) {
+      toast({ title: 'Add calories before saving this common food', variant: 'destructive' });
+      return;
+    }
+
+    addOrUpdateCommonFood(
+      {
+        name: plannerForm.name.trim(),
+        defaultMealType: plannerForm.mealType,
+        servings,
+        calories,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
+      },
+      user?.id,
+    );
+
+    toast({
+      title: 'Saved to common foods',
+      description: `${plannerForm.name.trim()} will now be easy to reuse without making it a recipe.`,
+    });
   };
 
   const selectRecipeForSwap = (recipeId: string) => {
@@ -2606,6 +2673,33 @@ export default function MealsPage() {
                         Adjust the meal name, servings, and macros before saving it to your plan.
                       </p>
                     </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Common foods</p>
+                        <select
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          defaultValue=""
+                          onChange={(event) => {
+                            if (!event.target.value) return;
+                            selectCommonFoodForPlanner(event.target.value);
+                            event.currentTarget.value = '';
+                          }}
+                        >
+                          <option value="">Optional: choose from common foods</option>
+                          {commonFoodOptions.map((food) => (
+                            <option key={`common-food-${food.id}`} value={food.id}>
+                              {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="rounded-md border border-dashed border-border bg-background px-3 py-2">
+                        <p className="text-xs font-medium text-muted-foreground">Reusable everyday foods</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Save things like Greek yogurt, rice cakes, shakes, deli meat, and bars here so they are easy to pick later without creating a recipe.
+                        </p>
+                      </div>
+                    </div>
                     <div className="grid gap-2 md:grid-cols-[1fr_140px]">
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-muted-foreground">Meal name</p>
@@ -2673,6 +2767,19 @@ export default function MealsPage() {
 
                     <div className="flex flex-wrap items-center gap-2">
                       <Button onClick={addPlannerItem}>Add to plan</Button>
+                      <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
+                        Save as Common Food
+                      </Button>
+                      {commonFoodOptions.slice(0, 4).map((food) => (
+                        <Button
+                          key={food.id}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => selectCommonFoodForPlanner(food.id)}
+                        >
+                          {food.name}
+                        </Button>
+                      ))}
                       {commonPlannedFoods.slice(0, 6).map((food) => (
                         <Button
                           key={food}
@@ -3567,10 +3674,43 @@ export default function MealsPage() {
               </div>
             ) : null}
             <Input
-              placeholder="Search recipes..."
+              placeholder="Search common foods or recipes..."
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              defaultValue=""
+              onChange={(event) => {
+                if (!event.target.value) return;
+                selectCommonFoodForPlanner(event.target.value);
+                event.currentTarget.value = '';
+              }}
+            >
+              <option value="">Optional: choose from common foods</option>
+              {commonFoodOptions.map((food) => (
+                <option key={`dialog-common-food-${food.id}`} value={food.id}>
+                  {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
+                </option>
+              ))}
+            </select>
+            {commonFoodTypeahead.length > 0 ? (
+              <div className="rounded-md border border-border bg-background p-1">
+                {commonFoodTypeahead.map((food) => (
+                  <button
+                    key={`dialog-common-food-chip-${food.id}`}
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => selectCommonFoodForPlanner(food.id)}
+                  >
+                    <span className="truncate">{food.name}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {food.calories} cal
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {plannerRecipeTypeahead.length > 0 ? (
               <div className="rounded-md border border-border bg-background p-1">
                 {plannerRecipeTypeahead.map((recipe) => (
@@ -3661,9 +3801,18 @@ export default function MealsPage() {
                 />
               </div>
             </div>
+            <div className="rounded-md border border-dashed border-border bg-muted/10 px-3 py-2">
+              <p className="text-xs font-medium text-muted-foreground">Common foods</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use this for repeat foods like Greek yogurt, rice cakes, shakes, or deli meat. Save it once, then pick it again later without calling it a recipe.
+              </p>
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeGridQuickAdd}>
                 Cancel
+              </Button>
+              <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
+                Save as Common Food
               </Button>
               {!gridQuickAddContext?.entryId ? (
                 <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
