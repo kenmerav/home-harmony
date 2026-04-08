@@ -949,6 +949,72 @@ export default function MealsPage() {
       .map((entry) => entry.date);
   };
 
+  const findPreviousPlannerEntries = useCallback(
+    (targetDate: string, mealType: PlannedMealType) => {
+      const targetPersonId = mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
+      const entriesDescending = plannerEntries
+        .filter((entry) => entry.mealType === mealType)
+        .filter((entry) => (mealType === 'dinner' ? !entry.personId : (entry.personId || null) === (targetPersonId || null)))
+        .filter((entry) => entry.date < targetDate)
+        .sort((a, b) => b.date.localeCompare(a.date) || a.createdAt.localeCompare(b.createdAt));
+
+      if (entriesDescending.length === 0) return [];
+
+      const previousDate = entriesDescending[0].date;
+      return entriesDescending
+        .filter((entry) => entry.date === previousDate)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+    [plannerDashboard, plannerDashboardId, plannerEntries],
+  );
+
+  const copyPreviousDayEntriesToPlannerDate = useCallback(
+    (targetDate: string, mealType: PlannedMealType) => {
+      const sourceEntries = findPreviousPlannerEntries(targetDate, mealType);
+      if (sourceEntries.length === 0) {
+        toast({
+          title: `No previous ${mealType} found`,
+          description: `There is not a saved ${plannedMealTypeLabel[mealType].toLowerCase()} from an earlier day to copy yet.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      const targetPersonId = mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
+      const targetPersonName = mealType === 'dinner' ? null : plannerDashboard?.name || null;
+
+      deletePlannedFoodEntriesByDateAndMealType(targetDate, mealType, targetPersonId, user?.id);
+
+      sourceEntries.forEach((entry) => {
+        addPlannedFoodEntry(
+          {
+            date: targetDate,
+            mealType,
+            personId: targetPersonId,
+            personName: targetPersonName,
+            name: entry.name,
+            servings: entry.servings,
+            calories: entry.calories,
+            protein_g: entry.protein_g,
+            carbs_g: entry.carbs_g,
+            fat_g: entry.fat_g,
+            sourceRecipeId: entry.sourceRecipeId || null,
+          },
+          user?.id,
+        );
+      });
+
+      refreshPlannerEntries();
+      const sourceDate = format(new Date(`${sourceEntries[0].date}T00:00:00`), 'EEE, MMM d');
+      toast({
+        title: `${plannedMealTypeLabel[mealType]} copied`,
+        description: `Copied ${sourceEntries.length} item${sourceEntries.length === 1 ? '' : 's'} from ${sourceDate}.`,
+      });
+      return true;
+    },
+    [findPreviousPlannerEntries, plannerDashboard, plannerDashboardId, refreshPlannerEntries, toast, user?.id],
+  );
+
   const closeGridQuickAdd = () => {
     setGridQuickAddContext(null);
     setPlannerRepeatMode('once');
@@ -2208,6 +2274,14 @@ export default function MealsPage() {
                         <Plus className="w-4 h-4 mr-1" />
                         Add {label}
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => void copyPreviousDayEntriesToPlannerDate(row.date, mealType)}
+                      >
+                        Copy Prev
+                      </Button>
                     </div>
                   </div>
                 );
@@ -2295,7 +2369,7 @@ export default function MealsPage() {
                 ) : null}
                 <Button size="sm" onClick={openPlannerQuickAdd}>
                   <Plus className="w-4 h-4 mr-1.5" />
-                  Quick Add
+                  Add Food
                 </Button>
                 </div>
               </div>
@@ -2455,7 +2529,7 @@ export default function MealsPage() {
                 <div className="text-left">
                   <h2 className="font-display text-xl">Quick Add Food Log</h2>
                   <p className="text-sm text-muted-foreground">
-                    Add a food, recipe, or AI-estimated meal into your plan for the selected day.
+                    Add a food, copy something you already eat often, or use AI to estimate it for the selected day.
                   </p>
                 </div>
               </AccordionTrigger>
@@ -2561,7 +2635,7 @@ export default function MealsPage() {
                             variant={plannerQuickAddMode === 'manual' ? 'default' : 'outline'}
                             onClick={() => setPlannerQuickAddMode('manual')}
                           >
-                            Manual
+                            Add Food
                           </Button>
                         </div>
                       </div>
@@ -2672,7 +2746,7 @@ export default function MealsPage() {
                       {plannerQuickAddMode === 'manual' ? (
                         <div className="border-t border-border/60 pt-3">
                           <p className="text-xs text-muted-foreground">
-                            Type the meal below, set servings, and enter macros manually if you want to override the AI estimate.
+                            Use this for common foods like yogurt, rice cakes, shakes, deli meat, or anything you want to log without making it a recipe.
                           </p>
                         </div>
                       ) : null}
@@ -2688,7 +2762,7 @@ export default function MealsPage() {
                     </div>
                     <div className="grid gap-2 md:grid-cols-2">
                       <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Common foods</p>
+                        <p className="text-xs font-medium text-muted-foreground">Saved foods</p>
                         <select
                           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
                           defaultValue=""
@@ -2698,7 +2772,7 @@ export default function MealsPage() {
                             event.currentTarget.value = '';
                           }}
                         >
-                          <option value="">Optional: choose from common foods</option>
+                          <option value="">Choose a saved food</option>
                           {commonFoodOptions.map((food) => (
                             <option key={`common-food-${food.id}`} value={food.id}>
                               {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
@@ -2707,11 +2781,36 @@ export default function MealsPage() {
                         </select>
                       </div>
                       <div className="rounded-md border border-dashed border-border bg-background px-3 py-2">
-                        <p className="text-xs font-medium text-muted-foreground">Reusable everyday foods</p>
+                        <p className="text-xs font-medium text-muted-foreground">Add Food</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           Save things like Greek yogurt, rice cakes, shakes, deli meat, and bars here so they are easy to pick later without creating a recipe.
                         </p>
                       </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPlannerQuickAddMode('manual');
+                          setPlannerForm((prev) => ({ ...prev, recipeId: '' }));
+                        }}
+                      >
+                        <Plus className="mr-1.5 h-4 w-4" />
+                        Add Food
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void copyPreviousDayEntriesToPlannerDate(plannerForm.date, plannerForm.mealType)}
+                      >
+                        Copy previous day
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        Reuse something from a previous day or save the current one as a food for later.
+                      </p>
                     </div>
                     <div className="grid gap-2 md:grid-cols-[1fr_140px]">
                       <div className="space-y-1">
@@ -2781,7 +2880,7 @@ export default function MealsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Button onClick={addPlannerItem}>Add to plan</Button>
                       <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
-                        Save as Common Food
+                        Save to My Foods
                       </Button>
                       {commonFoodOptions.slice(0, 4).map((food) => (
                         <Button
@@ -3687,10 +3786,41 @@ export default function MealsPage() {
               </div>
             ) : null}
             <Input
-              placeholder="Search common foods or recipes..."
+              placeholder="Search saved foods or recipes..."
               value={plannerRecipeQuery}
               onChange={(event) => setPlannerRecipeQuery(event.target.value)}
             />
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPlannerForm((prev) => ({ ...prev, recipeId: '' }));
+                  setPlannerRecipeQuery('');
+                }}
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add Food
+              </Button>
+              {!gridQuickAddContext?.entryId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (copyPreviousDayEntriesToPlannerDate(plannerForm.date, plannerForm.mealType)) {
+                      closeGridQuickAdd();
+                    }
+                  }}
+                >
+                  Copy previous day
+                </Button>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                Use Add Food for everyday items, or copy the last {plannedMealTypeLabel[plannerForm.mealType].toLowerCase()} into this day.
+              </p>
+            </div>
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               defaultValue=""
@@ -3700,7 +3830,7 @@ export default function MealsPage() {
                 event.currentTarget.value = '';
               }}
             >
-              <option value="">Optional: choose from common foods</option>
+              <option value="">Choose a saved food</option>
               {commonFoodOptions.map((food) => (
                 <option key={`dialog-common-food-${food.id}`} value={food.id}>
                   {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
@@ -3815,7 +3945,7 @@ export default function MealsPage() {
               </div>
             </div>
             <div className="rounded-md border border-dashed border-border bg-muted/10 px-3 py-2">
-              <p className="text-xs font-medium text-muted-foreground">Common foods</p>
+              <p className="text-xs font-medium text-muted-foreground">Saved foods</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Use this for repeat foods like Greek yogurt, rice cakes, shakes, or deli meat. Save it once, then pick it again later without calling it a recipe.
               </p>
@@ -3825,7 +3955,7 @@ export default function MealsPage() {
                 Cancel
               </Button>
               <Button variant="outline" onClick={savePlannerFormAsCommonFood}>
-                Save as Common Food
+                Save to My Foods
               </Button>
               {!gridQuickAddContext?.entryId ? (
                 <Button variant="outline" onClick={() => addPlannerItem({ prepareAnother: true })}>
