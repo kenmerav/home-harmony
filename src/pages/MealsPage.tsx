@@ -80,6 +80,7 @@ import { suggestMealsForRemainingMacros, type MacroMealSuggestion } from '@/lib/
 import { filterAlcoholPresets, findAlcoholPresetById } from '@/lib/alcoholPresets';
 import { estimateMealFromDescription, estimateMealFromPhoto } from '@/lib/api/mealPhoto';
 import { getMealLogs } from '@/lib/macroGame';
+import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -677,6 +678,18 @@ export default function MealsPage() {
     setPlanRules(next);
     setDinnerReminderPrefs(dinnerReminderPrefs);
     setMenuRejuvenatePrefs(menuRejuvenatePrefs);
+    if (user?.id) {
+      try {
+        const smsPrefs = await loadSmsPreferences();
+        await saveSmsPreferences({
+          ...smsPrefs,
+          preferred_dinner_time: getDinnerTimeForDay('monday', dinnerReminderPrefs),
+          dinner_times_by_day: { ...dinnerReminderPrefs.dinnerTimesByDay },
+        });
+      } catch (error) {
+        console.error('Failed syncing dinner reminder times to SMS settings:', error);
+      }
+    }
     try {
       await syncScheduledMealsToCalendar(meals);
     } catch (error) {

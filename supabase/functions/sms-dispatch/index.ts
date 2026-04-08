@@ -44,12 +44,24 @@ type SmsPreferenceRow = {
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
+  dinner_times_by_day?: Record<string, unknown> | null;
   include_modules: string[];
   module_recipients: Record<string, unknown> | null;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
   updated_at?: string | null;
 };
+
+function preferredDinnerTimeForDay(row: SmsPreferenceRow, weekdayName: string): string {
+  const fallback = String(row.preferred_dinner_time || "18:00").slice(0, 5);
+  const rawMap = row.dinner_times_by_day && typeof row.dinner_times_by_day === "object"
+    ? row.dinner_times_by_day
+    : null;
+  const candidate = rawMap ? rawMap[weekdayName] : null;
+  if (typeof candidate !== "string") return fallback;
+  const normalized = candidate.slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(normalized) ? normalized : fallback;
+}
 
 const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
   1: "monday",
@@ -800,7 +812,7 @@ serve(async (req) => {
           timezone,
           todayLocal,
           DIGEST_MODULES,
-          String(row.preferred_dinner_time || "18:00").slice(0, 5),
+          preferredDinnerTimeForDay(row, DAY_NAME_BY_WEEKDAY[todayLocal.weekday]),
         );
         const tomorrowEvents = await fetchDailyEvents(
           supabase,
@@ -808,7 +820,7 @@ serve(async (req) => {
           timezone,
           tomorrowLocal,
           DIGEST_MODULES,
-          String(row.preferred_dinner_time || "18:00").slice(0, 5),
+          preferredDinnerTimeForDay(row, DAY_NAME_BY_WEEKDAY[tomorrowLocal.weekday]),
         );
         const needsTaskRecipientRouting = [...todayEvents, ...tomorrowEvents].some(
           (event) => event.module === 'tasks' && (event.assigneeId || event.assigneeName),

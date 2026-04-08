@@ -24,6 +24,15 @@ const DEFAULT_PREFS = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: "18:00",
+  dinner_times_by_day: {
+    monday: "18:00",
+    tuesday: "18:00",
+    wednesday: "18:00",
+    thursday: "18:00",
+    friday: "18:00",
+    saturday: "18:00",
+    sunday: "18:00",
+  },
   include_modules: ["meals", "manual", "tasks", "workouts", "reminders"],
   module_recipients: {
     meals: [],
@@ -41,6 +50,19 @@ function validTime(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const normalized = value.slice(0, 5);
   return /^\d{2}:\d{2}$/.test(normalized) ? normalized : fallback;
+}
+
+function normalizeDinnerTimesByDay(input: unknown, fallbackTime: string): Record<string, string> {
+  const raw = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  return {
+    monday: validTime(raw.monday, fallbackTime),
+    tuesday: validTime(raw.tuesday, fallbackTime),
+    wednesday: validTime(raw.wednesday, fallbackTime),
+    thursday: validTime(raw.thursday, fallbackTime),
+    friday: validTime(raw.friday, fallbackTime),
+    saturday: validTime(raw.saturday, fallbackTime),
+    sunday: validTime(raw.sunday, fallbackTime),
+  };
 }
 
 function validTz(value: unknown, fallback: string): string {
@@ -219,6 +241,10 @@ serve(async (req) => {
             ? data.reminder_offsets_minutes
             : DEFAULT_PREFS.reminder_offsets_minutes,
           preferred_dinner_time: String(data.preferred_dinner_time || DEFAULT_PREFS.preferred_dinner_time).slice(0, 5),
+          dinner_times_by_day: normalizeDinnerTimesByDay(
+            data.dinner_times_by_day,
+            String(data.preferred_dinner_time || DEFAULT_PREFS.preferred_dinner_time).slice(0, 5),
+          ),
           include_modules: normalizeModules(data.include_modules),
           module_recipients: normalizeModuleRecipients(data.module_recipients),
           quiet_hours_start: data.quiet_hours_start ? String(data.quiet_hours_start).slice(0, 5) : null,
@@ -256,6 +282,10 @@ serve(async (req) => {
         event_reminders_enabled: !!payload?.event_reminders_enabled,
         reminder_offsets_minutes: normalizeOffsets(payload?.reminder_offsets_minutes),
         preferred_dinner_time: validTime(payload?.preferred_dinner_time, DEFAULT_PREFS.preferred_dinner_time),
+        dinner_times_by_day: normalizeDinnerTimesByDay(
+          payload?.dinner_times_by_day,
+          validTime(payload?.preferred_dinner_time, DEFAULT_PREFS.preferred_dinner_time),
+        ),
         include_modules: includeModules,
         module_recipients: moduleRecipients,
         quiet_hours_start: payload?.quiet_hours_start

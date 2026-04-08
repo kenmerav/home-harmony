@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import type { DayOfWeek } from '@/types';
 
 export type SmsReminderModule = 'meals' | 'manual' | 'tasks' | 'chores' | 'workouts' | 'reminders';
 export const SMS_REMINDER_MODULES: SmsReminderModule[] = ['meals', 'manual', 'tasks', 'workouts', 'reminders'];
@@ -28,6 +29,7 @@ export interface SmsPreferences {
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
+  dinner_times_by_day: Record<DayOfWeek, string>;
   include_modules: string[];
   module_recipients: ModuleRecipientsMap;
   quiet_hours_start: string | null;
@@ -60,6 +62,15 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: '18:00',
+  dinner_times_by_day: {
+    monday: '18:00',
+    tuesday: '18:00',
+    wednesday: '18:00',
+    thursday: '18:00',
+    friday: '18:00',
+    saturday: '18:00',
+    sunday: '18:00',
+  },
   include_modules: ['meals', 'manual', 'tasks', 'workouts', 'reminders'],
   module_recipients: emptyModuleRecipients(),
   quiet_hours_start: null,
@@ -115,6 +126,21 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
       : [];
   });
 
+  const preferredDinnerTime = raw.preferred_dinner_time || DEFAULT_SMS_PREFERENCES.preferred_dinner_time;
+  const dinnerTimesRaw =
+    raw.dinner_times_by_day && typeof raw.dinner_times_by_day === 'object'
+      ? (raw.dinner_times_by_day as Partial<Record<DayOfWeek, string>>)
+      : {};
+  const dinnerTimesByDay = {
+    monday: dinnerTimesRaw.monday || preferredDinnerTime,
+    tuesday: dinnerTimesRaw.tuesday || preferredDinnerTime,
+    wednesday: dinnerTimesRaw.wednesday || preferredDinnerTime,
+    thursday: dinnerTimesRaw.thursday || preferredDinnerTime,
+    friday: dinnerTimesRaw.friday || preferredDinnerTime,
+    saturday: dinnerTimesRaw.saturday || preferredDinnerTime,
+    sunday: dinnerTimesRaw.sunday || preferredDinnerTime,
+  } satisfies Record<DayOfWeek, string>;
+
   return {
     enabled: !!raw.enabled,
     phone_e164: raw.phone_e164 || '',
@@ -147,7 +173,8 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
       Array.isArray(raw.reminder_offsets_minutes) && raw.reminder_offsets_minutes.length > 0
         ? raw.reminder_offsets_minutes
         : DEFAULT_SMS_PREFERENCES.reminder_offsets_minutes,
-    preferred_dinner_time: raw.preferred_dinner_time || DEFAULT_SMS_PREFERENCES.preferred_dinner_time,
+    preferred_dinner_time: preferredDinnerTime,
+    dinner_times_by_day: dinnerTimesByDay,
     include_modules: includeModules.length > 0 ? includeModules : DEFAULT_SMS_PREFERENCES.include_modules,
     module_recipients: moduleRecipients,
     quiet_hours_start: raw.quiet_hours_start || null,
