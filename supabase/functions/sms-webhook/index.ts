@@ -143,6 +143,14 @@ type SmsAssistantContext = {
     title: string;
     updatedAt: string;
   } | null;
+  lastMealLog?: {
+    logId: string;
+    title: string;
+    personId: string;
+    personName: string;
+    servings: number;
+    updatedAt: string;
+  } | null;
 };
 
 type GroceryAddIntent = {
@@ -164,6 +172,12 @@ type MealLogIntent = {
   personName: string;
   recipeName: string;
   servings: number;
+};
+
+type MealFollowUpIntent = {
+  servings?: number;
+  deleteLog?: boolean;
+  genericDelete?: boolean;
 };
 
 type RecipeLookupRow = {
@@ -822,19 +836,44 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   const record = input as Record<string, unknown>;
   const rawLast = record.lastCalendarEvent;
-  if (!rawLast || typeof rawLast !== "object" || Array.isArray(rawLast)) return {};
-  const last = rawLast as Record<string, unknown>;
-  const eventId = typeof last.eventId === "string" ? last.eventId.trim() : "";
-  const title = typeof last.title === "string" ? last.title.trim() : "";
-  const updatedAt = typeof last.updatedAt === "string" ? last.updatedAt.trim() : "";
-  if (!eventId || !updatedAt) return {};
-  return {
-    lastCalendarEvent: {
-      eventId,
-      title: title || "Event",
-      updatedAt,
-    },
-  };
+  const rawMeal = record.lastMealLog;
+  const context: SmsAssistantContext = {};
+
+  if (rawLast && typeof rawLast === "object" && !Array.isArray(rawLast)) {
+    const last = rawLast as Record<string, unknown>;
+    const eventId = typeof last.eventId === "string" ? last.eventId.trim() : "";
+    const title = typeof last.title === "string" ? last.title.trim() : "";
+    const updatedAt = typeof last.updatedAt === "string" ? last.updatedAt.trim() : "";
+    if (eventId && updatedAt) {
+      context.lastCalendarEvent = {
+        eventId,
+        title: title || "Event",
+        updatedAt,
+      };
+    }
+  }
+
+  if (rawMeal && typeof rawMeal === "object" && !Array.isArray(rawMeal)) {
+    const lastMeal = rawMeal as Record<string, unknown>;
+    const logId = typeof lastMeal.logId === "string" ? lastMeal.logId.trim() : "";
+    const title = typeof lastMeal.title === "string" ? lastMeal.title.trim() : "";
+    const personId = typeof lastMeal.personId === "string" ? lastMeal.personId.trim() : "";
+    const personName = typeof lastMeal.personName === "string" ? lastMeal.personName.trim() : "";
+    const servings = Number(lastMeal.servings);
+    const updatedAt = typeof lastMeal.updatedAt === "string" ? lastMeal.updatedAt.trim() : "";
+    if (logId && updatedAt) {
+      context.lastMealLog = {
+        logId,
+        title: title || "Meal",
+        personId: personId || "me",
+        personName: personName || "your dashboard",
+        servings: Number.isFinite(servings) && servings > 0 ? servings : 1,
+        updatedAt,
+      };
+    }
+  }
+
+  return context;
 }
 
 async function loadProfileSettingsDocument(
@@ -1388,6 +1427,33 @@ function parseMealLogIntent(body: string): MealLogIntent | null {
   };
 }
 
+function parseMealFollowUpIntent(body: string): MealFollowUpIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+
+  const servingsPatterns = [
+    /^(?:change that to|make that|make it|change it to|that was|actually make it)\s+(\d+(?:\.\d+)?)\s+servings?$/i,
+    /^(?:change that meal to|make that meal|change that lunch to|change that breakfast to|change that dinner to|change that snack to)\s+(\d+(?:\.\d+)?)\s+servings?$/i,
+  ];
+  for (const pattern of servingsPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    const servings = Number(match[1]);
+    if (Number.isFinite(servings) && servings > 0) {
+      return { servings: Math.max(0.25, servings) };
+    }
+  }
+
+  if (/^(?:delete that meal|remove that meal|delete that log|remove that log)$/i.test(normalized)) {
+    return { deleteLog: true, genericDelete: false };
+  }
+
+  if (/^(?:delete that|remove that|delete it|remove it)$/i.test(normalized)) {
+    return { deleteLog: true, genericDelete: true };
+  }
+
+  return null;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1909,12 +1975,13 @@ async function addMealLogBySms(
   personId: string,
   recipe: RecipeLookupRow,
   servings: number,
-): Promise<void> {
+): Promise<{ logId: string }> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
   const dateKey = DateTime.now().setZone(timezone).toISODate() || "";
+  const logId = crypto.randomUUID();
   activity.mealLogs.push({
-    id: crypto.randomUUID(),
+    id: logId,
     recipeId: recipe.id,
     recipeName: recipe.name,
     date: dateKey,
@@ -1933,6 +2000,76 @@ async function addMealLogBySms(
 
   const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], activity);
   await saveProfileSettingsDocument(supabase, userId, nextDocument);
+  return { logId };
+}
+
+function mostRecentAssistantSubject(context: SmsAssistantContext, timezone: string): "meal" | "calendar" | null {
+  const calendarAt = context.lastCalendarEvent?.updatedAt
+    ? DateTime.fromISO(context.lastCalendarEvent.updatedAt, { zone: timezone })
+    : null;
+  const mealAt = context.lastMealLog?.updatedAt
+    ? DateTime.fromISO(context.lastMealLog.updatedAt, { zone: timezone })
+    : null;
+
+  const validCalendarAt = calendarAt?.isValid ? calendarAt : null;
+  const validMealAt = mealAt?.isValid ? mealAt : null;
+  if (!validCalendarAt && !validMealAt) return null;
+  if (!validCalendarAt) return "meal";
+  if (!validMealAt) return "calendar";
+  return validMealAt >= validCalendarAt ? "meal" : "calendar";
+}
+
+async function updateRecentMealLogBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  context: SmsAssistantContext,
+  intent: MealFollowUpIntent,
+): Promise<string | null> {
+  const lastMeal = context.lastMealLog;
+  if (!lastMeal?.logId) return null;
+
+  const updatedAt = DateTime.fromISO(lastMeal.updatedAt, { zone: timezone });
+  if (!updatedAt.isValid || updatedAt < DateTime.now().setZone(timezone).minus({ hours: 24 })) {
+    return null;
+  }
+
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const targetIndex = activity.mealLogs.findIndex((log) => log.id === lastMeal.logId);
+  if (targetIndex < 0) return null;
+
+  if (intent.deleteLog) {
+    activity.mealLogs.splice(targetIndex, 1);
+    const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], activity);
+    await saveProfileSettingsDocument(supabase, userId, nextDocument);
+    return `Deleted ${lastMeal.title} for ${lastMeal.personName}.`;
+  }
+
+  if (typeof intent.servings === "number" && intent.servings > 0) {
+    const current = activity.mealLogs[targetIndex];
+    const currentServings = Number(current.servings) > 0 ? Number(current.servings) : lastMeal.servings || 1;
+    const scale = intent.servings / currentServings;
+    activity.mealLogs[targetIndex] = {
+      ...current,
+      servings: intent.servings,
+      macros: {
+        calories: Math.round((current.macros.calories || 0) * scale),
+        protein_g: Math.round((current.macros.protein_g || 0) * scale),
+        carbs_g: Math.round((current.macros.carbs_g || 0) * scale),
+        fat_g: Math.round((current.macros.fat_g || 0) * scale),
+        ...(typeof current.macros.fiber_g === "number"
+          ? { fiber_g: Math.round(current.macros.fiber_g * scale) }
+          : {}),
+      },
+    };
+    const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], activity);
+    await saveProfileSettingsDocument(supabase, userId, nextDocument);
+    const servingsLabel = intent.servings === 1 ? "1 serving" : `${intent.servings} servings`;
+    return `Updated ${lastMeal.title} to ${servingsLabel} for ${lastMeal.personName}.`;
+  }
+
+  return null;
 }
 
 async function findRecipeForMealLog(
@@ -2457,7 +2594,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -2550,6 +2687,7 @@ serve(async (req) => {
         }
 
         const loggedLabels: string[] = [];
+        let lastLoggedMealContext: SmsAssistantContext["lastMealLog"] = null;
         for (const mealLogIntent of mealLogIntents) {
           const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
           if (!recipe && ambiguousMatches.length > 0) {
@@ -2559,9 +2697,25 @@ serve(async (req) => {
             return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
           }
 
-          await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
+          const { logId } = await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
           const servingsLabel = mealLogIntent.servings === 1 ? "1 serving" : `${mealLogIntent.servings} servings`;
           loggedLabels.push(`${servingsLabel} of ${recipe.name}`);
+          lastLoggedMealContext = {
+            logId,
+            title: recipe.name,
+            personId: person.id,
+            personName: person.name,
+            servings: mealLogIntent.servings,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        if (lastLoggedMealContext) {
+          const latestDocument = await loadProfileSettingsDocument(supabase, pref.user_id);
+          await saveSmsAssistantContext(supabase, pref.user_id, latestDocument, {
+            ...normalizeSmsAssistantContext(getDocumentValue(latestDocument, ["appPreferences", "smsAssistant"])),
+            lastMealLog: lastLoggedMealContext,
+          });
         }
 
         return twiml(`Logged ${loggedLabels.join(" and ")} for ${person.name}.`);
@@ -2614,6 +2768,36 @@ serve(async (req) => {
       }
     }
 
+    const mealFollowUpIntent = parseMealFollowUpIntent(body);
+    if (mealFollowUpIntent) {
+      try {
+        const { context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const recentSubject = mostRecentAssistantSubject(context, timezone);
+        if (!mealFollowUpIntent.genericDelete || recentSubject === "meal") {
+          const reply = await updateRecentMealLogBySms(supabase, pref.user_id, timezone, context, mealFollowUpIntent);
+          if (reply) {
+            const latestDocument = await loadProfileSettingsDocument(supabase, pref.user_id);
+            await saveSmsAssistantContext(supabase, pref.user_id, latestDocument, {
+              ...context,
+              lastMealLog: mealFollowUpIntent.deleteLog
+                ? null
+                : context.lastMealLog
+                  ? {
+                      ...context.lastMealLog,
+                      servings: mealFollowUpIntent.servings ?? context.lastMealLog.servings,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : null,
+            });
+            return twiml(reply);
+          }
+        }
+      } catch (error) {
+        console.error("sms meal follow-up failed:", error);
+        return twiml("I could not update that meal log right now. Please try again in a moment.");
+      }
+    }
+
     const calendarIntent = parseCalendarAddIntent(body, timezone);
     if (calendarIntent) {
       try {
@@ -2639,6 +2823,10 @@ serve(async (req) => {
     if (followUpIntent) {
       try {
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const recentSubject = mostRecentAssistantSubject(context, timezone);
+        if (followUpIntent.deleteEvent && recentSubject === "meal") {
+          return twiml("If you meant the meal you just logged, reply 'delete that meal'.");
+        }
         const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, context, followUpIntent);
         if (!reply) {
           return twiml("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.");
