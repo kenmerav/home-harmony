@@ -113,6 +113,23 @@ type GroceryWeekState = {
   orderedAt?: string | null;
 };
 
+type StoredTask = {
+  id: string;
+  title: string;
+  notes?: string;
+  type: "do" | "maintain" | "notice";
+  status: "not_started" | "in_progress" | "done";
+  frequency: "daily" | "weekly" | "monthly" | "every_3_months" | "every_6_months" | "yearly" | "once";
+  assignedToId?: string;
+  assignedToName?: string;
+  dueDate?: string;
+  day?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+  reminderEnabled?: boolean;
+  reminderTime?: string;
+  reminderLeadMinutes?: number;
+  createdAt: string;
+};
+
 type StoredGroceryListState = {
   recurringItems: GroceryManualItem[];
   weekStates: Record<string, GroceryWeekState>;
@@ -166,6 +183,17 @@ type GroceryRemoveIntent = {
 type WaterLogIntent = {
   personName: string;
   ounces: number;
+};
+
+type TaskAddIntent = {
+  title: string;
+  personName?: string;
+  dueDate?: string;
+  reminderTime?: string;
+};
+
+type TaskCompleteIntent = {
+  title: string;
 };
 
 type MealLogIntent = {
@@ -1133,6 +1161,61 @@ function normalizeGroceryState(input: unknown): StoredGroceryListState {
   };
 }
 
+function normalizeStoredTasks(input: unknown): StoredTask[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const row = item as Record<string, unknown>;
+      const title = typeof row.title === "string" ? row.title.trim().replace(/\s+/g, " ") : "";
+      if (!title) return null;
+      const frequency = typeof row.frequency === "string" ? row.frequency.trim().toLowerCase() : "once";
+      const normalizedFrequency =
+        frequency === "daily" ||
+        frequency === "weekly" ||
+        frequency === "monthly" ||
+        frequency === "every_3_months" ||
+        frequency === "every_6_months" ||
+        frequency === "yearly" ||
+        frequency === "once"
+          ? frequency
+          : "once";
+      const status = typeof row.status === "string" ? row.status.trim().toLowerCase() : "not_started";
+      const normalizedStatus =
+        status === "done" || status === "in_progress" || status === "not_started"
+          ? status
+          : "not_started";
+      const type = typeof row.type === "string" ? row.type.trim().toLowerCase() : "do";
+      const normalizedType = type === "maintain" || type === "notice" ? type : "do";
+      const day = typeof row.day === "string" ? row.day.trim().toLowerCase() : "";
+      return {
+        id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : `task-${index}`,
+        title,
+        notes: typeof row.notes === "string" && row.notes.trim() ? row.notes.trim() : undefined,
+        type: normalizedType,
+        status: normalizedStatus,
+        frequency: normalizedFrequency,
+        assignedToId: typeof row.assignedToId === "string" && row.assignedToId.trim() ? row.assignedToId.trim() : undefined,
+        assignedToName: typeof row.assignedToName === "string" && row.assignedToName.trim() ? row.assignedToName.trim() : undefined,
+        dueDate: typeof row.dueDate === "string" && row.dueDate.trim() ? row.dueDate.trim() : undefined,
+        day:
+          day === "monday" || day === "tuesday" || day === "wednesday" || day === "thursday" || day === "friday" || day === "saturday" || day === "sunday"
+            ? day
+            : undefined,
+        reminderEnabled: row.reminderEnabled === true,
+        reminderTime: typeof row.reminderTime === "string" && /^\d{2}:\d{2}$/.test(row.reminderTime.trim()) ? row.reminderTime.trim() : undefined,
+        reminderLeadMinutes: Number.isFinite(Number(row.reminderLeadMinutes))
+          ? Math.max(5, Math.min(240, Number(row.reminderLeadMinutes)))
+          : undefined,
+        createdAt:
+          typeof row.createdAt === "string" && row.createdAt.trim()
+            ? row.createdAt.trim()
+            : new Date().toISOString(),
+      };
+    })
+    .filter((task): task is StoredTask => Boolean(task));
+}
+
 function startOfWeekIso(localDate: DateTime): string {
   return localDate.minus({ days: localDate.weekday - 1 }).toISODate() || "";
 }
@@ -1395,6 +1478,78 @@ function parseWaterLogIntent(body: string): WaterLogIntent | null {
   }
 
   return null;
+}
+
+function parseTaskAddIntent(body: string, timezone: string): TaskAddIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const patterns = [
+    /^add\s+task\s+(.+?)\s+for\s+(.+?)\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+)$/i,
+    /^add\s+task\s+(.+?)\s+for\s+(.+?)\s+on\s+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+)$/i,
+    /^add\s+task\s+(.+?)\s+for\s+(.+?)\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)$/i,
+    /^add\s+task\s+(.+?)\s+for\s+(.+?)$/i,
+    /^add\s+task\s+(.+?)\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+)$/i,
+    /^add\s+task\s+(.+?)\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)$/i,
+    /^add\s+task\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    if (pattern === patterns[0] || pattern === patterns[1]) {
+      const dueDate = parseUsDate(trimTrailingPunctuation(match[3] || ""), timezone);
+      const reminderTime = dueDate ? parseTimeForZone(trimTrailingPunctuation(match[4] || ""), dueDate, timezone) : null;
+      return {
+        title: titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase()),
+        personName: trimTrailingPunctuation(match[2] || ""),
+        dueDate: dueDate?.toISODate() || undefined,
+        reminderTime: reminderTime?.toFormat("HH:mm") || undefined,
+      };
+    }
+    if (pattern === patterns[2] || pattern === patterns[3]) {
+      const dueDate = pattern === patterns[2] ? parseUsDate(trimTrailingPunctuation(match[3] || ""), timezone) : null;
+      return {
+        title: titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase()),
+        personName: trimTrailingPunctuation(match[2] || ""),
+        dueDate: dueDate?.toISODate() || undefined,
+      };
+    }
+    if (pattern === patterns[4]) {
+      const dueDate = parseUsDate(trimTrailingPunctuation(match[2] || ""), timezone);
+      const reminderTime = dueDate ? parseTimeForZone(trimTrailingPunctuation(match[3] || ""), dueDate, timezone) : null;
+      return {
+        title: titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase()),
+        dueDate: dueDate?.toISODate() || undefined,
+        reminderTime: reminderTime?.toFormat("HH:mm") || undefined,
+      };
+    }
+    if (pattern === patterns[5]) {
+      const dueDate = parseUsDate(trimTrailingPunctuation(match[2] || ""), timezone);
+      return {
+        title: titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase()),
+        dueDate: dueDate?.toISODate() || undefined,
+      };
+    }
+    return {
+      title: titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase()),
+    };
+  }
+
+  return null;
+}
+
+function parseTaskCompleteIntent(body: string): TaskCompleteIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const match = normalized.match(/^mark\s+(.+?)\s+done$/i)
+    || normalized.match(/^(?:complete|finish)\s+(.+)$/i);
+  if (!match) return null;
+  const title = trimTrailingPunctuation(match[1] || "");
+  if (!title) return null;
+  return { title };
+}
+
+function asksForOpenTasks(body: string): boolean {
+  return /(?:what\s+tasks?(?:\s+are)?\s+(?:open|left|remaining)|show\s+(?:me\s+)?(?:my\s+)?open\s+tasks?|what\s+do\s+i\s+still\s+need\s+to\s+do)/i.test(body);
 }
 
 function parseMealLogIntent(body: string): MealLogIntent | null {
@@ -1942,6 +2097,109 @@ async function buildGroceryListReply(
   const preview = uniqueNames.slice(0, 10).join(", ");
   const more = uniqueNames.length > 10 ? `, +${uniqueNames.length - 10} more` : "";
   return `Your grocery list has ${uniqueNames.length} items: ${preview}${more}.`;
+}
+
+function taskOccursOnDate(task: StoredTask, date: DateTime): boolean {
+  const target = date.startOf("day");
+  const dueDate = task.dueDate ? DateTime.fromISO(task.dueDate, { zone: date.zoneName }).startOf("day") : null;
+  const anchor = dueDate?.isValid ? dueDate : DateTime.fromISO(task.createdAt, { zone: date.zoneName }).startOf("day");
+  if (!anchor.isValid || target < anchor) return false;
+
+  if (task.frequency === "once") {
+    return !!dueDate?.isValid && dueDate.toISODate() === target.toISODate();
+  }
+  if (task.frequency === "daily") return true;
+  if (task.frequency === "weekly") {
+    const targetDay = DAY_NAME_BY_WEEKDAY[target.weekday];
+    const weeklyDay = task.day || DAY_NAME_BY_WEEKDAY[anchor.weekday];
+    return weeklyDay === targetDay;
+  }
+
+  return false;
+}
+
+async function addTaskBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: TaskAddIntent,
+): Promise<string> {
+  const { document, fullName } = await loadProfileSettingsContext(supabase, userId);
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
+  const person = intent.personName ? resolvePersonByName(profiles, intent.personName) : null;
+  if (intent.personName && !person) {
+    return `I couldn't find ${intent.personName}. Reply with the exact dashboard name, like Ken or Katie.`;
+  }
+
+  tasks.push({
+    id: `task-${crypto.randomUUID()}`,
+    title: intent.title,
+    type: "do",
+    status: "not_started",
+    frequency: "once",
+    assignedToId: person?.id,
+    assignedToName: person?.name,
+    dueDate: intent.dueDate,
+    reminderEnabled: Boolean(intent.reminderTime),
+    reminderTime: intent.reminderTime,
+    createdAt: new Date().toISOString(),
+  });
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "tasks"], tasks);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+
+  const details: string[] = [];
+  if (person?.name) details.push(`for ${person.name}`);
+  if (intent.dueDate) {
+    const parsedDate = DateTime.fromISO(intent.dueDate, { zone: timezone });
+    if (parsedDate.isValid) details.push(`on ${parsedDate.toFormat("LLL d")}`);
+  }
+  if (intent.reminderTime && intent.dueDate) {
+    const parsedDate = DateTime.fromISO(intent.dueDate, { zone: timezone });
+    const parsedTime = parseTimeForZone(intent.reminderTime, parsedDate.isValid ? parsedDate : DateTime.now().setZone(timezone), timezone);
+    if (parsedTime) details.push(`at ${parsedTime.toFormat("h:mm a")}`);
+  }
+
+  return `Added task ${intent.title}${details.length ? ` ${details.join(" ")}` : ""}.`;
+}
+
+async function completeTaskBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: TaskCompleteIntent,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const normalizedTitle = normalizeToken(intent.title);
+  if (!normalizedTitle) return "I couldn't tell which task to complete.";
+
+  const matches = tasks.filter((task) => normalizeToken(task.title).includes(normalizedTitle) || normalizedTitle.includes(normalizeToken(task.title)));
+  if (!matches.length) return `I couldn't find a task named ${intent.title}.`;
+  if (matches.length > 1) {
+    return `I found a few tasks that could match ${intent.title}: ${matches.slice(0, 3).map((task) => task.title).join(", ")}. Reply with the exact task name.`;
+  }
+
+  const target = matches[0];
+  const nextTasks = tasks.map((task) => task.id === target.id ? { ...task, status: "done" as const } : task);
+  const nextDocument = setDocumentValue(document, ["appPreferences", "tasks"], nextTasks);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+  return `Marked ${target.title} done.`;
+}
+
+async function buildOpenTasksReply(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const openTasks = tasks.filter((task) => task.status !== "done" && taskOccursOnDate(task, today));
+  if (!openTasks.length) return "You have no open tasks for today.";
+  const preview = openTasks.slice(0, 6).map((task) => task.title).join(", ");
+  const more = openTasks.length > 6 ? `, +${openTasks.length - 6} more` : "";
+  return `Open tasks for today: ${preview}${more}.`;
 }
 
 async function addWaterLogBySms(
@@ -2594,7 +2852,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -2670,6 +2928,38 @@ serve(async (req) => {
       } catch (error) {
         console.error("sms water log failed:", error);
         return twiml("I could not save that water log right now. Please try again in a moment.");
+      }
+    }
+
+    const taskAddIntent = parseTaskAddIntent(body, timezone);
+    if (taskAddIntent) {
+      try {
+        const reply = await addTaskBySms(supabase, pref.user_id, timezone, taskAddIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms task add failed:", error);
+        return twiml("I could not add that task right now. Please try again in a moment.");
+      }
+    }
+
+    const taskCompleteIntent = parseTaskCompleteIntent(body);
+    if (taskCompleteIntent) {
+      try {
+        const reply = await completeTaskBySms(supabase, pref.user_id, taskCompleteIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms task complete failed:", error);
+        return twiml("I could not update that task right now. Please try again in a moment.");
+      }
+    }
+
+    if (asksForOpenTasks(body)) {
+      try {
+        const reply = await buildOpenTasksReply(supabase, pref.user_id, timezone);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms task reply failed:", error);
+        return twiml("I could not read your tasks right now. Please try again in a moment.");
       }
     }
 

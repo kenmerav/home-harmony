@@ -10,6 +10,8 @@ import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
 import { hydrateMacroGameActivityFromAccount, hydrateMacroGameProfilesFromAccount, setMacroGameStorageScope } from '@/lib/macroGame';
 import { hydrateMealBudgetPlannerFromAccount, setMealBudgetPlannerStorageScope } from '@/lib/mealBudgetPlanner';
+import { hydrateTasksFromAccount, setTaskStorageScope } from '@/lib/taskStore';
+import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -218,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
     setMealBudgetPlannerStorageScope(!isDemoUser ? user?.id : null);
+    setTaskStorageScope(!isDemoUser ? user?.id : null);
   }, [isDemoUser, user?.id]);
 
   useEffect(() => {
@@ -227,6 +230,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       void hydrateMacroGameProfilesFromAccount(user.id);
       void hydrateMacroGameActivityFromAccount(user.id);
       void hydrateMealBudgetPlannerFromAccount(user.id);
+      void hydrateTasksFromAccount(user.id);
+      void syncDerivedCalendarSnapshot(user.id, new Date());
     };
 
     const handleVisibilityChange = () => {
@@ -243,6 +248,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', refreshMacroState);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
+  }, [isDemoUser, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser || typeof window === 'undefined') return;
+
+    const handleTaskStateUpdated = () => {
+      void syncDerivedCalendarSnapshot(user.id, new Date());
+    };
+
+    window.addEventListener('homehub:task-state-updated', handleTaskStateUpdated);
+    return () => window.removeEventListener('homehub:task-state-updated', handleTaskStateUpdated);
   }, [isDemoUser, user?.id]);
 
   useEffect(() => {

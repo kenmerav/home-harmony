@@ -111,6 +111,18 @@ export default function TasksPage() {
     return () => window.removeEventListener('homehub:macro-state-updated', refreshDashboards);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const refreshTasks = () => {
+      setTasks((current) => {
+        const next = loadTasks(user?.id);
+        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+      });
+    };
+    window.addEventListener('homehub:task-state-updated', refreshTasks);
+    return () => window.removeEventListener('homehub:task-state-updated', refreshTasks);
+  }, [user?.id]);
+
   const dashboardNameById = useMemo(
     () => new Map(adultDashboards.map((dashboard) => [dashboard.id, dashboard.name])),
     [adultDashboards],

@@ -1,7 +1,9 @@
 import { mockHouseTasks } from '@/data/mockData';
 import { HouseTask, TaskFrequency, DayOfWeek } from '@/types';
+import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 
 const TASKS_STORAGE_KEY_PREFIX = 'homehub.tasks.v1';
+const TASKS_SETTINGS_PATH = ['appPreferences', 'tasks'];
 const VALID_FREQUENCIES: TaskFrequency[] = [
   'daily',
   'weekly',
@@ -13,12 +15,22 @@ const VALID_FREQUENCIES: TaskFrequency[] = [
 ];
 const DAY_NAMES: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+let currentStorageScopeUserId: string | null = null;
+let hydratedScopeKey: string | null = null;
+let lastPersistedSnapshot: string | null = null;
+let persistTimer: number | null = null;
+let hydrationToken = 0;
+
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
 function keyForUser(userId?: string | null): string {
   return `${TASKS_STORAGE_KEY_PREFIX}:${userId || 'anon'}`;
+}
+
+function taskScopeKey(userId?: string | null): string {
+  return userId || 'anon';
 }
 
 function parseIsoDateOnly(value?: string): Date | null {
@@ -43,6 +55,12 @@ export function normalizeTaskFrequency(value: unknown): TaskFrequency {
   if (incoming === 'quarterly') return 'every_3_months';
   if (incoming === 'biannual' || incoming === 'semiannual') return 'every_6_months';
   return 'once';
+}
+
+function dispatchTaskStateUpdated() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('homehub:task-state-updated'));
+  }
 }
 
 function normalizeTaskDay(value: unknown): DayOfWeek | undefined {
@@ -103,22 +121,161 @@ function normalizeTask(raw: unknown, index: number): HouseTask {
   };
 }
 
-export function loadTasks(userId?: string | null): HouseTask[] {
-  if (!canUseStorage()) return mockHouseTasks;
+function normalizeTasks(input: unknown): HouseTask[] {
+  return (Array.isArray(input) ? input : []).map((item, index) => normalizeTask(item, index));
+}
+
+function serializeTasks(tasks: HouseTask[]): string {
+  return JSON.stringify(
+    tasks.map((task) => ({
+      ...task,
+      createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : new Date(task.createdAt).toISOString(),
+    })),
+  );
+}
+
+function readTasks(userId?: string | null): HouseTask[] {
+  if (!canUseStorage()) return userId ? [] : mockHouseTasks;
   try {
     const raw = window.localStorage.getItem(keyForUser(userId));
-    if (!raw) return mockHouseTasks;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return mockHouseTasks;
-    return parsed.map((item, index) => normalizeTask(item, index));
+    if (!raw) return userId ? [] : mockHouseTasks;
+    return normalizeTasks(JSON.parse(raw));
   } catch {
-    return mockHouseTasks;
+    return userId ? [] : mockHouseTasks;
   }
 }
 
-export function saveTasks(tasks: HouseTask[], userId?: string | null) {
+async function loadRemoteTasks(userId: string): Promise<HouseTask[] | null> {
+  const document = await loadProfileSettingsDocument(userId);
+  const storedTasks = getProfileSettingsValue(document, TASKS_SETTINGS_PATH);
+  if (typeof storedTasks === 'undefined') return null;
+  return normalizeTasks(storedTasks);
+}
+
+async function persistTasksToAccount(userId: string, tasks: HouseTask[]): Promise<void> {
+  const normalizedTasks = normalizeTasks(tasks);
+  await updateProfileSettingsValue(
+    userId,
+    TASKS_SETTINGS_PATH,
+    normalizedTasks.map((task) => ({
+      ...task,
+      createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : new Date(task.createdAt).toISOString(),
+    })),
+  );
+  if (currentStorageScopeUserId === userId) {
+    lastPersistedSnapshot = serializeTasks(normalizedTasks);
+  }
+}
+
+function scheduleTaskPersist(tasks: HouseTask[]) {
+  if (!currentStorageScopeUserId) return;
+  if (hydratedScopeKey !== taskScopeKey(currentStorageScopeUserId)) return;
+  if (typeof window === 'undefined') return;
+
+  const snapshot = serializeTasks(tasks);
+  if (snapshot === lastPersistedSnapshot) return;
+
+  if (persistTimer !== null) {
+    window.clearTimeout(persistTimer);
+  }
+
+  const scopedUserId = currentStorageScopeUserId;
+  persistTimer = window.setTimeout(() => {
+    persistTimer = null;
+    const latestTasks = readTasks(scopedUserId);
+    const latestSnapshot = serializeTasks(latestTasks);
+    if (latestSnapshot === lastPersistedSnapshot) return;
+    void persistTasksToAccount(scopedUserId, latestTasks).catch((error) => {
+      console.error('Failed to save tasks:', error);
+    });
+  }, 500);
+}
+
+function writeTasks(tasks: HouseTask[], userId?: string | null, skipRemotePersist = false) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(keyForUser(userId), JSON.stringify(tasks));
+  const normalizedTasks = normalizeTasks(tasks);
+  window.localStorage.setItem(keyForUser(userId), serializeTasks(normalizedTasks));
+  if (!skipRemotePersist) {
+    scheduleTaskPersist(normalizedTasks);
+  }
+  dispatchTaskStateUpdated();
+}
+
+export function loadTasks(userId?: string | null): HouseTask[] {
+  return readTasks(userId);
+}
+
+export function saveTasks(tasks: HouseTask[], userId?: string | null) {
+  writeTasks(tasks, userId);
+}
+
+export async function hydrateTasksFromAccount(userId?: string | null): Promise<void> {
+  if (!userId || !canUseStorage()) return;
+
+  const scopeKey = taskScopeKey(userId);
+  const currentToken = ++hydrationToken;
+  const localTasks = readTasks(userId);
+  const localSnapshot = serializeTasks(localTasks);
+
+  try {
+    const remoteTasks = await loadRemoteTasks(userId);
+    if (hydrationToken !== currentToken || currentStorageScopeUserId !== userId) return;
+
+    const currentTasks = readTasks(userId);
+    const currentSnapshot = serializeTasks(currentTasks);
+    const localChangedDuringLoad = currentSnapshot !== localSnapshot;
+
+    if (localChangedDuringLoad) {
+      await persistTasksToAccount(userId, currentTasks);
+      hydratedScopeKey = scopeKey;
+      lastPersistedSnapshot = currentSnapshot;
+      dispatchTaskStateUpdated();
+      return;
+    }
+
+    if (remoteTasks) {
+      const remoteSnapshot = serializeTasks(remoteTasks);
+      if (remoteSnapshot !== currentSnapshot) {
+        writeTasks(remoteTasks, userId, true);
+      }
+      hydratedScopeKey = scopeKey;
+      lastPersistedSnapshot = remoteSnapshot;
+      dispatchTaskStateUpdated();
+      return;
+    }
+
+    await persistTasksToAccount(userId, currentTasks);
+    hydratedScopeKey = scopeKey;
+    lastPersistedSnapshot = currentSnapshot;
+    dispatchTaskStateUpdated();
+  } catch (error) {
+    console.error('Failed to hydrate tasks:', error);
+    if (hydrationToken !== currentToken || currentStorageScopeUserId !== userId) return;
+    hydratedScopeKey = scopeKey;
+    lastPersistedSnapshot = null;
+    dispatchTaskStateUpdated();
+  }
+}
+
+export function setTaskStorageScope(userId?: string | null) {
+  currentStorageScopeUserId = userId || null;
+  hydratedScopeKey = null;
+
+  if (typeof window !== 'undefined' && persistTimer !== null) {
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+
+  if (!currentStorageScopeUserId) {
+    lastPersistedSnapshot = serializeTasks(readTasks(null));
+    hydratedScopeKey = taskScopeKey(null);
+    dispatchTaskStateUpdated();
+    return;
+  }
+
+  lastPersistedSnapshot = null;
+  dispatchTaskStateUpdated();
+  void hydrateTasksFromAccount(currentStorageScopeUserId);
 }
 
 export interface TaskCalendarEditInput {
@@ -205,11 +362,6 @@ export function deleteTaskFromCalendarRelatedId(relatedId: string, userId?: stri
 
   tasks.splice(targetIndex, 1);
   saveTasks(tasks, userId);
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('homehub:task-state-updated'));
-  }
-
   return true;
 }
 

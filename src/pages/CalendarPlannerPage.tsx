@@ -501,7 +501,11 @@ export default function CalendarPlannerPage() {
       void refreshEvents();
     };
     window.addEventListener('homehub:calendar-events-updated', handler);
-    return () => window.removeEventListener('homehub:calendar-events-updated', handler);
+    window.addEventListener('homehub:task-state-updated', handler);
+    return () => {
+      window.removeEventListener('homehub:calendar-events-updated', handler);
+      window.removeEventListener('homehub:task-state-updated', handler);
+    };
   }, [refreshEvents]);
 
   useEffect(() => {
