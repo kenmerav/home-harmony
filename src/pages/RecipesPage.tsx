@@ -177,6 +177,8 @@ interface ManualRecipeFormState {
   fat_g: string;
 }
 
+type LibraryFilter = 'all' | 'recipes' | 'saved-foods';
+
 interface RecipesUploadDraft {
   uploadModalOpen: boolean;
   uploadStep: 'upload' | 'review';
@@ -426,6 +428,7 @@ function dbRecipeToDisplayRecipe(
 export default function RecipesPage() {
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -1720,7 +1723,7 @@ export default function RecipesPage() {
     <AppLayout>
       <PageHeader 
         title="Recipes" 
-        subtitle={`${recipes.length} recipes in your library`}
+        subtitle={`${recipes.length} recipes • ${savedFoods.length} saved foods`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="outline" onClick={() => setAiDialogOpen(true)}>
@@ -1821,61 +1824,46 @@ export default function RecipesPage() {
         />
       </div>
 
-      <div className="mb-6 rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold">Saved Foods</p>
-            <p className="text-sm text-muted-foreground">
-              Everyday foods you have logged from Meals so you can find and reuse them quickly.
-            </p>
-          </div>
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-            {savedFoods.length}
-          </span>
-        </div>
-
-        {filteredSavedFoods.length > 0 ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredSavedFoods.map((food) => (
-              <div key={food.id} className="rounded-lg border border-border/80 bg-background p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="font-medium leading-tight">{food.name}</p>
-                  {food.defaultMealType ? (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                      {savedFoodMealLabels[food.defaultMealType] || food.defaultMealType}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {food.servings}x • {food.calories} cal • {food.protein_g}P • {food.carbs_g}C • {food.fat_g}F
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-border/80 bg-background px-4 py-5 text-sm text-muted-foreground">
-            {savedFoods.length === 0
-              ? 'No saved foods yet. Add a manual or estimated food from Meals once, and it will show up here automatically.'
-              : 'No saved foods match that search yet.'}
-          </div>
-        )}
-      </div>
-
       <div className="mb-6 flex flex-wrap gap-2">
         <Button
-          variant={favoritesOnly ? 'default' : 'outline'}
+          variant={libraryFilter === 'all' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setFavoritesOnly((v) => !v)}
+          onClick={() => setLibraryFilter('all')}
         >
-          {favoritesOnly ? 'Showing Favorites' : 'Favorites Only'}
+          All
         </Button>
         <Button
-          variant={kidFriendlyOnly ? 'default' : 'outline'}
+          variant={libraryFilter === 'recipes' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setKidFriendlyOnly((v) => !v)}
+          onClick={() => setLibraryFilter('recipes')}
         >
-          {kidFriendlyOnly ? 'Showing Kid Friendly' : 'Kid Friendly Only'}
+          Recipes
         </Button>
+        <Button
+          variant={libraryFilter === 'saved-foods' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setLibraryFilter('saved-foods')}
+        >
+          Saved Foods
+        </Button>
+        {libraryFilter !== 'saved-foods' ? (
+          <>
+            <Button
+              variant={favoritesOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFavoritesOnly((v) => !v)}
+            >
+              {favoritesOnly ? 'Showing Favorites' : 'Favorites Only'}
+            </Button>
+            <Button
+              variant={kidFriendlyOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setKidFriendlyOnly((v) => !v)}
+            >
+              {kidFriendlyOnly ? 'Showing Kid Friendly' : 'Kid Friendly Only'}
+            </Button>
+          </>
+        ) : null}
       </div>
 
       <Accordion type="single" collapsible className="mb-6 rounded-xl border border-border bg-card px-4">
@@ -1971,24 +1959,39 @@ export default function RecipesPage() {
         </div>
       )}
 
-      {/* Recipe Grid */}
+      {/* Library Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
-        {filteredRecipes.map(recipe => (
-          <RecipeCard
-            key={recipe.id}
-            recipe={recipe}
-            onView={() => setViewingRecipe(recipe)}
-            onEdit={() => setEditingRecipe(recipe)}
-            onToggleFavorite={() => toggleFavorite(recipe)}
-            onToggleKidFriendly={() => toggleKidFriendly(recipe)}
-          />
-        ))}
+        {libraryFilter !== 'saved-foods' &&
+          filteredRecipes.map(recipe => (
+            <RecipeCard
+              key={recipe.id}
+              recipe={recipe}
+              onView={() => setViewingRecipe(recipe)}
+              onEdit={() => setEditingRecipe(recipe)}
+              onToggleFavorite={() => toggleFavorite(recipe)}
+              onToggleKidFriendly={() => toggleKidFriendly(recipe)}
+            />
+          ))}
+        {libraryFilter !== 'recipes' &&
+          filteredSavedFoods.map((food) => (
+            <SavedFoodCard key={food.id} food={food} />
+          ))}
       </div>
 
-      {filteredRecipes.length === 0 && (
+      {((libraryFilter === 'recipes' && filteredRecipes.length === 0) ||
+        (libraryFilter === 'saved-foods' && filteredSavedFoods.length === 0) ||
+        (libraryFilter === 'all' && filteredRecipes.length === 0 && filteredSavedFoods.length === 0)) && (
         <div className="text-center py-12">
           <UtensilsCrossed className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-          <p className="text-muted-foreground">No recipes found</p>
+          <p className="text-muted-foreground">
+            {libraryFilter === 'saved-foods'
+              ? (savedFoods.length === 0
+                  ? 'No saved foods yet'
+                  : 'No saved foods found')
+              : libraryFilter === 'recipes'
+                ? 'No recipes found'
+                : 'No recipes or saved foods found'}
+          </p>
         </div>
       )}
 
@@ -2754,6 +2757,57 @@ function RecipeCard({
         <Button variant="ghost" size="sm" onClick={onEdit}>
           Edit
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function SavedFoodCard({ food }: { food: CommonFood }) {
+  return (
+    <div className="bg-card rounded-xl border border-border overflow-hidden card-hover">
+      <div className="p-4 border-b border-border">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="font-display font-semibold text-lg text-foreground truncate">
+              {food.name}
+            </h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {food.servings} serving{food.servings === 1 ? '' : 's'}
+            </p>
+          </div>
+          <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+            Saved Food
+          </span>
+        </div>
+
+        {food.defaultMealType ? (
+          <div className="mt-2">
+            <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {savedFoodMealLabels[food.defaultMealType] || food.defaultMealType}
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="p-4">
+        <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+          <div>
+            <p className="text-xs uppercase tracking-wide">Calories</p>
+            <p className="mt-1 font-medium text-foreground">{food.calories}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide">Protein</p>
+            <p className="mt-1 font-medium text-foreground">{food.protein_g}g</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide">Carbs</p>
+            <p className="mt-1 font-medium text-foreground">{food.carbs_g}g</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide">Fat</p>
+            <p className="mt-1 font-medium text-foreground">{food.fat_g}g</p>
+          </div>
+        </div>
       </div>
     </div>
   );
