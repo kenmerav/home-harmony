@@ -1119,7 +1119,7 @@ export default function MealsPage() {
       if (!result.success || !result.meal) {
         toast({
           title: 'Could not estimate meal',
-          description: result.error || 'Try another photo or add a short note with what is in the meal.',
+          description: result.error || 'Try a clearer nutrition label photo or add a short note with what is in the meal.',
           variant: 'destructive',
         });
         return;
@@ -1138,7 +1138,7 @@ export default function MealsPage() {
       setPlannerRecipeQuery('');
 
       toast({
-        title: 'Meal estimated from photo',
+        title: 'Meal estimated from nutrition label photo',
         description: result.meal.assumptions || `${result.meal.name} was added to the planner form.`,
       });
     } finally {
@@ -2600,7 +2600,7 @@ export default function MealsPage() {
                             ) : (
                               <>
                                 <Camera className="h-4 w-4" />
-                                Upload meal photo
+                                Upload picture of nutrition label
                               </>
                             )}
                             <input
@@ -3649,9 +3649,9 @@ export default function MealsPage() {
             {plannerForm.mealType !== 'alcohol' ? (
               <div className="rounded-md border border-border bg-muted/10 p-3 space-y-3">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Estimate from photo or description</p>
+                  <p className="text-xs font-medium text-muted-foreground">Estimate from nutrition label or description</p>
                   <p className="text-xs text-muted-foreground">
-                    Type what you ate or upload a photo, then adjust anything manually if needed.
+                    Type what you ate or upload a nutrition label picture, then adjust anything manually if needed.
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Estimate only. Manually entering your macros gives you the most reliable tracking.
@@ -3686,7 +3686,7 @@ export default function MealsPage() {
                   ) : (
                     <>
                       <Camera className="h-4 w-4" />
-                      Upload meal photo
+                      Upload picture of nutrition label
                     </>
                   )}
                   <input
