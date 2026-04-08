@@ -31,6 +31,7 @@ import { setPlanRules } from '@/lib/mealPrefs';
 import {
   clearOnboardingDraft,
   loadOnboardingDraft,
+  loadOnboardingResult,
   saveOnboardingDraft,
   saveOnboardingResult,
   type StoredOnboardingResult,
@@ -1011,7 +1012,25 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (forceOnboarding || profileLoading || !user || !isProfileComplete) return;
-    navigate(getPostAuthRoute(isSubscribed), { replace: true });
+    let cancelled = false;
+    const redirect = async () => {
+      const fallbackRoute = getPostAuthRoute(isSubscribed);
+      if (fallbackRoute !== '/app') {
+        if (!cancelled) navigate(fallbackRoute, { replace: true });
+        return;
+      }
+      const stored = await loadOnboardingResult(user.id);
+      const plan = stored?.personalizedPlan as Record<string, unknown> | undefined;
+      const focusRoute =
+        typeof plan?.focusRoute === 'string' && plan.focusRoute.trim()
+          ? plan.focusRoute.trim()
+          : fallbackRoute;
+      if (!cancelled) navigate(focusRoute, { replace: true });
+    };
+    void redirect();
+    return () => {
+      cancelled = true;
+    };
   }, [forceOnboarding, isProfileComplete, isSubscribed, navigate, profileLoading, user]);
 
   useEffect(() => {
