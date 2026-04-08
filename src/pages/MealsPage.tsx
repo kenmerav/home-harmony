@@ -212,6 +212,12 @@ function normalizeDecimalInput(value: string): string {
   return `${whole || '0'}.${rest.join('').replace(/\./g, '')}`;
 }
 
+function formatQuarterStep(value: number): string {
+  const rounded = Math.round(value * 4) / 4;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 const MEAL_GRID_ROWS: MealGridRow[] = [
   { key: 'breakfast', label: 'Breakfast', mealType: 'breakfast' },
   { key: 'snack-1', label: 'Snack', mealType: 'snack' },
@@ -981,6 +987,29 @@ export default function MealsPage() {
         fat_g: scaleValue(prev.fat_g),
       };
     });
+  };
+
+  const nudgePlannerFormServings = (delta: number) => {
+    const currentServings = Number.parseFloat(plannerForm.servings);
+    const baseValue = Number.isFinite(currentServings) && currentServings > 0 ? currentServings : 1;
+    const nextValue = Math.max(0.25, Math.round((baseValue + delta) * 4) / 4);
+    updatePlannerFormServings(formatQuarterStep(nextValue));
+  };
+
+  const handlePlannerServingsKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      nudgePlannerFormServings(0.25);
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      nudgePlannerFormServings(-0.25);
+    }
+  };
+
+  const snapPlannerFormServingsToQuarter = () => {
+    const currentServings = Number.parseFloat(plannerForm.servings);
+    if (!Number.isFinite(currentServings) || currentServings <= 0) return;
+    updatePlannerFormServings(formatQuarterStep(currentServings));
   };
 
   const closeGridQuickAdd = () => {
@@ -2788,8 +2817,11 @@ export default function MealsPage() {
                           type="number"
                           step="0.25"
                           min="0.1"
+                          inputMode="decimal"
                           value={plannerForm.servings}
                           onChange={(event) => updatePlannerFormServings(event.target.value)}
+                          onKeyDown={handlePlannerServingsKeyDown}
+                          onBlur={snapPlannerFormServingsToQuarter}
                         />
                       </div>
                     </div>
@@ -3847,8 +3879,11 @@ export default function MealsPage() {
                   type="number"
                   step="0.25"
                   min="0.1"
+                  inputMode="decimal"
                   value={plannerForm.servings}
                   onChange={(event) => updatePlannerFormServings(event.target.value)}
+                  onKeyDown={handlePlannerServingsKeyDown}
+                  onBlur={snapPlannerFormServingsToQuarter}
                 />
               </div>
               <div className="space-y-1">
