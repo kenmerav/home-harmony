@@ -3834,19 +3834,6 @@ export default function MealsPage() {
                 ))}
               </div>
             ) : null}
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={plannerForm.recipeId}
-              disabled={recipesLoading}
-              onChange={(event) => selectRecipeForPlanner(event.target.value)}
-            >
-              <option value="">Optional: choose from recipes</option>
-              {plannerRecipeOptions.map((recipe) => (
-                <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
-                  {recipePickerLabel(recipe)}
-                </option>
-              ))}
-            </select>
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">Meal name</p>
               <Input
