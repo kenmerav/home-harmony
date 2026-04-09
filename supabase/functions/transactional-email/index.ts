@@ -288,10 +288,10 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
       `Now that you're all set up, let's talk about one of the most popular features in Home Harmony — meal planning.\n\n` +
       `For a lot of families, the hardest question of the day is "What's for dinner?" With Home Harmony, you can answer that question for the whole week in just a few minutes.\n\n` +
       `Here's how to make meal planning work for you:\n` +
-      `- Browse recipes and save your favorites to your personal cookbook.\n` +
-      `- Drag recipes onto your weekly meal calendar — breakfast, lunch, dinner, or snacks.\n` +
-      `- Hit "Generate Grocery List" and your shopping list builds itself automatically.\n` +
-      `- Share the list with a family member so grocery runs are a team effort.\n\n` +
+      `- Browse recipes and save your favorites so they’re easy to reuse.\n` +
+      `- Add meals to your week in Breakfast List, Lunch List, Snack List, Dinner List, or Weekly Meal Grid.\n` +
+      `- Open Grocery and your shopping list is already built from your planned meals.\n` +
+      `- Mark your order handled, then keep adding staples and next-order items through the week.\n\n` +
       `Pro tip: Plan your meals on Sunday and you'll save an average of 2–3 hours and a lot of stress during the week.\n\n` +
       `Start Planning This Week's Meals: ${mealsUrl}\n\n` +
       `Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.\n\n` +
@@ -319,16 +319,16 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
             <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
               <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here's how to make meal planning work for you:</p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                ✅ Browse recipes and save your favorites to your personal cookbook.
+                ✅ Browse recipes and save your favorites so they’re easy to reuse.
               </p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                ✅ Drag recipes onto your weekly meal calendar — breakfast, lunch, dinner, or snacks.
+                ✅ Add meals to your week in Breakfast List, Lunch List, Snack List, Dinner List, or Weekly Meal Grid.
               </p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                ✅ Hit "Generate Grocery List" and your shopping list builds itself automatically.
+                ✅ Open Grocery and your shopping list is already built from your planned meals.
               </p>
               <p style="margin:0;line-height:1.7;color:#5f554c;">
-                ✅ Share the list with a family member so grocery runs are a team effort.
+                ✅ Mark your order handled, then keep adding staples and next-order items through the week.
               </p>
             </div>
 
