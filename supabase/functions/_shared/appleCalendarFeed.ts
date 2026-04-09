@@ -28,6 +28,8 @@ export interface IcsFeedEvent {
   cancelled?: boolean;
 }
 
+const CANCELLED_EVENT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
 export function isChoreFeedEvent(event: Pick<IcsFeedEvent, 'layer' | 'module'>): boolean {
   return String(event.layer || '').trim().toLowerCase() === 'chores'
     || String(event.module || '').trim().toLowerCase() === 'chores';
@@ -160,8 +162,32 @@ function sanitizeLayer(layer: string | null | undefined): string {
   return value || 'FAMILY';
 }
 
-export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string): string {
-  const sorted = [...events].sort((a, b) => {
+function shouldKeepCancelledEvent(event: IcsFeedEvent, referenceTimeMs: number): boolean {
+  if (!(event.cancelled || event.deletedAt)) return true;
+
+  const deletedAtMs = event.deletedAt ? new Date(event.deletedAt).getTime() : Number.NaN;
+  if (Number.isFinite(deletedAtMs)) {
+    return referenceTimeMs - deletedAtMs <= CANCELLED_EVENT_RETENTION_MS;
+  }
+
+  const updatedAtMs = event.updatedAt ? new Date(event.updatedAt).getTime() : Number.NaN;
+  if (Number.isFinite(updatedAtMs)) {
+    return referenceTimeMs - updatedAtMs <= CANCELLED_EVENT_RETENTION_MS;
+  }
+
+  const endMs = event.endDatetime ? new Date(event.endDatetime).getTime() : new Date(event.startDatetime).getTime();
+  if (Number.isFinite(endMs)) {
+    return referenceTimeMs - endMs <= CANCELLED_EVENT_RETENTION_MS;
+  }
+
+  return false;
+}
+
+export function buildIcsCalendar(events: IcsFeedEvent[], calendarName: string, now = new Date()): string {
+  const referenceTimeMs = now.getTime();
+  const sorted = [...events]
+    .filter((event) => shouldKeepCancelledEvent(event, referenceTimeMs))
+    .sort((a, b) => {
     if (a.startDatetime === b.startDatetime) return a.id.localeCompare(b.id);
     return a.startDatetime.localeCompare(b.startDatetime);
   });

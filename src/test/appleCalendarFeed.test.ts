@@ -73,11 +73,35 @@ describe('apple calendar feed utilities', () => {
         },
       ],
       'Home Harmony - All Events',
+      new Date('2026-03-12T12:00:00.000Z'),
     );
 
     expect(ics).toContain('UID:deleted-1@homeharmonyhq');
     expect(ics).toContain('STATUS:CANCELLED');
     expect(ics).toContain('DTSTAMP:20260311T141500Z');
+  });
+
+  it('drops old cancelled events after the retention window so they do not linger forever', () => {
+    const ics = buildIcsCalendar(
+      [
+        {
+          id: 'deleted-old-1',
+          title: 'Canceled Recurring Item',
+          startDatetime: '2026-03-12T18:00:00.000Z',
+          endDatetime: '2026-03-12T19:00:00.000Z',
+          allDay: false,
+          layer: 'family',
+          updatedAt: '2026-03-10T16:00:00.000Z',
+          deletedAt: '2026-03-11T14:15:00.000Z',
+          cancelled: true,
+        },
+      ],
+      'Home Harmony - All Events',
+      new Date('2026-04-10T12:00:00.000Z'),
+    );
+
+    expect(ics).not.toContain('UID:deleted-old-1@homeharmonyhq');
+    expect(ics).not.toContain('STATUS:CANCELLED');
   });
 
   it('parses tokenized feed path and validates layers', () => {
