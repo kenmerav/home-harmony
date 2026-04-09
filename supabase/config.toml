@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.estimate-meal-photo]
 verify_jwt = false
+
+[functions.onboarding-email-drip]
+verify_jwt = false

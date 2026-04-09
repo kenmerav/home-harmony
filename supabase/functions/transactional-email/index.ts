@@ -8,7 +8,8 @@ type Action =
   | "send_family_invite"
   | "send_onboarding_preview"
   | "send_welcome_preview"
-  | "send_email_preview";
+  | "send_email_preview"
+  | "send_lifecycle_email";
 
 type LifecycleTemplateKey =
   | "welcome"
@@ -725,6 +726,37 @@ serve(async (req) => {
         text: template.text,
       });
       await logEmailCost(authUser?.id || null, "lifecycle_email_preview", { action, templateKey, to: recipientEmail });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_lifecycle_email") {
+      if (!isServiceRoleAuth) return json({ error: "Forbidden." }, 403);
+
+      const recipientEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : inviterName;
+      const userId = typeof payload.userId === "string" ? payload.userId.trim() : null;
+      const templateKeyRaw = typeof payload.templateKey === "string" ? payload.templateKey.trim().toLowerCase() : "welcome";
+      const templateKey: LifecycleTemplateKey = (
+        templateKeyRaw === "plan_meals"
+        || templateKeyRaw === "review_grocery"
+        || templateKeyRaw === "invite_household"
+        || templateKeyRaw === "set_reminders"
+        || templateKeyRaw === "calendar_setup"
+        || templateKeyRaw === "power_up"
+      )
+        ? templateKeyRaw as LifecycleTemplateKey
+        : "welcome";
+      if (!recipientEmail) return json({ error: "Recipient email is required." }, 400);
+
+      const template = getLifecycleTemplate(templateKey, userName, appUrl);
+      const provider = await sendViaResend({
+        to: recipientEmail,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+      await logEmailCost(userId, "lifecycle_email", { action, templateKey, to: recipientEmail });
 
       return json({ success: true, provider });
     }
