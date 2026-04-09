@@ -185,7 +185,7 @@ function welcomeTemplate(userName: string, appUrl: string) {
       `You just took the first step toward a calmer, more organized home life. Whether it's getting dinner on the table without the daily scramble or finally staying on top of chores and household tasks, Home Harmony is here to make it all a little easier.\n\n` +
       `Here's what you can do right now:\n` +
       `- Set up your household — add your family members so everyone can stay in the loop.\n` +
-      `- Plan your first week of meals — our meal planner makes it simple to pick recipes and auto-generate your grocery list.\n` +
+      `- Plan your first week of meals — use the meal lists or weekly grid, then review the grocery list built from your plan.\n` +
       `- Create your first task — assign chores, reminders, and to-dos to the right person.\n\n` +
       `Get Started: ${base}\n\n` +
       `Over the next few days, we'll share a few tips to help you get the most out of Home Harmony. But for now, just explore and make it your own.\n\n` +
@@ -216,7 +216,7 @@ function welcomeTemplate(userName: string, appUrl: string) {
                 👉 <strong>Set up your household</strong> — add your family members so everyone can stay in the loop.
               </p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                👉 <strong>Plan your first week of meals</strong> — our meal planner makes it simple to pick recipes and auto-generate your grocery list.
+                👉 <strong>Plan your first week of meals</strong> — use the meal lists or weekly grid, then review the grocery list built from your plan.
               </p>
               <p style="margin:0;line-height:1.7;color:#5f554c;">
                 👉 <strong>Create your first task</strong> — assign chores, reminders, and to-dos to the right person.
@@ -294,7 +294,7 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
       `- Mark your order handled, then keep adding staples and next-order items through the week.\n\n` +
       `Pro tip: Plan your meals on Sunday and you'll save an average of 2–3 hours and a lot of stress during the week.\n\n` +
       `Start Planning This Week's Meals: ${mealsUrl}\n\n` +
-      `Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.\n\n` +
+      `Have a family recipe you love? You can add your own recipe too and keep it in your library for later.\n\n` +
       `More good stuff coming your way soon!\n\n` +
       `Warmly,\n` +
       `Ken and the Home Harmony HQ Team\n` +
@@ -343,7 +343,7 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
             </a>
 
             <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
-              Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.
+              Have a family recipe you love? You can add your own recipe too and keep it in your library for later.
             </p>
             <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
               More good stuff coming your way soon!
@@ -403,7 +403,7 @@ function inviteHouseholdTemplate(userName: string, appUrl: string) {
       `- Shared chore lists — assign tasks to family members and everyone can see what’s done and what’s not.\n` +
       `- Recurring reminders — set tasks like "Change AC filter" or "Pay rent" to repeat automatically so nothing slips through the cracks.\n` +
       `- A shared family calendar — appointments, school events, and deadlines all in one place.\n` +
-      `- Household notes — a shared space for things like WiFi passwords, emergency contacts, or the babysitter’s instructions.\n\n` +
+      `- Shared household setup — keep adults, kids, chores, tasks, and reminders organized in one place.\n\n` +
       `The secret to a smoother home? Getting everyone on the same page. Home Harmony makes it easy to invite your partner, roommates, or older kids so the whole household is in sync.\n\n` +
       `Set Up Your Household Hub: ${familyUrl}\n\n` +
       `You’ve got this 😊\n\n` +
@@ -438,7 +438,7 @@ function inviteHouseholdTemplate(userName: string, appUrl: string) {
                 📅 <strong>A shared family calendar</strong> — appointments, school events, and deadlines all in one place.
               </p>
               <p style="margin:0;line-height:1.7;color:#5f554c;">
-                📝 <strong>Household notes</strong> — a shared space for things like WiFi passwords, emergency contacts, or the babysitter’s instructions.
+                📝 <strong>Shared household setup</strong> — keep adults, kids, chores, tasks, and reminders organized in one place.
               </p>
             </div>
 
@@ -534,7 +534,7 @@ function powerUpTemplate(userName: string, appUrl: string) {
       `- Set up one recurring reminder — bills, school pickups, weekly grocery runs.\n` +
       `- Add 3 meals to next week’s planner and generate your grocery list.\n` +
       `- Invite one family member to join your household.\n\n` +
-      `And if you ever get stuck or want to make better use of a feature, our Help Center has easy step-by-step guides — or just reply to this email and we’ll help you out personally.\n\n` +
+      `And if you ever get stuck or want to make better use of a feature, the in-app Setup + tutorials section has easy step-by-step guides — or just reply to this email and we’ll help you out personally.\n\n` +
       `Log In to Home Harmony: ${base}\n\n` +
       `We’re rooting for you and your home 💪\n\n` +
       `Warmly,\n` +
@@ -572,7 +572,7 @@ function powerUpTemplate(userName: string, appUrl: string) {
             </div>
 
             <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
-              And if you ever get stuck or want to make better use of a feature, our Help Center has easy step-by-step guides — or just reply to this email and we’ll help you out personally.
+              And if you ever get stuck or want to make better use of a feature, the in-app Setup + tutorials section has easy step-by-step guides — or just reply to this email and we’ll help you out personally.
             </p>
 
             <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
