@@ -391,30 +391,77 @@ function reviewGroceryTemplate(userName: string, appUrl: string) {
 function inviteHouseholdTemplate(userName: string, appUrl: string) {
   const base = appUrl.replace(/\/$/, "");
   const familyUrl = `${base}/family`;
-  const choresUrl = `${base}/chores`;
-  const tasksUrl = `${base}/tasks`;
-  const mealsUrl = `${base}/meals`;
+  const safeName = escapeHtml(userName || "there");
 
-  return lifecycleEmailTemplate({
-    userName,
-    subject: "Bring your spouse or family into the same plan",
-    badge: "Family setup",
-    title: "Make this shared, {name}",
-    intro: "Home Harmony gets much more useful once the household is actually connected. That’s when tasks, meals, groceries, and reminders start feeling coordinated instead of solo.",
-    ctaLabel: "Open Family Setup",
-    ctaUrl: familyUrl,
-    stepsTitle: "Best ways to use family setup",
-    steps: [
-      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or partner</a> so they see the same meals, groceries, and calendar.`,
-      `<a href="${tasksUrl}" style="color:#2f7d5b;font-weight:600;">Assign tasks</a> so reminders can go to the right adult.`,
-      `<a href="${choresUrl}" style="color:#2f7d5b;font-weight:600;">Set up kids in chores</a> if you want points and recurring responsibilities.`,
-    ],
-    helpfulTitle: "Good to know",
-    helpfulItems: [
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Adult dashboards</a> can still have individualized breakfasts, lunches, snacks, and food logs.`,
-      "You can keep dinner shared for the household while personal items stay separate.",
-    ],
-  });
+  return {
+    subject: "The secret to a smoother home (it’s easier than you think) 🧹",
+    text:
+      `Hi ${userName || "there"},\n\n` +
+      `Meals sorted — now let’s talk about keeping the rest of the house running smoothly.\n\n` +
+      `Home Harmony’s household hub is designed to take the mental load off your shoulders. No more trying to remember who was supposed to clean the bathroom, or whether the car service is overdue.\n\n` +
+      `Here are a few ways families are using it:\n` +
+      `- Shared chore lists — assign tasks to family members and everyone can see what’s done and what’s not.\n` +
+      `- Recurring reminders — set tasks like "Change AC filter" or "Pay rent" to repeat automatically so nothing slips through the cracks.\n` +
+      `- A shared family calendar — appointments, school events, and deadlines all in one place.\n` +
+      `- Household notes — a shared space for things like WiFi passwords, emergency contacts, or the babysitter’s instructions.\n\n` +
+      `The secret to a smoother home? Getting everyone on the same page. Home Harmony makes it easy to invite your partner, roommates, or older kids so the whole household is in sync.\n\n` +
+      `Set Up Your Household Hub: ${familyUrl}\n\n` +
+      `You’ve got this 😊\n\n` +
+      `The Home Harmony Team\n` +
+      `www.homeharmonyhq.com\n`,
+    html: `
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:32px 28px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);">
+            <h1 style="font-size:32px;line-height:1.15;margin:0 0 18px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              The secret to a smoother home
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Hi ${safeName},
+            </p>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Meals sorted — now let’s talk about keeping the rest of the house running smoothly.
+            </p>
+            <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Home Harmony’s household hub is designed to take the mental load off your shoulders. No more trying to remember who was supposed to clean the bathroom, or whether the car service is overdue.
+            </p>
+
+            <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here are a few ways families are using it:</p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                🏠 <strong>Shared chore lists</strong> — assign tasks to family members and everyone can see what’s done and what’s not.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                🔔 <strong>Recurring reminders</strong> — set tasks like "Change AC filter" or "Pay rent" to repeat automatically so nothing slips through the cracks.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                📅 <strong>A shared family calendar</strong> — appointments, school events, and deadlines all in one place.
+              </p>
+              <p style="margin:0;line-height:1.7;color:#5f554c;">
+                📝 <strong>Household notes</strong> — a shared space for things like WiFi passwords, emergency contacts, or the babysitter’s instructions.
+              </p>
+            </div>
+
+            <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
+              The secret to a smoother home? Getting everyone on the same page. Home Harmony makes it easy to invite your partner, roommates, or older kids so the whole household is in sync.
+            </p>
+
+            <a href="${familyUrl}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              Set Up Your Household Hub →
+            </a>
+
+            <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
+              You’ve got this 😊
+            </p>
+            <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
+              The Home Harmony Team<br />
+              <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
 }
 
 function setRemindersTemplate(userName: string, appUrl: string) {
