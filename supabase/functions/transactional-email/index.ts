@@ -190,7 +190,7 @@ function welcomeTemplate(userName: string, appUrl: string) {
       `Get Started: ${base}\n\n` +
       `Over the next few days, we'll share a few tips to help you get the most out of Home Harmony. But for now, just explore and make it your own.\n\n` +
       `Welcome to the family,\n\n` +
-      `The Home Harmony Team\n` +
+      `Ken and the Home Harmony HQ Team\n` +
       `www.homeharmonyhq.com\n\n` +
       `P.S. Have questions? Just reply to this email — we're real people and we'd love to help.\n`,
     html: `
@@ -234,7 +234,7 @@ function welcomeTemplate(userName: string, appUrl: string) {
               Welcome to the family 💛
             </p>
             <p style="margin:18px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
-              The Home Harmony Team<br />
+              Ken and the Home Harmony HQ Team<br />
               <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
             </p>
             <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#7a6f64;">
@@ -297,7 +297,7 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
       `Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.\n\n` +
       `More good stuff coming your way soon!\n\n` +
       `Warmly,\n` +
-      `The Home Harmony Team\n` +
+      `Ken and the Home Harmony HQ Team\n` +
       `www.homeharmonyhq.com\n`,
     html: `
       <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
@@ -350,7 +350,7 @@ function planMealsTemplate(args: { userName: string; appUrl: string }) {
             </p>
             <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
               Warmly,<br />
-              The Home Harmony Team<br />
+              Ken and the Home Harmony HQ Team<br />
               <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
             </p>
           </div>
@@ -407,7 +407,7 @@ function inviteHouseholdTemplate(userName: string, appUrl: string) {
       `The secret to a smoother home? Getting everyone on the same page. Home Harmony makes it easy to invite your partner, roommates, or older kids so the whole household is in sync.\n\n` +
       `Set Up Your Household Hub: ${familyUrl}\n\n` +
       `You’ve got this 😊\n\n` +
-      `The Home Harmony Team\n` +
+      `Ken and the Home Harmony HQ Team\n` +
       `www.homeharmonyhq.com\n`,
     html: `
       <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
@@ -454,7 +454,7 @@ function inviteHouseholdTemplate(userName: string, appUrl: string) {
               You’ve got this 😊
             </p>
             <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
-              The Home Harmony Team<br />
+              Ken and the Home Harmony HQ Team<br />
               <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
             </p>
           </div>
@@ -538,7 +538,7 @@ function powerUpTemplate(userName: string, appUrl: string) {
       `Log In to Home Harmony: ${base}\n\n` +
       `We’re rooting for you and your home 💪\n\n` +
       `Warmly,\n` +
-      `[Your Name] & the Home Harmony Team\n` +
+      `Ken and the Home Harmony HQ Team\n` +
       `www.homeharmonyhq.com\n\n` +
       `P.S. We’d love to know what’s working for you — or what we could do better. Hit reply anytime.\n`,
     html: `
@@ -583,7 +583,7 @@ function powerUpTemplate(userName: string, appUrl: string) {
               We’re rooting for you and your home 💪
             </p>
             <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
-              [Your Name] &amp; the Home Harmony Team<br />
+              Ken and the Home Harmony HQ Team<br />
               <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
             </p>
             <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#7a6f64;">
