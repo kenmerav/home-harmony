@@ -522,72 +522,80 @@ function calendarSetupTemplate(userName: string, appUrl: string) {
 
 function powerUpTemplate(userName: string, appUrl: string) {
   const base = appUrl.replace(/\/$/, "");
+  const mealsUrl = `${base}/meals`;
   const safeName = escapeHtml(userName || "there");
 
   return {
-    subject: "How’s Home Harmony working for you? 👋",
+    subject: "Your meals are planned — your macros are already mostly done too 💪",
     text:
       `Hi ${userName || "there"},\n\n` +
-      `You've had Home Harmony for a little while now — how's it going?\n\n` +
-      `We hope your home is feeling a little more organized and a lot less hectic. If you haven't had a chance to dive in yet, no worries — there’s no perfect time to start, and even small steps make a big difference.\n\n` +
-      `Here are a few quick wins to try today (each takes under 5 minutes):\n` +
-      `- Set up one recurring reminder — bills, school pickups, weekly grocery runs.\n` +
-      `- Add 3 meals to next week’s planner and generate your grocery list.\n` +
-      `- Invite one family member to join your household.\n\n` +
-      `And if you ever get stuck or want to make better use of a feature, the in-app Setup + tutorials section has easy step-by-step guides — or just reply to this email and we’ll help you out personally.\n\n` +
-      `Log In to Home Harmony: ${base}\n\n` +
-      `We’re rooting for you and your home 💪\n\n` +
-      `Warmly,\n` +
+      `Here’s something a lot of Home Harmony users don’t realize right away: once your meals are planned, a big part of your macro tracking is already mapped out.\n\n` +
+      `Because your meals are already in the planner, Home Harmony can show the nutritional breakdown for the day — calories, protein, carbs, and fat — without you having to rebuild the math from scratch every time.\n\n` +
+      `Here’s how to make the most of it:\n` +
+      `- Open Macro Budget Planner in Meals to see your projected day and week totals.\n` +
+      `- Set your targets in the built-in Macro Calculator so Home Harmony can compare each day against your goal.\n` +
+      `- Swap meals or change servings and watch the projected numbers update.\n` +
+      `- Use adult dashboards if different people in the household have different goals.\n\n` +
+      `The part that really makes a difference is this: planned meals reduce decision fatigue. When breakfast, lunch, dinner, and snacks are already mapped out, it’s much easier to stay consistent and not fall back on whatever is easiest at the last minute.\n\n` +
+      `Home Harmony makes that easier by keeping your meals, projected macros, and grocery plan working together. Then if you eat something different, you can still log or adjust it.\n\n` +
+      `See My Macro Breakdown: ${mealsUrl}\n\n` +
+      `Eat well and feel good 🙌\n\n` +
       `Ken and the Home Harmony HQ Team\n` +
       `www.homeharmonyhq.com\n\n` +
-      `P.S. We’d love to know what’s working for you — or what we could do better. Hit reply anytime.\n`,
+      `P.S. Not sure what macro targets to set? The built-in Macro Calculator gives you a starting point based on your details.\n`,
     html: `
       <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
         <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
           <div style="padding:32px 28px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);">
             <h1 style="font-size:32px;line-height:1.15;margin:0 0 18px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
-              How’s Home Harmony working for you?
+              Your meals are planned — your macros are already mostly done too
             </h1>
             <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
               Hi ${safeName},
             </p>
             <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
-              You've had Home Harmony for a little while now — how's it going?
+              Here’s something a lot of Home Harmony users don’t realize right away: once your meals are planned, a big part of your macro tracking is already mapped out.
             </p>
             <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
-              We hope your home is feeling a little more organized and a lot less hectic. If you haven't had a chance to dive in yet, no worries — there’s no perfect time to start, and even small steps make a big difference.
+              Because your meals are already in the planner, Home Harmony can show the nutritional breakdown for the day — calories, protein, carbs, and fat — without you having to rebuild the math from scratch every time.
             </p>
 
             <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
-              <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here are a few quick wins to try today (each takes under 5 minutes):</p>
+              <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here’s how to make the most of it:</p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                ⏰ <strong>Set up one recurring reminder</strong> — bills, school pickups, weekly grocery runs.
+                🥗 <strong>Open Macro Budget Planner in Meals</strong> to see your projected day and week totals.
               </p>
               <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
-                🍱 <strong>Add 3 meals to next week’s planner</strong> and generate your grocery list.
+                📊 <strong>Set your targets</strong> in the built-in Macro Calculator so Home Harmony can compare each day against your goal.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                🔄 <strong>Swap meals or change servings</strong> and watch the projected numbers update.
               </p>
               <p style="margin:0;line-height:1.7;color:#5f554c;">
-                👥 <strong>Invite one family member</strong> to join your household.
+                ⚖️ <strong>Use adult dashboards</strong> if different people in the household have different goals.
               </p>
             </div>
 
             <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
-              And if you ever get stuck or want to make better use of a feature, the in-app Setup + tutorials section has easy step-by-step guides — or just reply to this email and we’ll help you out personally.
+              The part that really makes a difference is this: planned meals reduce decision fatigue. When breakfast, lunch, dinner, and snacks are already mapped out, it’s much easier to stay consistent and not fall back on whatever is easiest at the last minute.
+            </p>
+            <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Home Harmony makes that easier by keeping your meals, projected macros, and grocery plan working together. Then if you eat something different, you can still log or adjust it.
             </p>
 
-            <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
-              Log In to Home Harmony →
+            <a href="${mealsUrl}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              See My Macro Breakdown →
             </a>
 
             <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
-              We’re rooting for you and your home 💪
+              Eat well and feel good 🙌
             </p>
             <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
               Ken and the Home Harmony HQ Team<br />
               <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
             </p>
             <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#7a6f64;">
-              P.S. We’d love to know what’s working for you — or what we could do better. Hit reply anytime.
+              P.S. Not sure what macro targets to set? The built-in Macro Calculator gives you a starting point based on your details.
             </p>
           </div>
         </div>
