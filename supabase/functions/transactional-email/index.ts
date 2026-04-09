@@ -175,33 +175,76 @@ function lifecycleEmailTemplate(args: {
 
 function welcomeTemplate(userName: string, appUrl: string) {
   const base = appUrl.replace(/\/$/, "");
-  const settingsUrl = `${base}/settings`;
-  const mealsUrl = `${base}/meals`;
-  const familyUrl = `${base}/family`;
-  const groceryUrl = `${base}/grocery`;
-  const calendarUrl = `${base}/calendar`;
+  const safeName = escapeHtml(userName || "there");
 
-  return lifecycleEmailTemplate({
-    userName,
-    subject: "Welcome to Home Harmony - let’s set up your first week",
-    badge: "Your account is ready",
-    title: "Welcome to Home Harmony, {name}",
-    intro: "The easiest way to get value this week is to set up meals, confirm groceries, and make sure your household is connected.",
-    ctaLabel: "Open Home Harmony",
-    ctaUrl: base,
-    stepsTitle: "Start with these 3 steps",
-    steps: [
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build your first meal plan</a> so Home Harmony can create a real grocery list.`,
-      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Review your grocery list</a> and make sure the quantities look right.`,
-      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite your spouse or family</a> so everyone shares meals, tasks, and reminders.`,
-    ],
-    helpfulTitle: "Helpful next",
-    helpfulItems: [
-      `<a href="${settingsUrl}" style="color:#2f7d5b;font-weight:600;">Add your phone number</a> for reminder texts and daily updates.`,
-      `<a href="${calendarUrl}" style="color:#2f7d5b;font-weight:600;">Review your calendar</a> so meals and events line up with your week.`,
-    ],
-    footer: "You can reply to this email anytime if you want help getting your first week set up.",
-  });
+  return {
+    subject: "Welcome to Home Harmony 🏡 You're going to love it here",
+    text:
+      `Hi ${userName || "there"},\n\n` +
+      `Welcome to Home Harmony — we're so glad you're here!\n\n` +
+      `You just took the first step toward a calmer, more organized home life. Whether it's getting dinner on the table without the daily scramble or finally staying on top of chores and household tasks, Home Harmony is here to make it all a little easier.\n\n` +
+      `Here's what you can do right now:\n` +
+      `- Set up your household — add your family members so everyone can stay in the loop.\n` +
+      `- Plan your first week of meals — our meal planner makes it simple to pick recipes and auto-generate your grocery list.\n` +
+      `- Create your first task — assign chores, reminders, and to-dos to the right person.\n\n` +
+      `Get Started: ${base}\n\n` +
+      `Over the next few days, we'll share a few tips to help you get the most out of Home Harmony. But for now, just explore and make it your own.\n\n` +
+      `Welcome to the family,\n\n` +
+      `The Home Harmony Team\n` +
+      `www.homeharmonyhq.com\n\n` +
+      `P.S. Have questions? Just reply to this email — we're real people and we'd love to help.\n`,
+    html: `
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:32px 28px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);">
+            <h1 style="font-size:32px;line-height:1.15;margin:0 0 18px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              Welcome to Home Harmony
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Hi ${safeName},
+            </p>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Welcome to Home Harmony — we're so glad you're here!
+            </p>
+            <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
+              You just took the first step toward a calmer, more organized home life. Whether it's getting dinner on the table without the daily scramble or finally staying on top of chores and household tasks, Home Harmony is here to make it all a little easier.
+            </p>
+
+            <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here's what you can do right now:</p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                👉 <strong>Set up your household</strong> — add your family members so everyone can stay in the loop.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                👉 <strong>Plan your first week of meals</strong> — our meal planner makes it simple to pick recipes and auto-generate your grocery list.
+              </p>
+              <p style="margin:0;line-height:1.7;color:#5f554c;">
+                👉 <strong>Create your first task</strong> — assign chores, reminders, and to-dos to the right person.
+              </p>
+            </div>
+
+            <a href="${base}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              Get Started →
+            </a>
+
+            <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
+              Over the next few days, we'll share a few tips to help you get the most out of Home Harmony. But for now, just explore and make it your own.
+            </p>
+            <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
+              Welcome to the family 💛
+            </p>
+            <p style="margin:18px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
+              The Home Harmony Team<br />
+              <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
+            </p>
+            <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#7a6f64;">
+              P.S. Have questions? Just reply to this email — we're real people and we'd love to help.
+            </p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
 }
 
 function familyInviteTemplate(args: {
