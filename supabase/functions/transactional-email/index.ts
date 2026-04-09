@@ -278,32 +278,86 @@ function familyInviteTemplate(args: {
 
 function planMealsTemplate(args: { userName: string; appUrl: string }) {
   const base = args.appUrl.replace(/\/$/, "");
-  const familyUrl = `${base}/family`;
-  const recipesUrl = `${base}/recipes`;
   const mealsUrl = `${base}/meals`;
-  const groceryUrl = `${base}/grocery`;
+  const safeName = escapeHtml(args.userName || "there");
 
-  return lifecycleEmailTemplate({
-    userName: args.userName,
-    subject: "Build one real meal week and Home Harmony gets much better",
-    badge: "Meal planning",
-    title: "Plan one real week, {name}",
-    intro: "The meal plan is the engine for the rest of the app. Once your meals are real, groceries and daily planning start working for you.",
-    ctaLabel: "Open Meals",
-    ctaUrl: mealsUrl,
-    stepsTitle: "Best next steps",
-    steps: [
-      `<a href="${recipesUrl}" style="color:#2f7d5b;font-weight:600;">Add 5-8 recipes</a> your household actually eats.`,
-      `<a href="${mealsUrl}" style="color:#2f7d5b;font-weight:600;">Build this week's meal plan</a> with your real schedule in mind.`,
-      `<a href="${groceryUrl}" style="color:#2f7d5b;font-weight:600;">Check the grocery list</a> once the dinners are set.`,
-    ],
-    helpfulTitle: "Why this matters",
-    helpfulItems: [
-      "A real meal week is the fastest path to seeing whether Home Harmony fits your household.",
-      `<a href="${familyUrl}" style="color:#2f7d5b;font-weight:600;">Invite family later</a> if you want everyone to see the same plan.`,
-    ],
-    footer: "If you want, start with just dinners. That alone usually makes the app click.",
-  });
+  return {
+    subject: "What’s for dinner? Let’s make that question easy 🍽️",
+    text:
+      `Hi ${args.userName || "there"},\n\n` +
+      `Now that you're all set up, let's talk about one of the most popular features in Home Harmony — meal planning.\n\n` +
+      `For a lot of families, the hardest question of the day is "What's for dinner?" With Home Harmony, you can answer that question for the whole week in just a few minutes.\n\n` +
+      `Here's how to make meal planning work for you:\n` +
+      `- Browse recipes and save your favorites to your personal cookbook.\n` +
+      `- Drag recipes onto your weekly meal calendar — breakfast, lunch, dinner, or snacks.\n` +
+      `- Hit "Generate Grocery List" and your shopping list builds itself automatically.\n` +
+      `- Share the list with a family member so grocery runs are a team effort.\n\n` +
+      `Pro tip: Plan your meals on Sunday and you'll save an average of 2–3 hours and a lot of stress during the week.\n\n` +
+      `Start Planning This Week's Meals: ${mealsUrl}\n\n` +
+      `Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.\n\n` +
+      `More good stuff coming your way soon!\n\n` +
+      `Warmly,\n` +
+      `The Home Harmony Team\n` +
+      `www.homeharmonyhq.com\n`,
+    html: `
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:32px 28px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);">
+            <h1 style="font-size:32px;line-height:1.15;margin:0 0 18px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              What’s for dinner? Let’s make that question easy
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Hi ${safeName},
+            </p>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Now that you're all set up, let's talk about one of the most popular features in Home Harmony — meal planning.
+            </p>
+            <p style="margin:0 0 22px;line-height:1.75;font-size:16px;color:#5f554c;">
+              For a lot of families, the hardest question of the day is "What's for dinner?" With Home Harmony, you can answer that question for the whole week in just a few minutes.
+            </p>
+
+            <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0 0 12px;font-size:14px;font-weight:700;color:#1f1a17;">Here's how to make meal planning work for you:</p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                ✅ Browse recipes and save your favorites to your personal cookbook.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                ✅ Drag recipes onto your weekly meal calendar — breakfast, lunch, dinner, or snacks.
+              </p>
+              <p style="margin:0 0 10px;line-height:1.7;color:#5f554c;">
+                ✅ Hit "Generate Grocery List" and your shopping list builds itself automatically.
+              </p>
+              <p style="margin:0;line-height:1.7;color:#5f554c;">
+                ✅ Share the list with a family member so grocery runs are a team effort.
+              </p>
+            </div>
+
+            <div style="margin:0 0 22px;padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fffdf9;">
+              <p style="margin:0;line-height:1.7;font-size:15px;color:#5f554c;">
+                <strong>Pro tip:</strong> Plan your meals on Sunday and you'll save an average of 2–3 hours and a lot of stress during the week.
+              </p>
+            </div>
+
+            <a href="${mealsUrl}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              Start Planning This Week's Meals →
+            </a>
+
+            <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
+              Have a family recipe you love? You can add your own recipes too — just tap "Add Custom Recipe" and save it for good.
+            </p>
+            <p style="margin:24px 0 0;line-height:1.75;font-size:16px;color:#5f554c;">
+              More good stuff coming your way soon!
+            </p>
+            <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
+              Warmly,<br />
+              The Home Harmony Team<br />
+              <a href="https://www.homeharmonyhq.com" style="color:#2f7d5b;text-decoration:none;">www.homeharmonyhq.com</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
 }
 
 function reviewGroceryTemplate(userName: string, appUrl: string) {
