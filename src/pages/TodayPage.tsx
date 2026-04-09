@@ -43,6 +43,7 @@ import {
   addMealLog,
   addWater,
   getDailyScore,
+  getEffectiveMealLogsForDate,
   getFamilyLeaderboard,
   getProfiles,
   getCurrentStreak,
@@ -55,6 +56,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
 import { getPlannedFoodEntries, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
+import { getDinnerServingsForProfileDate } from '@/lib/mealPrefs';
 import { loadOnboardingResult } from '@/lib/onboardingStore';
 
 const getCurrentDay = (date = new Date()): DayOfWeek => {
@@ -370,10 +372,16 @@ export default function TodayPage() {
       dashboards.map((dashboard) => ({
         id: dashboard.id,
         label: dashboard.name,
-        score: getDailyScore(dashboard.id, todayKey),
+        score: getProjectedTodayScore({
+          personId: dashboard.id,
+          dateKey: todayKey,
+          currentDate,
+          meals: liveMeals,
+          userId: user?.id,
+        }),
         streak: getCurrentStreak(dashboard.id, currentDate),
       })),
-    [currentDate, dashboards, todayKey, refreshTick],
+    [currentDate, dashboards, liveMeals, todayKey, refreshTick, user?.id],
   );
   const leaderboard = useMemo(() => getFamilyLeaderboard(currentDate, user?.id), [currentDate, refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
@@ -1569,4 +1577,83 @@ function BadgeLine({ label, hit }: { label: string; hit: boolean }) {
       {label} {hit ? '✓' : '•'}
     </div>
   );
+}
+
+function getProjectedDinnerForToday({
+  meals,
+  currentDate,
+  personId,
+  userId,
+  includePlannedDinner,
+}: {
+  meals: DbPlannedMeal[];
+  currentDate: Date;
+  personId: string;
+  userId?: string | null;
+  includePlannedDinner: boolean;
+}) {
+  if (!includePlannedDinner) {
+    return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  }
+
+  const dateKey = format(currentDate, 'yyyy-MM-dd');
+  const weekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const dayName = getCurrentDay(currentDate);
+  const dinnerMeal = meals.find(
+    (meal) => meal.week_of === weekOf && meal.day === dayName && !meal.is_skipped && !!meal.recipes,
+  );
+
+  if (!dinnerMeal?.recipes) {
+    return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  }
+
+  const servings = getDinnerServingsForProfileDate(personId, dateKey, userId);
+  return {
+    calories: Math.round((dinnerMeal.recipes.calories || 0) * servings),
+    protein_g: Math.round((dinnerMeal.recipes.protein_g || 0) * servings),
+    carbs_g: Math.round((dinnerMeal.recipes.carbs_g || 0) * servings),
+    fat_g: Math.round((dinnerMeal.recipes.fat_g || 0) * servings),
+  };
+}
+
+function getProjectedTodayScore({
+  personId,
+  dateKey,
+  currentDate,
+  meals,
+  userId,
+}: {
+  personId: string;
+  dateKey: string;
+  currentDate: Date;
+  meals: DbPlannedMeal[];
+  userId?: string | null;
+}) {
+  const score = getDailyScore(personId, dateKey);
+  const effectiveLogs = getEffectiveMealLogsForDate(personId, dateKey);
+  const projectedDinner = getProjectedDinnerForToday({
+    meals,
+    currentDate,
+    personId,
+    userId,
+    includePlannedDinner: !effectiveLogs.some((log) => log.mealType === 'dinner'),
+  });
+  const profiles = getProfiles();
+  const macroPlan = profiles[personId]?.macroPlan;
+  const calories = score.calories + projectedDinner.calories;
+  const protein_g = score.protein_g + projectedDinner.protein_g;
+  const carbs_g = score.carbs_g + projectedDinner.carbs_g;
+  const fat_g = score.fat_g + projectedDinner.fat_g;
+  const proteinTarget = macroPlan?.protein_g || 0;
+  const calorieTarget = macroPlan?.calories || 0;
+
+  return {
+    ...score,
+    calories,
+    protein_g,
+    carbs_g,
+    fat_g,
+    proteinHit: proteinTarget > 0 ? protein_g >= proteinTarget : score.proteinHit,
+    calorieHit: calorieTarget > 0 ? calories >= calorieTarget * 0.8 : score.calorieHit,
+  };
 }
