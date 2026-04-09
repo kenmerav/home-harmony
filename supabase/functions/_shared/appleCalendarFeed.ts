@@ -28,7 +28,9 @@ export interface IcsFeedEvent {
   cancelled?: boolean;
 }
 
-const CANCELLED_EVENT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+// Keep cancelled items in the feed briefly so subscribed calendars can see the
+// delete signal, but do not leave them around long enough to feel permanent.
+const CANCELLED_EVENT_RETENTION_MS = 2 * 60 * 60 * 1000;
 
 export function isChoreFeedEvent(event: Pick<IcsFeedEvent, 'layer' | 'module'>): boolean {
   return String(event.layer || '').trim().toLowerCase() === 'chores'
