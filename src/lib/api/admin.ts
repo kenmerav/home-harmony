@@ -118,3 +118,15 @@ export async function deleteAdminUser(userId: string): Promise<void> {
     throw new Error(await parseInvokeError(error, 'Could not delete account.'));
   }
 }
+
+export async function updateAdminFeedbackStatus(
+  feedbackId: string,
+  status: 'reviewed' | 'resolved',
+): Promise<void> {
+  const { error } = await supabase.functions.invoke('admin-update-feedback-status', {
+    body: { feedbackId, status },
+  });
+  if (error) {
+    throw new Error(await parseInvokeError(error, 'Could not update feedback status.'));
+  }
+}

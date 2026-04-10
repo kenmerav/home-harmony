@@ -26,7 +26,12 @@ import {
 } from '@/components/ui/table';
 import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { deleteAdminUser, fetchAdminMetrics, type AdminMetricsResponse } from '@/lib/api/admin';
+import {
+  deleteAdminUser,
+  fetchAdminMetrics,
+  type AdminMetricsResponse,
+  updateAdminFeedbackStatus,
+} from '@/lib/api/admin';
 import { sendLifecyclePreviewEmail } from '@/lib/api/emails';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -69,6 +74,18 @@ function feedbackKindLabel(kind: 'feature_request' | 'bug_report' | 'general_fee
   if (kind === 'feature_request') return 'Feature Request';
   if (kind === 'bug_report') return 'Bug Report';
   return 'General Feedback';
+}
+
+function feedbackStatusLabel(
+  kind: 'feature_request' | 'bug_report' | 'general_feedback',
+  status: string,
+): string {
+  if (status === 'new') return 'New';
+  if (status === 'reviewed') return 'Reviewed';
+  if (status === 'resolved') {
+    return kind === 'feature_request' ? 'Completed' : 'Resolved';
+  }
+  return status;
 }
 
 const EMAIL_TEMPLATE_OPTIONS = [
@@ -126,6 +143,7 @@ export default function AdminDashboardPage() {
   const [feedbackSearch, setFeedbackSearch] = useState('');
   const [feedbackKindFilter, setFeedbackKindFilter] = useState<'all' | 'feature_request' | 'bug_report' | 'general_feedback'>('all');
   const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<'all' | 'new' | 'reviewed' | 'resolved'>('all');
+  const [updatingFeedbackId, setUpdatingFeedbackId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -390,6 +408,34 @@ export default function AdminDashboardPage() {
       description: `Exported ${filteredFeedback.length} feedback item${filteredFeedback.length === 1 ? '' : 's'}.`,
     });
   }, [filteredFeedback, toast]);
+
+  const handleMarkFeedbackCompleted = useCallback(async (feedbackId: string) => {
+    setUpdatingFeedbackId(feedbackId);
+    try {
+      await updateAdminFeedbackStatus(feedbackId, 'resolved');
+      setMetrics((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          recentFeedback: current.recentFeedback.map((row) =>
+            row.id === feedbackId ? { ...row, status: 'resolved' } : row,
+          ),
+        };
+      });
+      toast({
+        title: 'Feature marked completed',
+        description: 'The feedback item is now marked as completed.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Could not update feedback',
+        description: error instanceof Error ? error.message : 'Could not update feedback status.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingFeedbackId(null);
+    }
+  }, [toast]);
 
   return (
     <AppLayout contentWidthClassName="max-w-7xl">
@@ -713,7 +759,7 @@ export default function AdminDashboardPage() {
                           <Badge variant={row.kind === 'bug_report' ? 'destructive' : 'outline'}>
                             {feedbackKindLabel(row.kind)}
                           </Badge>
-                          <Badge variant="outline">{row.status}</Badge>
+                          <Badge variant="outline">{feedbackStatusLabel(row.kind, row.status)}</Badge>
                           <span className="text-xs text-muted-foreground">{dateTimeFmt(row.createdAt)}</span>
                         </div>
                         <div>
@@ -727,6 +773,16 @@ export default function AdminDashboardPage() {
                           </p>
                         </div>
                       </div>
+                      {row.kind === 'feature_request' && row.status !== 'resolved' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleMarkFeedbackCompleted(row.id)}
+                          disabled={updatingFeedbackId === row.id}
+                        >
+                          {updatingFeedbackId === row.id ? 'Saving...' : 'Mark Completed'}
+                        </Button>
+                      ) : null}
                     </div>
                     <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{row.details}</p>
                   </div>
