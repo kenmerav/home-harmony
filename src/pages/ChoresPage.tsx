@@ -48,6 +48,7 @@ const allDays: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'fri
 type RewardUnit = 'money' | 'points';
 type ChoreFrequency = 'daily' | 'weekly' | 'other';
 type NonDailyChoreFrequency = Exclude<ChoreFrequency, 'daily'>;
+type SkillCadence = 'daily' | 'weekly' | 'weekly_any' | 'custom_weekly' | 'monthly';
 
 interface RewardChore {
   id: string;
@@ -78,6 +79,16 @@ interface ClaimedExtraChore {
   failedAt?: string;
 }
 
+interface SkillDevelopmentItem {
+  id: string;
+  name: string;
+  targetMinutes: number;
+  cadence: SkillCadence;
+  day?: DayOfWeek;
+  days?: DayOfWeek[];
+  completionDates?: string[];
+}
+
 interface ExtraChoreOpportunity {
   id: string;
   name: string;
@@ -92,6 +103,7 @@ interface ChildEconomy {
   name: string;
   dailyChores: RewardChore[];
   weeklyChores: RewardWeeklyChore[];
+  skillItems: SkillDevelopmentItem[];
   extraChores: ClaimedExtraChore[];
   piggyBank: number;
   pointsBank: number;
@@ -166,6 +178,95 @@ function normalizeWeeklyDays(chore: RewardWeeklyChore): DayOfWeek[] {
   return ['monday'];
 }
 
+function normalizeSkillDays(skill: SkillDevelopmentItem): DayOfWeek[] {
+  const fromDays = Array.isArray(skill.days)
+    ? skill.days.filter((day): day is DayOfWeek => allDays.includes(day))
+    : [];
+  if (fromDays.length > 0) return [...new Set(fromDays)];
+  if (skill.day && allDays.includes(skill.day)) return [skill.day];
+  return ['monday'];
+}
+
+function normalizeSkillCadence(value: unknown): SkillCadence {
+  if (
+    value === 'daily'
+    || value === 'weekly'
+    || value === 'weekly_any'
+    || value === 'custom_weekly'
+    || value === 'monthly'
+  ) {
+    return value;
+  }
+  return 'weekly_any';
+}
+
+function weekDateKeys(date = new Date()): string[] {
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(weekStart);
+    next.setDate(weekStart.getDate() + index);
+    return formatDateKey(next);
+  });
+}
+
+function monthKey(date = new Date()): string {
+  return formatDateKey(date).slice(0, 7);
+}
+
+function skillCompletedOnDate(skill: SkillDevelopmentItem, dateKey: string): boolean {
+  return normalizeCompletionDates(skill.completionDates).includes(dateKey);
+}
+
+function skillCompletedThisWeek(skill: SkillDevelopmentItem, today = new Date()): boolean {
+  const completionDates = normalizeCompletionDates(skill.completionDates);
+  const currentWeek = new Set(weekDateKeys(today));
+  return completionDates.some((dateKey) => currentWeek.has(dateKey));
+}
+
+function skillCompletedThisMonth(skill: SkillDevelopmentItem, today = new Date()): boolean {
+  const completionDates = normalizeCompletionDates(skill.completionDates);
+  const currentMonthKey = monthKey(today);
+  return completionDates.some((dateKey) => dateKey.startsWith(currentMonthKey));
+}
+
+function skillDueToday(skill: SkillDevelopmentItem, currentDay: DayOfWeek): boolean {
+  switch (skill.cadence) {
+    case 'daily':
+      return true;
+    case 'weekly':
+      return (skill.day || 'monday') === currentDay;
+    case 'custom_weekly':
+      return normalizeSkillDays(skill).includes(currentDay);
+    default:
+      return false;
+  }
+}
+
+function skillWindowLabel(skill: SkillDevelopmentItem): string {
+  switch (skill.cadence) {
+    case 'daily':
+      return 'Daily';
+    case 'weekly':
+      return `${dayLabels[skill.day || 'monday']}`;
+    case 'weekly_any':
+      return 'Any time this week';
+    case 'custom_weekly':
+      return normalizeSkillDays(skill).map((day) => dayLabels[day].slice(0, 3)).join(', ');
+    case 'monthly':
+      return 'Any time this month';
+    default:
+      return 'Scheduled';
+  }
+}
+
+function toggleDateInList(list: string[], dateKey: string, active: boolean): string[] {
+  return active
+    ? [...new Set([...list, dateKey])]
+    : list.filter((entry) => entry !== dateKey);
+}
+
 function normalizeCompletionDates(value: unknown, fallbackDate?: string): string[] {
   const normalized = Array.isArray(value)
     ? value
@@ -238,6 +339,16 @@ function normalizeChildEconomy(
             ),
           };
         })
+      : [],
+    skillItems: Array.isArray((item as ChildEconomy & { skillItems?: SkillDevelopmentItem[] }).skillItems)
+      ? (item as ChildEconomy & { skillItems?: SkillDevelopmentItem[] }).skillItems!.map((skill) => ({
+          ...skill,
+          cadence: normalizeSkillCadence(skill.cadence),
+          day: normalizeSkillDays(skill)[0],
+          days: normalizeSkillDays(skill),
+          targetMinutes: Math.max(1, Math.round(Number(skill.targetMinutes) || 0) || 30),
+          completionDates: normalizeCompletionDates(skill.completionDates),
+        }))
       : [],
     extraChores: Array.isArray(item.extraChores)
       ? item.extraChores.map((extra) => ({
@@ -369,6 +480,20 @@ export default function ChoresPage() {
   const [editChoreFrequency, setEditChoreFrequency] = useState<NonDailyChoreFrequency>('weekly');
   const [editChoreDay, setEditChoreDay] = useState<DayOfWeek>('monday');
   const [editChoreDays, setEditChoreDays] = useState<DayOfWeek[]>(['monday']);
+  const [addSkillOpen, setAddSkillOpen] = useState(false);
+  const [skillChildId, setSkillChildId] = useState<string | null>(null);
+  const [newSkillName, setNewSkillName] = useState('');
+  const [newSkillCadence, setNewSkillCadence] = useState<SkillCadence>('weekly_any');
+  const [newSkillDay, setNewSkillDay] = useState<DayOfWeek>('monday');
+  const [newSkillDays, setNewSkillDays] = useState<DayOfWeek[]>(['monday']);
+  const [newSkillMinutes, setNewSkillMinutes] = useState('30');
+  const [editSkillOpen, setEditSkillOpen] = useState(false);
+  const [editingSkillTarget, setEditingSkillTarget] = useState<{ childId: string; skillId: string } | null>(null);
+  const [editSkillName, setEditSkillName] = useState('');
+  const [editSkillCadence, setEditSkillCadence] = useState<SkillCadence>('weekly_any');
+  const [editSkillDay, setEditSkillDay] = useState<DayOfWeek>('monday');
+  const [editSkillDays, setEditSkillDays] = useState<DayOfWeek[]>(['monday']);
+  const [editSkillMinutes, setEditSkillMinutes] = useState('30');
   const [addExtraOpen, setAddExtraOpen] = useState(false);
   const [extraName, setExtraName] = useState('');
   const [extraReward, setExtraReward] = useState('3');
@@ -574,6 +699,7 @@ export default function ChoresPage() {
       name: newChildName.trim(),
       dailyChores: [],
       weeklyChores: [],
+      skillItems: [],
       extraChores: [],
       piggyBank: 0,
       pointsBank: 0,
@@ -754,6 +880,163 @@ export default function ChoresPage() {
     toast({ title: 'Chore removed' });
   };
 
+  const toggleNewSkillDay = (day: DayOfWeek) => {
+    setNewSkillDays((prev) => {
+      const set = new Set(prev);
+      if (set.has(day)) set.delete(day);
+      else set.add(day);
+      if (set.size === 0) set.add(day);
+      return allDays.filter((item) => set.has(item));
+    });
+  };
+
+  const toggleEditSkillDay = (day: DayOfWeek) => {
+    setEditSkillDays((prev) => {
+      const set = new Set(prev);
+      if (set.has(day)) set.delete(day);
+      else set.add(day);
+      if (set.size === 0) set.add(day);
+      return allDays.filter((item) => set.has(item));
+    });
+  };
+
+  const openAddSkill = (childId: string) => {
+    setSkillChildId(childId);
+    setNewSkillName('');
+    setNewSkillCadence('weekly_any');
+    setNewSkillDay('monday');
+    setNewSkillDays(['monday']);
+    setNewSkillMinutes('30');
+    setAddSkillOpen(true);
+  };
+
+  const addSkill = () => {
+    if (!newSkillName.trim() || !skillChildId) return;
+    const targetMinutes = Math.max(1, Math.round(Number.parseFloat(newSkillMinutes) || 0) || 30);
+    const selectedDays =
+      newSkillCadence === 'custom_weekly'
+        ? (newSkillDays.length > 0 ? [...newSkillDays] : [newSkillDay])
+        : [newSkillDay];
+
+    updateChild(skillChildId, (child) => ({
+      ...child,
+      skillItems: [
+        ...child.skillItems,
+        {
+          id: `skill-${Date.now()}`,
+          name: newSkillName.trim(),
+          targetMinutes,
+          cadence: newSkillCadence,
+          day: selectedDays[0] || newSkillDay,
+          days: newSkillCadence === 'custom_weekly' ? selectedDays : undefined,
+          completionDates: [],
+        },
+      ],
+    }));
+
+    setAddSkillOpen(false);
+    toast({
+      title: 'Skill added',
+      description: `"${newSkillName}" is now tracked in Skill Development.`,
+    });
+  };
+
+  const openEditSkill = (childId: string, skillId: string) => {
+    const child = children.find((item) => item.id === childId);
+    const skill = child?.skillItems.find((item) => item.id === skillId);
+    if (!skill) return;
+    const skillDays = normalizeSkillDays(skill);
+    setEditSkillName(skill.name);
+    setEditSkillCadence(skill.cadence);
+    setEditSkillDay(skillDays[0] || 'monday');
+    setEditSkillDays(skillDays);
+    setEditSkillMinutes(String(skill.targetMinutes || 30));
+    setEditingSkillTarget({ childId, skillId });
+    setEditSkillOpen(true);
+  };
+
+  const saveEditedSkill = () => {
+    if (!editingSkillTarget || !editSkillName.trim()) return;
+    const targetMinutes = Math.max(1, Math.round(Number.parseFloat(editSkillMinutes) || 0) || 30);
+    const selectedDays =
+      editSkillCadence === 'custom_weekly'
+        ? (editSkillDays.length > 0 ? [...editSkillDays] : [editSkillDay])
+        : [editSkillDay];
+
+    updateChild(editingSkillTarget.childId, (child) => ({
+      ...child,
+      skillItems: child.skillItems.map((skill) =>
+        skill.id === editingSkillTarget.skillId
+          ? {
+              ...skill,
+              name: editSkillName.trim(),
+              targetMinutes,
+              cadence: editSkillCadence,
+              day: selectedDays[0] || editSkillDay,
+              days: editSkillCadence === 'custom_weekly' ? selectedDays : undefined,
+            }
+          : skill,
+      ),
+    }));
+
+    setEditSkillOpen(false);
+    setEditingSkillTarget(null);
+    toast({ title: 'Skill updated' });
+  };
+
+  const deleteSkill = () => {
+    if (!editingSkillTarget) return;
+    updateChild(editingSkillTarget.childId, (child) => ({
+      ...child,
+      skillItems: child.skillItems.filter((skill) => skill.id !== editingSkillTarget.skillId),
+    }));
+    setEditSkillOpen(false);
+    setEditingSkillTarget(null);
+    toast({ title: 'Skill removed' });
+  };
+
+  const toggleSkill = (childId: string, skillId: string) => {
+    updateChild(childId, (child) => {
+      const today = todayDateKey();
+      const currentWeek = new Set(weekDateKeys());
+      const currentMonth = monthKey();
+
+      return {
+        ...child,
+        skillItems: child.skillItems.map((skill) => {
+          if (skill.id !== skillId) return skill;
+          const completionDates = normalizeCompletionDates(skill.completionDates);
+
+          if (skill.cadence === 'weekly_any') {
+            const isCompleted = completionDates.some((dateKey) => currentWeek.has(dateKey));
+            return {
+              ...skill,
+              completionDates: isCompleted
+                ? completionDates.filter((dateKey) => !currentWeek.has(dateKey))
+                : [...completionDates, today],
+            };
+          }
+
+          if (skill.cadence === 'monthly') {
+            const isCompleted = completionDates.some((dateKey) => dateKey.startsWith(currentMonth));
+            return {
+              ...skill,
+              completionDates: isCompleted
+                ? completionDates.filter((dateKey) => !dateKey.startsWith(currentMonth))
+                : [...completionDates, today],
+            };
+          }
+
+          const isCompletedToday = completionDates.includes(today);
+          return {
+            ...skill,
+            completionDates: toggleDateInList(completionDates, today, !isCompletedToday),
+          };
+        }),
+      };
+    });
+  };
+
   const removeChild = (childId: string) => {
     setState((prev) => ({ ...prev, children: prev.children.filter((child) => child.id !== childId) }));
     toast({ title: 'Child removed' });
@@ -894,7 +1177,7 @@ export default function ChoresPage() {
   return (
     <AppLayout>
       <PageHeader
-        title="Kids Chores"
+        title="Kids Chores + Skills"
         subtitle={`${completedDailyChores} of ${totalDailyChores} daily chores done`}
         action={
           <div className="flex gap-2">
@@ -964,6 +1247,24 @@ export default function ChoresPage() {
           const todaysWeekly = child.weeklyChores.filter((chore) =>
             normalizeWeeklyDays(chore).includes(currentDay),
           );
+          const todaysSkills = child.skillItems.filter((skill) => skillDueToday(skill, currentDay));
+          const flexibleSkills = child.skillItems.filter((skill) =>
+            skill.cadence === 'weekly_any' || skill.cadence === 'monthly',
+          );
+          const currentWeekCompletedSkills = child.skillItems.filter((skill) =>
+            skill.cadence === 'weekly_any' && skillCompletedThisWeek(skill),
+          ).length;
+          const currentMonthCompletedSkills = child.skillItems.filter((skill) =>
+            skill.cadence === 'monthly' && skillCompletedThisMonth(skill),
+          ).length;
+          const skillSummaryParts: string[] = [];
+          if (todaysSkills.length > 0) skillSummaryParts.push(`${todaysSkills.length} due today`);
+          if (flexibleSkills.length > 0) {
+            const weeklyCount = child.skillItems.filter((skill) => skill.cadence === 'weekly_any').length;
+            const monthlyCount = child.skillItems.filter((skill) => skill.cadence === 'monthly').length;
+            if (weeklyCount > 0) skillSummaryParts.push(`${currentWeekCompletedSkills}/${weeklyCount} weekly goals`);
+            if (monthlyCount > 0) skillSummaryParts.push(`${currentMonthCompletedSkills}/${monthlyCount} monthly goals`);
+          }
 
           return (
             <SectionCard
@@ -1123,6 +1424,133 @@ export default function ChoresPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-medium">Skill Development</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {skillSummaryParts.length > 0
+                          ? skillSummaryParts.join(' • ')
+                          : 'Track practice goals like piano, soccer, reading, or Spanish.'}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => openAddSkill(child.id)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Skill
+                    </Button>
+                  </div>
+
+                  {todaysSkills.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">Due Today</h5>
+                      <div className="space-y-2">
+                        {todaysSkills.map((skill) => {
+                          const completedToday = skillCompletedOnDate(skill, todayDateKey());
+                          return (
+                            <label
+                              key={skill.id}
+                              className={cn(
+                                'flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer transition-gentle hover:bg-muted/50',
+                                completedToday && 'bg-primary/5 border-primary/20',
+                              )}
+                            >
+                              <Checkbox
+                                checked={completedToday}
+                                onCheckedChange={() => toggleSkill(child.id, skill.id)}
+                              />
+                              <span className={cn('flex-1 text-sm', completedToday && 'line-through text-muted-foreground')}>
+                                {skill.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{skill.targetMinutes} min</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  openEditSkill(child.id, skill.id);
+                                }}
+                                title="Edit skill"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                              </Button>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {flexibleSkills.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">Anytime Goals</h5>
+                      <div className="space-y-2">
+                        {flexibleSkills.map((skill) => {
+                          const isDone = skill.cadence === 'monthly'
+                            ? skillCompletedThisMonth(skill)
+                            : skillCompletedThisWeek(skill);
+                          return (
+                            <label
+                              key={skill.id}
+                              className={cn(
+                                'flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer transition-gentle hover:bg-muted/50',
+                                isDone && 'bg-primary/5 border-primary/20',
+                              )}
+                            >
+                              <Checkbox
+                                checked={isDone}
+                                onCheckedChange={() => toggleSkill(child.id, skill.id)}
+                              />
+                              <div className="flex-1">
+                                <p className={cn('text-sm', isDone && 'line-through text-muted-foreground')}>{skill.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {skill.targetMinutes} min • {skillWindowLabel(skill)}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  openEditSkill(child.id, skill.id);
+                                }}
+                                title="Edit skill"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                              </Button>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {child.skillItems.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">Skill Schedule</h5>
+                      <div className="flex flex-wrap gap-2">
+                        {child.skillItems.map((skill) => (
+                          <button
+                            key={skill.id}
+                            type="button"
+                            onClick={() => openEditSkill(child.id, skill.id)}
+                            className="rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/80"
+                          >
+                            {skillWindowLabel(skill)}: {skill.name} ({skill.targetMinutes} min)
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {child.skillItems.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No skill development goals added yet.</p>
+                  )}
+                </div>
 
                 <div className="rounded-lg border border-border p-3 space-y-2">
                   <h4 className="text-sm font-medium">Claimed Extra Chores</h4>
@@ -1435,6 +1863,203 @@ export default function ChoresPage() {
                 </Button>
                 <Button onClick={saveEditedChore} disabled={!editChoreName.trim()}>
                   Save Chore
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addSkillOpen} onOpenChange={setAddSkillOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add Skill Goal</DialogTitle>
+            <DialogDescription>
+              Add a skill development goal for {children.find((child) => child.id === skillChildId)?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Skill name"
+              value={newSkillName}
+              onChange={(event) => setNewSkillName(event.target.value)}
+            />
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cadence</label>
+              <Select
+                value={newSkillCadence}
+                onValueChange={(value) => setNewSkillCadence(value as SkillCadence)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly (specific day)</SelectItem>
+                  <SelectItem value="weekly_any">Weekly (any time that week)</SelectItem>
+                  <SelectItem value="custom_weekly">Certain days each week</SelectItem>
+                  <SelectItem value="monthly">Monthly (any time that month)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(newSkillCadence === 'weekly') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Day of week</label>
+                <Select value={newSkillDay} onValueChange={(value) => setNewSkillDay(value as DayOfWeek)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allDays.map((day) => (
+                      <SelectItem key={`new-skill-day-${day}`} value={day}>
+                        {dayLabels[day]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {newSkillCadence === 'custom_weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Days of week</label>
+                <div className="flex flex-wrap gap-2">
+                  {allDays.map((day) => {
+                    const active = newSkillDays.includes(day);
+                    return (
+                      <Button
+                        key={`new-skill-toggle-${day}`}
+                        type="button"
+                        size="sm"
+                        variant={active ? 'default' : 'outline'}
+                        onClick={() => toggleNewSkillDay(day)}
+                      >
+                        {dayLabels[day].slice(0, 3)}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Target minutes</label>
+              <Input
+                type="number"
+                min={1}
+                step="5"
+                value={newSkillMinutes}
+                onChange={(event) => setNewSkillMinutes(event.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setAddSkillOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addSkill} disabled={!newSkillName.trim()}>
+                Add Skill
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editSkillOpen} onOpenChange={setEditSkillOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Skill Goal</DialogTitle>
+            <DialogDescription>Update the cadence and target time for this skill.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Skill name"
+              value={editSkillName}
+              onChange={(event) => setEditSkillName(event.target.value)}
+            />
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cadence</label>
+              <Select
+                value={editSkillCadence}
+                onValueChange={(value) => setEditSkillCadence(value as SkillCadence)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly (specific day)</SelectItem>
+                  <SelectItem value="weekly_any">Weekly (any time that week)</SelectItem>
+                  <SelectItem value="custom_weekly">Certain days each week</SelectItem>
+                  <SelectItem value="monthly">Monthly (any time that month)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {editSkillCadence === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Day of week</label>
+                <Select value={editSkillDay} onValueChange={(value) => setEditSkillDay(value as DayOfWeek)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allDays.map((day) => (
+                      <SelectItem key={`edit-skill-day-${day}`} value={day}>
+                        {dayLabels[day]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {editSkillCadence === 'custom_weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Days of week</label>
+                <div className="flex flex-wrap gap-2">
+                  {allDays.map((day) => {
+                    const active = editSkillDays.includes(day);
+                    return (
+                      <Button
+                        key={`edit-skill-toggle-${day}`}
+                        type="button"
+                        size="sm"
+                        variant={active ? 'default' : 'outline'}
+                        onClick={() => toggleEditSkillDay(day)}
+                      >
+                        {dayLabels[day].slice(0, 3)}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Target minutes</label>
+              <Input
+                type="number"
+                min={1}
+                step="5"
+                value={editSkillMinutes}
+                onChange={(event) => setEditSkillMinutes(event.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button variant="destructive" onClick={deleteSkill}>
+                Delete Skill
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setEditSkillOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveEditedSkill} disabled={!editSkillName.trim()}>
+                  Save Skill
                 </Button>
               </div>
             </div>
