@@ -76,15 +76,10 @@ function feedbackKindLabel(kind: 'feature_request' | 'bug_report' | 'general_fee
   return 'General Feedback';
 }
 
-function feedbackStatusLabel(
-  kind: 'feature_request' | 'bug_report' | 'general_feedback',
-  status: string,
-): string {
+function feedbackStatusLabel(status: string): string {
   if (status === 'new') return 'New';
   if (status === 'reviewed') return 'Reviewed';
-  if (status === 'resolved') {
-    return kind === 'feature_request' ? 'Completed' : 'Resolved';
-  }
+  if (status === 'resolved') return 'Completed';
   return status;
 }
 
@@ -423,7 +418,7 @@ export default function AdminDashboardPage() {
         };
       });
       toast({
-        title: 'Feature marked completed',
+        title: 'Feedback marked completed',
         description: 'The feedback item is now marked as completed.',
       });
     } catch (error) {
@@ -759,7 +754,7 @@ export default function AdminDashboardPage() {
                           <Badge variant={row.kind === 'bug_report' ? 'destructive' : 'outline'}>
                             {feedbackKindLabel(row.kind)}
                           </Badge>
-                          <Badge variant="outline">{feedbackStatusLabel(row.kind, row.status)}</Badge>
+                          <Badge variant="outline">{feedbackStatusLabel(row.status)}</Badge>
                           <span className="text-xs text-muted-foreground">{dateTimeFmt(row.createdAt)}</span>
                         </div>
                         <div>
@@ -773,7 +768,7 @@ export default function AdminDashboardPage() {
                           </p>
                         </div>
                       </div>
-                      {row.kind === 'feature_request' && row.status !== 'resolved' ? (
+                      {row.status !== 'resolved' ? (
                         <Button
                           variant="outline"
                           size="sm"
