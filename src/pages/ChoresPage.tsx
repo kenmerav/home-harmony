@@ -83,6 +83,7 @@ interface SkillDevelopmentItem {
   id: string;
   name: string;
   targetMinutes: number;
+  points: number;
   cadence: SkillCadence;
   day?: DayOfWeek;
   days?: DayOfWeek[];
@@ -347,6 +348,7 @@ function normalizeChildEconomy(
           day: normalizeSkillDays(skill)[0],
           days: normalizeSkillDays(skill),
           targetMinutes: Math.max(1, Math.round(Number(skill.targetMinutes) || 0) || 30),
+          points: Math.max(0, Math.round(Number(skill.points) || 0) || 1),
           completionDates: normalizeCompletionDates(skill.completionDates),
         }))
       : [],
@@ -487,6 +489,7 @@ export default function ChoresPage() {
   const [newSkillDay, setNewSkillDay] = useState<DayOfWeek>('monday');
   const [newSkillDays, setNewSkillDays] = useState<DayOfWeek[]>(['monday']);
   const [newSkillMinutes, setNewSkillMinutes] = useState('30');
+  const [newSkillPoints, setNewSkillPoints] = useState('1');
   const [editSkillOpen, setEditSkillOpen] = useState(false);
   const [editingSkillTarget, setEditingSkillTarget] = useState<{ childId: string; skillId: string } | null>(null);
   const [editSkillName, setEditSkillName] = useState('');
@@ -494,6 +497,7 @@ export default function ChoresPage() {
   const [editSkillDay, setEditSkillDay] = useState<DayOfWeek>('monday');
   const [editSkillDays, setEditSkillDays] = useState<DayOfWeek[]>(['monday']);
   const [editSkillMinutes, setEditSkillMinutes] = useState('30');
+  const [editSkillPoints, setEditSkillPoints] = useState('1');
   const [addExtraOpen, setAddExtraOpen] = useState(false);
   const [extraName, setExtraName] = useState('');
   const [extraReward, setExtraReward] = useState('3');
@@ -907,12 +911,14 @@ export default function ChoresPage() {
     setNewSkillDay('monday');
     setNewSkillDays(['monday']);
     setNewSkillMinutes('30');
+    setNewSkillPoints('1');
     setAddSkillOpen(true);
   };
 
   const addSkill = () => {
     if (!newSkillName.trim() || !skillChildId) return;
     const targetMinutes = Math.max(1, Math.round(Number.parseFloat(newSkillMinutes) || 0) || 30);
+    const points = Math.max(0, Math.round(Number.parseFloat(newSkillPoints) || 0) || 1);
     const selectedDays =
       newSkillCadence === 'custom_weekly'
         ? (newSkillDays.length > 0 ? [...newSkillDays] : [newSkillDay])
@@ -926,6 +932,7 @@ export default function ChoresPage() {
           id: `skill-${Date.now()}`,
           name: newSkillName.trim(),
           targetMinutes,
+          points,
           cadence: newSkillCadence,
           day: selectedDays[0] || newSkillDay,
           days: newSkillCadence === 'custom_weekly' ? selectedDays : undefined,
@@ -951,6 +958,7 @@ export default function ChoresPage() {
     setEditSkillDay(skillDays[0] || 'monday');
     setEditSkillDays(skillDays);
     setEditSkillMinutes(String(skill.targetMinutes || 30));
+    setEditSkillPoints(String(skill.points || 1));
     setEditingSkillTarget({ childId, skillId });
     setEditSkillOpen(true);
   };
@@ -958,6 +966,7 @@ export default function ChoresPage() {
   const saveEditedSkill = () => {
     if (!editingSkillTarget || !editSkillName.trim()) return;
     const targetMinutes = Math.max(1, Math.round(Number.parseFloat(editSkillMinutes) || 0) || 30);
+    const points = Math.max(0, Math.round(Number.parseFloat(editSkillPoints) || 0) || 1);
     const selectedDays =
       editSkillCadence === 'custom_weekly'
         ? (editSkillDays.length > 0 ? [...editSkillDays] : [editSkillDay])
@@ -971,6 +980,7 @@ export default function ChoresPage() {
               ...skill,
               name: editSkillName.trim(),
               targetMinutes,
+              points,
               cadence: editSkillCadence,
               day: selectedDays[0] || editSkillDay,
               days: editSkillCadence === 'custom_weekly' ? selectedDays : undefined,
@@ -1000,6 +1010,7 @@ export default function ChoresPage() {
       const today = todayDateKey();
       const currentWeek = new Set(weekDateKeys());
       const currentMonth = monthKey();
+      let pointsDelta = 0;
 
       return {
         ...child,
@@ -1009,6 +1020,7 @@ export default function ChoresPage() {
 
           if (skill.cadence === 'weekly_any') {
             const isCompleted = completionDates.some((dateKey) => currentWeek.has(dateKey));
+            pointsDelta = isCompleted ? -skill.points : skill.points;
             return {
               ...skill,
               completionDates: isCompleted
@@ -1019,6 +1031,7 @@ export default function ChoresPage() {
 
           if (skill.cadence === 'monthly') {
             const isCompleted = completionDates.some((dateKey) => dateKey.startsWith(currentMonth));
+            pointsDelta = isCompleted ? -skill.points : skill.points;
             return {
               ...skill,
               completionDates: isCompleted
@@ -1028,11 +1041,15 @@ export default function ChoresPage() {
           }
 
           const isCompletedToday = completionDates.includes(today);
+          pointsDelta = isCompletedToday ? -skill.points : skill.points;
           return {
             ...skill,
             completionDates: toggleDateInList(completionDates, today, !isCompletedToday),
           };
         }),
+        pointsBank: Math.max(0, child.pointsBank + pointsDelta),
+        lifetimePointsEarned:
+          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
       };
     });
   };
@@ -1462,7 +1479,7 @@ export default function ChoresPage() {
                               <span className={cn('flex-1 text-sm', completedToday && 'line-through text-muted-foreground')}>
                                 {skill.name}
                               </span>
-                              <span className="text-xs text-muted-foreground">{skill.targetMinutes} min</span>
+                              <span className="text-xs text-muted-foreground">{skill.targetMinutes} min • {formatPoints(skill.points)}</span>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1506,7 +1523,7 @@ export default function ChoresPage() {
                               <div className="flex-1">
                                 <p className={cn('text-sm', isDone && 'line-through text-muted-foreground')}>{skill.name}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {skill.targetMinutes} min • {skillWindowLabel(skill)}
+                                  {skill.targetMinutes} min • {formatPoints(skill.points)} • {skillWindowLabel(skill)}
                                 </p>
                               </div>
                               <Button
@@ -1540,7 +1557,7 @@ export default function ChoresPage() {
                             onClick={() => openEditSkill(child.id, skill.id)}
                             className="rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/80"
                           >
-                            {skillWindowLabel(skill)}: {skill.name} ({skill.targetMinutes} min)
+                            {skillWindowLabel(skill)}: {skill.name} ({skill.targetMinutes} min • {formatPoints(skill.points)})
                           </button>
                         ))}
                       </div>
@@ -1955,6 +1972,17 @@ export default function ChoresPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Points</label>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                value={newSkillPoints}
+                onChange={(event) => setNewSkillPoints(event.target.value)}
+              />
+            </div>
+
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddSkillOpen(false)}>
                 Cancel
@@ -2047,6 +2075,17 @@ export default function ChoresPage() {
                 step="5"
                 value={editSkillMinutes}
                 onChange={(event) => setEditSkillMinutes(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Points</label>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                value={editSkillPoints}
+                onChange={(event) => setEditSkillPoints(event.target.value)}
               />
             </div>
 
