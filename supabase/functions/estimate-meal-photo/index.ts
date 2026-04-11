@@ -102,6 +102,7 @@ Rules:
 - Estimate the total macros for the meal described by the user, not per serving unless the user explicitly describes servings and portions.
 - Use the typed note as primary context when present.
 - If the image shows ingredients or packaging, use that to improve the estimate.
+- If the image is a nutrition label or food package and the user says how many servings they ate, estimate the total macros for the amount they actually consumed.
 - If the portion size is unclear, make a reasonable estimate and explain the assumptions briefly.
 - If the description or image is too unclear to estimate one meal confidently, return a meal object with name "Unknown meal", 0 macros, and explain why in assumptions.`;
 

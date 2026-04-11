@@ -324,6 +324,7 @@ type QuickAddDraft = {
   };
   recipeQuery: string;
   photoNote: string;
+  estimateServings?: string;
   quickAddMode: 'estimate' | 'recipe' | 'manual';
   repeatMode: PlannerRepeatMode;
   repeatDays: DayOfWeek[];
@@ -419,6 +420,7 @@ export default function MealsPage() {
   const [plannerDinnerAdjustDate, setPlannerDinnerAdjustDate] = useState<string | null>(null);
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [plannerPhotoNote, setPlannerPhotoNote] = useState('');
+  const [plannerEstimateServings, setPlannerEstimateServings] = useState('');
   const [plannerQuickAddMode, setPlannerQuickAddMode] = useState<'estimate' | 'recipe' | 'manual'>('estimate');
   const [estimatingPlannerPhoto, setEstimatingPlannerPhoto] = useState(false);
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
@@ -524,6 +526,7 @@ export default function MealsPage() {
     setPlannerForm(draft.form);
     setPlannerRecipeQuery(draft.recipeQuery || '');
     setPlannerPhotoNote(draft.photoNote || '');
+    setPlannerEstimateServings(draft.estimateServings || '');
     setPlannerQuickAddMode(draft.quickAddMode || 'estimate');
     setPlannerRepeatMode(draft.repeatMode || 'once');
     setPlannerRepeatDays(new Set(draft.repeatDays || []));
@@ -544,6 +547,7 @@ export default function MealsPage() {
       form: plannerForm,
       recipeQuery: plannerRecipeQuery,
       photoNote: plannerPhotoNote,
+      estimateServings: plannerEstimateServings,
       quickAddMode: plannerQuickAddMode,
       repeatMode: plannerRepeatMode,
       repeatDays: Array.from(plannerRepeatDays),
@@ -556,6 +560,7 @@ export default function MealsPage() {
     plannerForm,
     plannerRecipeQuery,
     plannerPhotoNote,
+    plannerEstimateServings,
     plannerQuickAddMode,
     plannerRepeatMode,
     plannerRepeatDays,
@@ -1175,12 +1180,29 @@ export default function MealsPage() {
     setPlannerRecipeQuery('');
   };
 
+  const getPlannerEstimateServings = () => {
+    const trimmed = plannerEstimateServings.trim();
+    if (!trimmed) return '';
+    const numeric = Number.parseFloat(trimmed);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    return String(Math.round(numeric * 100) / 100);
+  };
+
+  const buildPlannerEstimateNote = () => {
+    const servingsText = getPlannerEstimateServings();
+    const note = plannerPhotoNote.trim();
+    if (servingsText && note) return `${note}. I had ${servingsText} serving${servingsText === '1' ? '' : 's'}.`;
+    if (servingsText) return `I had ${servingsText} serving${servingsText === '1' ? '' : 's'} from this nutrition label.`;
+    return note;
+  };
+
   const handleEstimatePlannerMealPhoto = async (file: File | null) => {
     if (!file) return;
     setPlannerQuickAddMode('estimate');
     setEstimatingPlannerPhoto(true);
     try {
-      const result = await estimateMealFromPhoto(file, plannerPhotoNote);
+      const estimateNote = buildPlannerEstimateNote();
+      const result = await estimateMealFromPhoto(file, estimateNote);
       if (!result.success || !result.meal) {
         toast({
           title: 'Could not estimate meal',
@@ -1194,7 +1216,7 @@ export default function MealsPage() {
         ...prev,
         recipeId: '',
         name: result.meal?.name || prev.name,
-        servings: '1',
+        servings: getPlannerEstimateServings() || '1',
         calories: String(result.meal?.calories || 0),
         protein_g: String(result.meal?.protein_g || 0),
         carbs_g: String(result.meal?.carbs_g || 0),
@@ -1212,8 +1234,8 @@ export default function MealsPage() {
   };
 
   const handleEstimatePlannerMealDescription = async () => {
-    const trimmedNote = plannerPhotoNote.trim();
-    if (!trimmedNote) {
+    const baseNote = plannerPhotoNote.trim();
+    if (!baseNote) {
       toast({
         title: 'Describe the meal first',
         description: 'Type what you ate so AI can estimate the calories and macros.',
@@ -1221,6 +1243,7 @@ export default function MealsPage() {
       });
       return;
     }
+    const trimmedNote = buildPlannerEstimateNote().trim();
 
     setPlannerQuickAddMode('estimate');
     setEstimatingPlannerPhoto(true);
@@ -1239,7 +1262,7 @@ export default function MealsPage() {
         ...prev,
         recipeId: '',
         name: result.meal?.name || prev.name,
-        servings: '1',
+        servings: getPlannerEstimateServings() || '1',
         calories: String(result.meal?.calories || 0),
         protein_g: String(result.meal?.protein_g || 0),
         carbs_g: String(result.meal?.carbs_g || 0),
@@ -2648,6 +2671,20 @@ export default function MealsPage() {
                             value={plannerPhotoNote}
                             onChange={(event) => setPlannerPhotoNote(event.target.value)}
                           />
+                          <div className="max-w-[180px] space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Servings you had</p>
+                            <Input
+                              type="number"
+                              min="0.25"
+                              step="0.25"
+                              placeholder="1"
+                              value={plannerEstimateServings}
+                              onChange={(event) => setPlannerEstimateServings(event.target.value)}
+                            />
+                            <p className="text-[11px] text-muted-foreground">
+                              If this is a nutrition label, enter how many servings you actually had.
+                            </p>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
@@ -3723,6 +3760,20 @@ export default function MealsPage() {
                   value={plannerPhotoNote}
                   onChange={(event) => setPlannerPhotoNote(event.target.value)}
                 />
+                <div className="max-w-[180px] space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Servings you had</p>
+                  <Input
+                    type="number"
+                    min="0.25"
+                    step="0.25"
+                    placeholder="1"
+                    value={plannerEstimateServings}
+                    onChange={(event) => setPlannerEstimateServings(event.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    If this is a nutrition label, enter how many servings you actually had.
+                  </p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
