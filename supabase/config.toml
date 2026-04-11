@@ -39,6 +39,9 @@ verify_jwt = false
 [functions.admin-update-feedback-status]
 verify_jwt = false
 
+[functions.admin-normalize-recipe-meal-types]
+verify_jwt = false
+
 [functions.transactional-email]
 verify_jwt = false
 

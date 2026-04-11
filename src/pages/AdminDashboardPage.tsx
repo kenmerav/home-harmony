@@ -29,6 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   deleteAdminUser,
   fetchAdminMetrics,
+  normalizeBreakfastRecipeMealTypes,
   type AdminMetricsResponse,
   updateAdminFeedbackStatus,
 } from '@/lib/api/admin';
@@ -135,6 +136,8 @@ export default function AdminDashboardPage() {
   const [welcomePreviewName, setWelcomePreviewName] = useState('Ken');
   const [emailTemplate, setEmailTemplate] = useState<EmailTemplateOption>('welcome');
   const [sendingWelcomePreview, setSendingWelcomePreview] = useState(false);
+  const [recipeFixEmail, setRecipeFixEmail] = useState('kroberts035@gmail.com');
+  const [fixingBreakfastRecipes, setFixingBreakfastRecipes] = useState(false);
   const [feedbackSearch, setFeedbackSearch] = useState('');
   const [feedbackKindFilter, setFeedbackKindFilter] = useState<'all' | 'feature_request' | 'bug_report' | 'general_feedback'>('all');
   const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<'all' | 'new' | 'reviewed' | 'resolved'>('all');
@@ -316,6 +319,40 @@ export default function AdminDashboardPage() {
       setSendingWelcomePreview(false);
     }
   }, [emailTemplate, toast, welcomePreviewEmail, welcomePreviewName]);
+
+  const handleNormalizeBreakfastRecipes = useCallback(async () => {
+    const email = recipeFixEmail.trim().toLowerCase();
+    if (!email) {
+      toast({
+        title: 'Email required',
+        description: 'Enter the account email that should be checked.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFixingBreakfastRecipes(true);
+    try {
+      const result = await normalizeBreakfastRecipeMealTypes(email);
+      toast({
+        title: result.updatedCount > 0 ? 'Breakfast tags fixed' : 'No recipe fixes needed',
+        description:
+          result.updatedCount > 0
+            ? `Updated ${result.updatedCount} breakfast recipe tag${result.updatedCount === 1 ? '' : 's'} for ${email}.`
+            : `No breakfast-named recipes needed changes for ${email}.`,
+      });
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not fix breakfast recipe tags.';
+      toast({
+        title: 'Recipe fix failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setFixingBreakfastRecipes(false);
+    }
+  }, [recipeFixEmail, refresh, toast]);
 
   const handleCopyFeedback = useCallback(async () => {
     if (!filteredFeedback.length) {
@@ -687,6 +724,27 @@ export default function AdminDashboardPage() {
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               This sends the live email template using the current production app URL so you can review it in a real inbox.
+            </p>
+          </SectionCard>
+
+          <SectionCard title="Recipe Fixes" subtitle="Run one-off cleanup tools against a specific account when live recipe tags drift">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                type="email"
+                value={recipeFixEmail}
+                onChange={(event) => setRecipeFixEmail(event.target.value)}
+                placeholder="user@example.com"
+              />
+              <Button
+                variant="outline"
+                onClick={() => void handleNormalizeBreakfastRecipes()}
+                disabled={fixingBreakfastRecipes}
+              >
+                {fixingBreakfastRecipes ? 'Fixing...' : 'Fix Breakfast Tags'}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              This finds recipes for that account with &quot;breakfast&quot; in the name and changes their meal type to `breakfast`.
             </p>
           </SectionCard>
 

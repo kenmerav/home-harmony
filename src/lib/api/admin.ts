@@ -130,3 +130,28 @@ export async function updateAdminFeedbackStatus(
     throw new Error(await parseInvokeError(error, 'Could not update feedback status.'));
   }
 }
+
+export async function normalizeBreakfastRecipeMealTypes(email: string): Promise<{
+  updatedCount: number;
+  updatedNames: string[];
+}> {
+  const { data, error } = await supabase.functions.invoke('admin-normalize-recipe-meal-types', {
+    body: { email },
+  });
+  if (error) {
+    throw new Error(await parseInvokeError(error, 'Could not normalize breakfast recipe tags.'));
+  }
+  const parsed = data as {
+    success?: boolean;
+    updatedCount?: number;
+    updatedNames?: string[];
+    error?: string;
+  } | null;
+  if (!parsed || parsed.success !== true) {
+    throw new Error(parsed?.error || 'Could not normalize breakfast recipe tags.');
+  }
+  return {
+    updatedCount: parsed.updatedCount || 0,
+    updatedNames: Array.isArray(parsed.updatedNames) ? parsed.updatedNames : [],
+  };
+}
