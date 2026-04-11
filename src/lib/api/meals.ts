@@ -32,6 +32,8 @@ export interface MealGenerationOptions {
   dayLocks?: Partial<Record<DayOfWeek, string>>;
 }
 
+export const NO_MEAL_NEEDED_LOCK = '__none__';
+
 function weightedPick<T extends { id: string }>(
   pool: T[],
   usedIds: Set<string>,
@@ -59,6 +61,10 @@ function weightedPick<T extends { id: string }>(
 
 function normalizeLockToken(value: string): string {
   return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isNoMealNeededLock(lockValue: string | undefined): boolean {
+  return String(lockValue || '').trim() === NO_MEAL_NEEDED_LOCK;
 }
 
 function resolveDayLockRecipe<T extends { id: string; name: string }>(
@@ -251,6 +257,9 @@ export async function generateMeals(
     for (const day of targetDays) {
       const meal = byDay.get(day);
       if (meal?.is_locked) continue;
+      if (isNoMealNeededLock(dayLocks[day])) {
+        continue;
+      }
       const forcedRecipe = resolveDayLockRecipe(recipes, dayLocks[day]);
       if (forcedRecipe) {
         used.add(forcedRecipe.id);
@@ -375,6 +384,10 @@ export async function generateMeals(
 
   // Apply recurring day locks first (example: tacos every Tuesday).
   for (const day of daysNeedingMeals.slice()) {
+    if (isNoMealNeededLock(dayLocks[day])) {
+      daysNeedingMeals.splice(daysNeedingMeals.indexOf(day), 1);
+      continue;
+    }
     const forcedRecipe = resolveDayLockRecipe(allRecipesFiltered, dayLocks[day]);
     if (!forcedRecipe) continue;
 

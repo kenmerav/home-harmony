@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   fetchMealsForWeek,
   generateMeals,
+  NO_MEAL_NEEDED_LOCK,
   setMealForDay,
   swapMeal,
   updateMealRecipe,
@@ -3483,7 +3484,7 @@ export default function MealsPage() {
             <div>
               <p className="text-sm mb-2 font-medium">Recurring Day Locks</p>
               <p className="text-xs text-muted-foreground mb-2">
-                Pick a recipe for any day to keep it consistent every week.
+                Pick a recipe for any day to keep it consistent every week, or choose `No meal needed` to intentionally leave that day empty.
               </p>
               <div className="space-y-2">
                 {days.map((day) => (
@@ -3505,6 +3506,7 @@ export default function MealsPage() {
                       }
                     >
                       <option value="">No lock</option>
+                      <option value={NO_MEAL_NEEDED_LOCK}>No meal needed</option>
                       {allRecipes
                         .slice()
                         .sort((a, b) => a.name.localeCompare(b.name))
