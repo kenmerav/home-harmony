@@ -778,6 +778,15 @@ export default function MealsPage() {
           toast({ title: 'Type or pick a recipe first', variant: 'destructive' });
           return;
         }
+        if (resolvedRecipeId === NO_MEAL_NEEDED_LOCK) {
+          setMeals((prev) => prev.map((meal) =>
+            meal.id === swapDialogMeal.id ? { ...meal, is_skipped: true } : meal,
+          ));
+          await toggleMealSkip(swapDialogMeal.id, true, swapDialogMeal.week_of);
+          toast({ title: 'Meal cleared', description: 'This day is now marked as no meal needed.' });
+          setSwapDialogMeal(null);
+          return;
+        }
         const selectedRecipe = recipeOptions.find((recipe) => recipe.id === resolvedRecipeId);
         if (selectedRecipe && recipeNeedsInstructions(selectedRecipe)) {
           toast({
@@ -3563,6 +3572,16 @@ export default function MealsPage() {
                   }}
                   placeholder="Search recipe title..."
                 />
+                <Button
+                  type="button"
+                  variant={selectedRecipeId === NO_MEAL_NEEDED_LOCK ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSelectedRecipeId(NO_MEAL_NEEDED_LOCK);
+                    setChooseRecipeQuery('');
+                  }}
+                >
+                  No meal needed
+                </Button>
                 {chooseRecipeTypeahead.length > 0 ? (
                   <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-background p-1">
                     {chooseRecipeTypeahead.map((recipe) => (
@@ -3591,6 +3610,7 @@ export default function MealsPage() {
                   disabled={recipesLoading}
                 >
                   <option value="">Select recipe...</option>
+                  <option value={NO_MEAL_NEEDED_LOCK}>No meal needed</option>
                   {chooseRecipeOptions.map((recipe) => (
                     <option key={recipe.id} value={recipe.id} disabled={recipeNeedsInstructions(recipe)}>
                       {recipePickerLabel(recipe)}
