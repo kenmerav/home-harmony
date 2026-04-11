@@ -12,7 +12,7 @@ import { syncScheduledMealsToCalendar } from '@/lib/calendarStore';
 
 export interface DbPlannedMeal {
   id: string;
-  recipe_id: string;
+  recipe_id: string | null;
   day: string;
   week_of: string;
   is_locked: boolean;
@@ -214,6 +214,71 @@ export async function setMealForDay(
   return refreshed;
 }
 
+export async function setNoMealNeededForDay(
+  weekOffset: number,
+  day: DayOfWeek,
+): Promise<DbPlannedMeal[]> {
+  if (isDemoModeEnabled()) {
+    const weekOf = getWeekOf(weekOffset);
+    const scoped = getDemoMeals(weekOffset);
+    const existing = scoped.find((meal) => meal.day === day);
+    const next = scoped.map(({ recipes: _, ...meal }) => meal);
+    if (existing) {
+      const updated = next.map((meal) =>
+        meal.id === existing.id
+          ? {
+              ...meal,
+              recipe_id: null,
+              is_skipped: true,
+            }
+          : meal,
+      );
+      setDemoMeals(weekOffset, updated);
+    } else {
+      next.push({
+        id: `demo-m-${weekOf}-${day}`,
+        recipe_id: null,
+        day,
+        week_of: weekOf,
+        is_locked: false,
+        is_skipped: true,
+        created_at: new Date().toISOString(),
+      });
+      setDemoMeals(weekOffset, next);
+    }
+    return getDemoMeals(weekOffset);
+  }
+
+  const weekOf = getWeekOf(weekOffset);
+  const { data: existing, error: existingError } = await supabase
+    .from('planned_meals')
+    .select('id')
+    .eq('day', day)
+    .eq('week_of', weekOf)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.id) {
+    const { error: updateError } = await supabase
+      .from('planned_meals')
+      .update({ recipe_id: null, is_skipped: true })
+      .eq('id', existing.id);
+    if (updateError) throw updateError;
+  } else {
+    const { error: insertError } = await supabase.from('planned_meals').insert({
+      day,
+      week_of: weekOf,
+      recipe_id: null,
+      is_skipped: true,
+    });
+    if (insertError) throw insertError;
+  }
+
+  const refreshed = await fetchMealsForWeek(weekOffset);
+  await syncMealCalendarSafely(refreshed);
+  return refreshed;
+}
+
 export async function generateMeals(
   weekOffset: number,
   daysToRegenerate?: DayOfWeek[],
@@ -366,7 +431,7 @@ export async function generateMeals(
 
   // Keep locked meals' recipe IDs to avoid duplicates
   const lockedRecipeIds = new Set(
-    existingMeals.filter(m => m.is_locked).map(m => m.recipe_id)
+    existingMeals.filter((m) => m.is_locked && !!m.recipe_id).map((m) => m.recipe_id as string)
   );
   const keptDays = new Set(
     existingMeals.filter(m => !targetDays.includes(m.day as DayOfWeek) || m.is_locked).map(m => m.day)
@@ -481,7 +546,7 @@ export async function swapMeal(mealId: string, weekOf: string, day: string): Pro
     .select('recipe_id')
     .eq('week_of', weekOf);
 
-  const usedIds = new Set((weekMeals || []).map(m => m.recipe_id));
+  const usedIds = new Set((weekMeals || []).map((m) => m.recipe_id).filter(Boolean));
 
   // Get a random unused recipe
   const { data: allRecipes } = await supabase.from('recipes').select('id');

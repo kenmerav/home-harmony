@@ -24,6 +24,7 @@ import {
   generateMeals,
   NO_MEAL_NEEDED_LOCK,
   setMealForDay,
+  setNoMealNeededForDay,
   swapMeal,
   updateMealRecipe,
   toggleMealLock,
@@ -1336,6 +1337,25 @@ export default function MealsPage() {
     }
   };
 
+  const applyNoMealNeededForDay = async () => {
+    if (!manualDialogDay) return;
+    try {
+      const data = await setNoMealNeededForDay(weekOffset, manualDialogDay);
+      setMeals(data);
+      setManualDialogDay(null);
+      toast({
+        title: `${dayFullLabels[manualDialogDay]} updated`,
+        description: 'This day is now marked as no meal needed.',
+      });
+    } catch (error: unknown) {
+      toast({
+        title: 'Could not update day',
+        description: getErrorMessage(error, 'Failed to mark this day as no meal needed.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
   const addPlannerItem = (options: { prepareAnother?: boolean } = {}): boolean => {
     const servings = Number.parseFloat(plannerForm.servings);
     const calories = Number.parseInt(plannerForm.calories, 10);
@@ -2131,10 +2151,10 @@ export default function MealsPage() {
                               )}
                             </div>
                           </div>
-                        ) : meal?.is_skipped && recipe ? (
+                        ) : meal?.is_skipped ? (
                           <div className="text-muted-foreground">
-                            <p className="font-medium line-through">{recipe.name}</p>
-                            <p className="text-sm">Skipped</p>
+                            <p className="font-medium">No meal needed</p>
+                            <p className="text-sm">This day is intentionally left empty.</p>
                           </div>
                         ) : (
                           <div className="text-muted-foreground">
@@ -3986,10 +4006,18 @@ export default function MealsPage() {
           <DialogHeader>
             <DialogTitle className="font-display">Add Meal</DialogTitle>
             <DialogDescription>
-              {manualDialogDay ? `Choose a recipe for ${dayFullLabels[manualDialogDay]}.` : ''}
+              {manualDialogDay ? `Choose a recipe for ${dayFullLabels[manualDialogDay]}, or mark it as no meal needed.` : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-center"
+              onClick={() => void applyNoMealNeededForDay()}
+            >
+              No Meal Needed
+            </Button>
             <Input
               value={manualRecipeQuery}
               onChange={(event) => {

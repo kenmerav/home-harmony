@@ -387,7 +387,7 @@ export type Database = {
           is_locked: boolean
           is_skipped: boolean
           owner_id: string | null
-          recipe_id: string
+          recipe_id: string | null
           week_of: string
         }
         Insert: {
@@ -397,7 +397,7 @@ export type Database = {
           is_locked?: boolean
           is_skipped?: boolean
           owner_id?: string | null
-          recipe_id: string
+          recipe_id?: string | null
           week_of: string
         }
         Update: {
@@ -407,7 +407,7 @@ export type Database = {
           is_locked?: boolean
           is_skipped?: boolean
           owner_id?: string | null
-          recipe_id?: string
+          recipe_id?: string | null
           week_of?: string
         }
         Relationships: [
