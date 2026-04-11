@@ -6,6 +6,7 @@ import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecip
 import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
 
 export type RecipeCourseType = 'main' | 'side' | 'dessert';
+export const NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME = '__No Meal Needed Placeholder__';
 
 export interface ExtractedRecipe {
   name: string;
@@ -1091,7 +1092,9 @@ export async function fetchRecipes(): Promise<DbRecipe[]> {
     throw error;
   }
 
-  return (data || []).map((r) => ({ ...r, ingredients: normalizeRecipeIngredients(r.ingredients) }));
+  return (data || [])
+    .filter((r) => r.name !== NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME)
+    .map((r) => ({ ...r, ingredients: normalizeRecipeIngredients(r.ingredients) }));
 }
 
 export async function parseRecipesFromJson(file: File): Promise<{ success: boolean; error?: string; recipes?: ExtractedRecipe[] }> {

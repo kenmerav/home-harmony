@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { DayOfWeek } from '@/types';
 import { DbRecipe } from './recipes';
+import { NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME } from './recipes';
 import { startOfWeek, addWeeks, format } from 'date-fns';
 import { estimateCookMinutes } from '@/lib/recipeTime';
 import { getFavoriteIds, getKidFriendlyOverrides } from '@/lib/mealPrefs';
@@ -113,6 +114,40 @@ function getWeekOffsetFromWeekOf(weekOf: string): number {
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const mealWeek = new Date(weekOf);
   return Math.round((mealWeek.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+}
+
+async function ensureNoMealNeededPlaceholderRecipeId(): Promise<string> {
+  const { data: existing, error: existingError } = await supabase
+    .from('recipes')
+    .select('id')
+    .eq('name', NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.id) return existing.id;
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('recipes')
+    .insert({
+      name: NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME,
+      servings: 1,
+      calories: 0,
+      protein_g: 0,
+      carbs_g: 0,
+      fat_g: 0,
+      fiber_g: 0,
+      meal_type: 'dinner',
+      course_type: 'main',
+      ingredients: [],
+      ingredients_raw: '',
+      instructions: 'Internal placeholder for intentionally skipped meals.',
+      is_meal_prep: false,
+      is_anchored: false,
+      default_day: null,
+    })
+    .select('id')
+    .single();
+  if (insertError) throw insertError;
+  return inserted.id;
 }
 
 async function syncMealCalendarSafely(meals: DbPlannedMeal[]) {
@@ -258,20 +293,39 @@ export async function setNoMealNeededForDay(
     .maybeSingle();
   if (existingError) throw existingError;
 
-  if (existing?.id) {
-    const { error: updateError } = await supabase
-      .from('planned_meals')
-      .update({ recipe_id: null, is_skipped: true })
-      .eq('id', existing.id);
-    if (updateError) throw updateError;
-  } else {
-    const { error: insertError } = await supabase.from('planned_meals').insert({
-      day,
-      week_of: weekOf,
-      recipe_id: null,
-      is_skipped: true,
-    });
-    if (insertError) throw insertError;
+  try {
+    if (existing?.id) {
+      const { error: updateError } = await supabase
+        .from('planned_meals')
+        .update({ recipe_id: null, is_skipped: true })
+        .eq('id', existing.id);
+      if (updateError) throw updateError;
+    } else {
+      const { error: insertError } = await supabase.from('planned_meals').insert({
+        day,
+        week_of: weekOf,
+        recipe_id: null,
+        is_skipped: true,
+      });
+      if (insertError) throw insertError;
+    }
+  } catch {
+    const placeholderRecipeId = await ensureNoMealNeededPlaceholderRecipeId();
+    if (existing?.id) {
+      const { error: fallbackUpdateError } = await supabase
+        .from('planned_meals')
+        .update({ recipe_id: placeholderRecipeId, is_skipped: true })
+        .eq('id', existing.id);
+      if (fallbackUpdateError) throw fallbackUpdateError;
+    } else {
+      const { error: fallbackInsertError } = await supabase.from('planned_meals').insert({
+        day,
+        week_of: weekOf,
+        recipe_id: placeholderRecipeId,
+        is_skipped: true,
+      });
+      if (fallbackInsertError) throw fallbackInsertError;
+    }
   }
 
   const refreshed = await fetchMealsForWeek(weekOffset);
@@ -385,11 +439,12 @@ export async function generateMeals(
   const targetDays = daysToRegenerate || DAYS;
 
   // Fetch all recipes
-  const { data: allRecipes, error: recipeErr } = await supabase
+  const { data: allRecipesRaw, error: recipeErr } = await supabase
     .from('recipes')
     .select('*');
   if (recipeErr) throw recipeErr;
-  if (!allRecipes || allRecipes.length === 0) throw new Error('No recipes available');
+  const allRecipes = (allRecipesRaw || []).filter((recipe) => recipe.name !== NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME);
+  if (allRecipes.length === 0) throw new Error('No recipes available');
   const kidFriendlyIds = new Set(
     allRecipes
       .filter((r) => kidOverrides[r.id] ?? inferKidFriendly(r))
@@ -549,8 +604,9 @@ export async function swapMeal(mealId: string, weekOf: string, day: string): Pro
   const usedIds = new Set((weekMeals || []).map((m) => m.recipe_id).filter(Boolean));
 
   // Get a random unused recipe
-  const { data: allRecipes } = await supabase.from('recipes').select('id');
-  const available = (allRecipes || []).filter(r => !usedIds.has(r.id));
+  const { data: allRecipesRaw } = await supabase.from('recipes').select('id,name');
+  const allRecipes = (allRecipesRaw || []).filter((recipe) => recipe.name !== NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME);
+  const available = allRecipes.filter(r => !usedIds.has(r.id));
   
   let newRecipeId: string;
   if (available.length > 0) {
