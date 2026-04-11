@@ -2758,32 +2758,24 @@ export default function MealsPage() {
                         Adjust the meal name, servings, and macros before saving it to your plan.
                       </p>
                     </div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Saved foods</p>
-                        <select
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          defaultValue=""
-                          onChange={(event) => {
-                            if (!event.target.value) return;
-                            selectCommonFoodForPlanner(event.target.value);
-                            event.currentTarget.value = '';
-                          }}
-                        >
-                          <option value="">Choose a saved food</option>
-                          {commonFoodOptions.map((food) => (
-                            <option key={`common-food-${food.id}`} value={food.id}>
-                              {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="rounded-md border border-dashed border-border bg-background px-3 py-2">
-                        <p className="text-xs font-medium text-muted-foreground">Add Food</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Save things like Greek yogurt, rice cakes, shakes, deli meat, and bars here so they are easy to pick later without creating a recipe.
-                        </p>
-                      </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Saved foods</p>
+                      <select
+                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        defaultValue=""
+                        onChange={(event) => {
+                          if (!event.target.value) return;
+                          selectCommonFoodForPlanner(event.target.value);
+                          event.currentTarget.value = '';
+                        }}
+                      >
+                        <option value="">Choose a saved food</option>
+                        {commonFoodOptions.map((food) => (
+                          <option key={`common-food-${food.id}`} value={food.id}>
+                            {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2">
                       <Button
@@ -2798,9 +2790,6 @@ export default function MealsPage() {
                         <Plus className="mr-1.5 h-4 w-4" />
                         Add Food
                       </Button>
-                      <p className="text-xs text-muted-foreground">
-                        Save the current item as a food for later so you can find it quickly next time.
-                      </p>
                     </div>
                     <div className="grid gap-2 md:grid-cols-[1fr_140px]">
                       <div className="space-y-1">
