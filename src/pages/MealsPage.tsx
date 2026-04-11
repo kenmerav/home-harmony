@@ -396,7 +396,7 @@ export default function MealsPage() {
     lastRanForWeekOf: null,
   });
   const [swapDialogMeal, setSwapDialogMeal] = useState<DbPlannedMeal | null>(null);
-  const [swapMode, setSwapMode] = useState<'random' | 'choose' | 'request'>('random');
+  const [swapMode, setSwapMode] = useState<'random' | 'choose' | 'request' | 'none'>('random');
   const [allRecipes, setAllRecipes] = useState<DbRecipe[]>([]);
   const [chooseRecipeQuery, setChooseRecipeQuery] = useState('');
   const [selectedRecipeId, setSelectedRecipeId] = useState('');
@@ -767,6 +767,14 @@ export default function MealsPage() {
     try {
       if (swapMode === 'random') {
         await handleSwap(swapDialogMeal);
+      } else if (swapMode === 'none') {
+        setMeals((prev) => prev.map((meal) =>
+          meal.id === swapDialogMeal.id ? { ...meal, is_skipped: true } : meal,
+        ));
+        await toggleMealSkip(swapDialogMeal.id, true, swapDialogMeal.week_of);
+        toast({ title: 'Meal cleared', description: 'This day is now marked as no meal needed.' });
+        setSwapDialogMeal(null);
+        return;
       } else if (swapMode === 'choose') {
         const exactMatch = recipeOptions.find(
           (r) => r.name.toLowerCase().trim() === chooseRecipeQuery.toLowerCase().trim(),
@@ -3551,6 +3559,7 @@ export default function MealsPage() {
               <Button variant={swapMode === 'random' ? 'default' : 'outline'} onClick={() => setSwapMode('random')}>Random</Button>
               <Button variant={swapMode === 'choose' ? 'default' : 'outline'} onClick={() => setSwapMode('choose')}>Choose Recipe</Button>
               <Button variant={swapMode === 'request' ? 'default' : 'outline'} onClick={() => setSwapMode('request')}>Request</Button>
+              <Button variant={swapMode === 'none' ? 'default' : 'outline'} onClick={() => setSwapMode('none')}>No Meal Needed</Button>
             </div>
 
             {swapMode === 'choose' && (
@@ -3641,6 +3650,15 @@ export default function MealsPage() {
                   onChange={(e) => setRequestMaxMinutes(e.target.value)}
                   placeholder="Optional max minutes"
                 />
+              </div>
+            )}
+
+            {swapMode === 'none' && (
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <p className="text-sm font-medium">No meal needed</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This will clear the current meal and intentionally leave that day empty.
+                </p>
               </div>
             )}
             <div className="flex justify-end gap-2">
