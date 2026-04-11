@@ -2829,22 +2829,8 @@ export default function MealsPage() {
                           <option key={`common-food-${food.id}`} value={food.id}>
                             {food.name} ({food.calories} cal{food.defaultMealType ? ` • ${plannedMealTypeLabel[food.defaultMealType]}` : ''})
                           </option>
-                        ))}
+                          ))}
                       </select>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setPlannerQuickAddMode('manual');
-                          setPlannerForm((prev) => ({ ...prev, recipeId: '' }));
-                        }}
-                      >
-                        <Plus className="mr-1.5 h-4 w-4" />
-                        Add Food
-                      </Button>
                     </div>
                     <div className="grid gap-2 md:grid-cols-[1fr_140px]">
                       <div className="space-y-1">
