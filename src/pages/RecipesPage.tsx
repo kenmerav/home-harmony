@@ -438,6 +438,7 @@ export default function RecipesPage() {
   const [extractedRecipes, setExtractedRecipes] = useState<ExtractedRecipe[]>([]);
   const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCleaningIngredients, setIsCleaningIngredients] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [bulkUrlsInput, setBulkUrlsInput] = useState('');
@@ -1719,6 +1720,30 @@ export default function RecipesPage() {
     setUploadStep('upload');
   };
 
+  const runIngredientCleanup = async () => {
+    try {
+      setIsCleaningIngredients(true);
+      const result = await cleanUpRecipeLibrary();
+      await loadRecipes();
+      toast({
+        title: 'Ingredient cleanup complete',
+        description:
+          result.updated > 0
+            ? `Cleaned up ${result.updated} recipe${result.updated === 1 ? '' : 's'}.`
+            : 'No recipe ingredient changes were needed.',
+      });
+    } catch (error) {
+      console.error('Recipe ingredient cleanup failed:', error);
+      toast({
+        title: 'Could not clean up ingredients',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCleaningIngredients(false);
+    }
+  };
+
   return (
     <AppLayout>
       <PageHeader 
@@ -1726,6 +1751,10 @@ export default function RecipesPage() {
         subtitle={`${recipes.length} recipes • ${savedFoods.length} saved foods`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => void runIngredientCleanup()} disabled={isCleaningIngredients}>
+              <Check className="w-4 h-4 mr-2" />
+              {isCleaningIngredients ? 'Cleaning...' : 'Clean Up Ingredients'}
+            </Button>
             <Button variant="outline" onClick={() => setAiDialogOpen(true)}>
               <WandSparkles className="w-4 h-4 mr-2" />
               AI Recipe
