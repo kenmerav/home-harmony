@@ -26,8 +26,11 @@ export function hasRecipeInstructions(input?: string | null): boolean {
   return normalizeRecipeInstructions(input).trim().length > 0;
 }
 
-const quantityToken =
-  '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|clove|cloves|can|cans|packet|packets|egg|eggs)?\\b';
+const baseNumberToken = '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)';
+const numberToken = `(?:${baseNumberToken}(?:\\s*-\\s*${baseNumberToken})?)`;
+const unitToken =
+  '(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|c|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|ml|l|clove|cloves|can|cans|packet|packets|item|items)';
+const quantityToken = `${numberToken}\\s*(?:${unitToken}|egg|eggs)?\\b`;
 
 const fractionMap: Record<string, string> = {
   '¼': '1/4',
@@ -50,12 +53,19 @@ function normalizeFractions(input: string): string {
   return out.replace(/\s+/g, ' ').trim();
 }
 
-const unitToken =
-  '(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds|cup|cups|tbsp|tsp|tablespoon|tablespoons|teaspoon|teaspoons|ml|l|clove|cloves|can|cans|packet|packets|item|items)';
-const numberToken = '(?:\\d+(?:\\.\\d+)?|\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+)';
-
 function isQuantityOnlyLine(line: string): boolean {
   return new RegExp(`^\\(?${numberToken}\\)?\\s*${unitToken}\\)?$`, 'i').test(line.trim());
+}
+
+function isQuantityLeadLine(line: string): boolean {
+  return new RegExp(`^${numberToken}\\s*${unitToken}$`, 'i').test(line.trim());
+}
+
+function stripDanglingTrailingNumberAfterUnit(line: string): string {
+  return line
+    .trim()
+    .replace(new RegExp(`^(.+?\\b${unitToken})\\s+${baseNumberToken}$`, 'i'), '$1')
+    .trim();
 }
 
 function parseAltQuantityPrefixLine(line: string): { qty: string; rest: string } | null {
@@ -216,6 +226,21 @@ function repairIngredientFragments(parts: string[]): string[] {
   for (let i = 0; i < lines.length; i += 1) {
     let current = lines[i];
     if (!current) continue;
+
+    const parentheticalCurrent = parseParentheticalQuantityLine(current);
+    if (out.length > 0 && parentheticalCurrent) {
+      const previous = out[out.length - 1];
+      const previousWithoutDanglingNumber = stripDanglingTrailingNumberAfterUnit(previous);
+      if (
+        isQuantityLeadLine(previous) ||
+        previousWithoutDanglingNumber !== previous
+      ) {
+        out[out.length - 1] = `${previousWithoutDanglingNumber} (${parentheticalCurrent.qtyNumber} ${parentheticalCurrent.qtyUnit})${parentheticalCurrent.rest ? ` ${parentheticalCurrent.rest}` : ''}`
+          .replace(/\s+/g, ' ')
+          .trim();
+        continue;
+      }
+    }
 
     if (out.length > 0 && hasUnclosedParenthesis(out[out.length - 1])) {
       out[out.length - 1] = `${out[out.length - 1]} ${current}`.replace(/\s+/g, ' ').trim();
@@ -402,7 +427,7 @@ function capitalizeIngredient(line: string): string {
     .replace(/\bback to table of contents?\b.*$/i, '')
     .replace(/\bcont(?:inued)?\.?$/i, '')
     .replace(/\(e\.g\.[^)]*\)?/gi, '')
-    .replace(/\b(as needed|if needed|to taste|optional|for garnish)\b.*$/i, '')
+    .replace(/\b(as needed|if needed|to taste|to spice preference|optional|for garnish)\b.*$/i, '')
     .replace(/[,:-]\s*$/, '')
     .replace(/\s+\(\s*$/, '')
     .replace(/\s+/g, ' ')

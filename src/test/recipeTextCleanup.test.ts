@@ -38,4 +38,18 @@ describe('normalizeRecipeIngredients', () => {
       '1 tsp Lemon Juice',
     ]);
   });
+
+  it('repairs split imported sauce lines from recipe URLs', () => {
+    const input = [
+      '1/4 C',
+      '(60 g) Sweet Chili Sauce',
+      '3 Tbsp 30',
+      '(45 g) Sriracha, to spice preference',
+    ];
+
+    expect(normalizeRecipeIngredients(input)).toEqual([
+      '1/4 C (60 g) Sweet Chili Sauce',
+      '3 Tbsp (45 g) Sriracha',
+    ]);
+  });
 });
