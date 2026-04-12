@@ -295,6 +295,10 @@ function cleanIngredientName(raw: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 
+  if (/^\/4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b/i.test(name)) {
+    name = name.replace(/^\/4/i, '1/4');
+  }
+
   if (/^\d*%?\s*plain greek$/i.test(name) || /^\d*%?\s*greek$/i.test(name)) {
     return 'Greek yogurt';
   }
@@ -321,12 +325,18 @@ function shouldSkipIngredientName(name: string): boolean {
   const lower = cleanIngredientName(name).toLowerCase().trim();
   if (!lower) return true;
   if (lower === '%' || lower === 'cont') return true;
+  if (lower === 'juice of') return true;
   if (/^\d+(?:\.\d+)?\s*(oz|lb|lbs|g|kg|cup|cups|tbsp|tsp)$/.test(lower)) return true;
+  if (/^\d+(?:\.\d+)?\s*\([^)]*\)\s*$/.test(lower)) return true;
   if (/^[a-z][a-z\s&/+-]{1,40}:\s*[a-z\s&/+-]*:?$/i.test(lower)) return true;
   if (/back to table of contents?/.test(lower)) return true;
   if (/\btable of cont/.test(lower)) return true;
   if (/\(e\.g\.$/.test(lower)) return true;
   if (/(^|\s)cont$/.test(lower)) return true;
+  if (
+    /^(cut|slice|dice|chop|mince|mix|stir|whisk|cook|bake|roast|air fry|air-fry|grill|broil|sear|saute|sauté|steam|boil|microwave|let|allow|remove|place|add|combine|top|serve)\b/.test(lower)
+  ) return true;
+  if (/\b(cut into|bite-size|bite sized|until cooked|until softened|until browned|let rest|work in batches|before serving)\b/.test(lower)) return true;
   if (['red', 'green', 'yellow', 'orange', 'ground', 'plain'].includes(lower)) return true;
   if (/^(small|medium|large)$/.test(lower)) return true;
   return false;

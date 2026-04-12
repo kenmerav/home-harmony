@@ -352,6 +352,9 @@ function splitMergedIngredientLine(line: string): string[] {
 
 function restoreLikelyQuarterFractions(line: string): string {
   const trimmed = line.trim();
+  if (/^\/4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b/i.test(trimmed)) {
+    return trimmed.replace(/^\/4/i, '1/4');
+  }
   const match = trimmed.match(/^4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b\s*(.*)$/i);
   if (!match) return line;
 
@@ -364,6 +367,28 @@ function restoreLikelyQuarterFractions(line: string): string {
 
   if (!hasStrongQuarterSignal) return line;
   return `1/4 ${unit}${rest ? ` ${rest}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function looksLikeInstructionFragment(line: string): boolean {
+  const lower = line.toLowerCase().trim();
+  if (!lower) return true;
+  if (
+    /^(cut|slice|dice|chop|mince|mix|stir|whisk|cook|bake|roast|air fry|air-fry|grill|broil|sear|saute|sauté|steam|boil|microwave|let|allow|remove|place|add|combine|top|serve)\b/.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    /\b(cut into|bite-size|bite sized|until cooked|until softened|until browned|let rest|work in batches|to serve|before serving)\b/.test(lower)
+  ) {
+    return true;
+  }
+  if (/^\d+(?:\.\d+)?\s*\([^)]*\)\s*$/i.test(lower)) {
+    return true;
+  }
+  if (/^juice of$/i.test(lower)) {
+    return true;
+  }
+  return false;
 }
 
 function capitalizeIngredient(line: string): string {
@@ -393,6 +418,7 @@ function capitalizeIngredient(line: string): string {
   }
 
   if (!cleaned) return '';
+  if (looksLikeInstructionFragment(cleaned)) return '';
   if (looksLikeStandaloneDescriptor(cleaned)) return '';
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
