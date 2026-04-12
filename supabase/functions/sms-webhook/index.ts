@@ -1408,17 +1408,23 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
 
 function parseGroceryAddIntent(body: string): GroceryAddIntent | null {
   const normalized = trimTrailingPunctuation(body);
-  if (!/^add\s+/i.test(normalized) || !/\bto\s+(?:the\s+)?grocery(?:\s+list)?\b/i.test(normalized)) {
+  if (!/^add\s+/i.test(normalized) || !/\bgrocery(?:\s+list)?\b/i.test(normalized)) {
     return null;
   }
 
   const weekly = /\b(?:every week|weekly)\b/i.test(normalized);
-  const name = normalized
+  let name = normalized
     .replace(/^add\s+/i, "")
     .replace(/\b(?:every week|weekly)\b/gi, "")
-    .replace(/\s+to\s+(?:the\s+)?grocery(?:\s+list)?$/i, "")
-    .trim()
-    .replace(/\s+/g, " ");
+    .trim();
+
+  if (/^to\s+(?:the\s+)?grocery(?:\s+list)?\b/i.test(name)) {
+    name = name.replace(/^to\s+(?:the\s+)?grocery(?:\s+list)?\s*/i, "");
+  } else {
+    name = name.replace(/\s+to\s+(?:the\s+)?grocery(?:\s+list)?$/i, "");
+  }
+
+  name = name.trim().replace(/\s+/g, " ");
 
   if (!name) return null;
   return {
