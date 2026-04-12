@@ -1140,7 +1140,7 @@ export default function GroceryPage() {
             </p>
             <p className="text-xs text-muted-foreground">
               {currentWeekOrderedAt
-                ? 'Your finished order is cleared out. New planned meals, staples, and new items now build the next grocery order automatically.'
+                ? 'You marked the last order complete. If you are still working on that same order, reopen it below. Otherwise, new planned meals, staples, and new items now build the next grocery order automatically.'
                 : 'Check items off as you add them to your cart, then mark this week ordered when checkout is done.'}
             </p>
             {currentWeekOrderedAt && (
@@ -1154,7 +1154,7 @@ export default function GroceryPage() {
             variant={currentWeekOrderedAt ? 'outline' : 'default'}
             onClick={currentWeekOrderedAt ? markCurrentWeekNotOrdered : markOrderDone}
           >
-            {currentWeekOrderedAt ? 'Mark as Not Ordered' : 'Mark Ordered'}
+            {currentWeekOrderedAt ? 'Reopen This Order' : 'Mark Ordered'}
           </Button>
         </div>
       </div>
