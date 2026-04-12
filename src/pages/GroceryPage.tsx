@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { format, startOfWeek } from 'date-fns';
+import { addWeeks, format, startOfWeek } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -487,8 +487,9 @@ export default function GroceryPage() {
   const { user } = useAuth();
   const currentDate = useCurrentDate();
   const currentWeekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const nextWeekOf = format(addWeeks(startOfWeek(currentDate, { weekStartsOn: 1 }), 1), 'yyyy-MM-dd');
   const { groceryListState, setGroceryListState } = useAccountGroceryListState(user?.id);
-  const [plannedMeals, setPlannedMeals] = useState<DbPlannedMeal[]>([]);
+  const [plannedMealsByWeek, setPlannedMealsByWeek] = useState<Record<string, DbPlannedMeal[]>>({});
   const [loading, setLoading] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
@@ -516,6 +517,12 @@ export default function GroceryPage() {
     [currentWeekOf, groceryListState.weekStates],
   );
   const currentWeekOrderedAt = currentWeekState.orderedAt;
+  const activeWeekOf = currentWeekOrderedAt ? nextWeekOf : currentWeekOf;
+  const activeWeekState = useMemo(
+    () => groceryListState.weekStates[activeWeekOf] || defaultGroceryWeekState(),
+    [activeWeekOf, groceryListState.weekStates],
+  );
+  const activePlannedMeals = plannedMealsByWeek[activeWeekOf] || [];
 
   useEffect(() => {
     setPreferredStoreIdState(getPreferredGroceryStoreId());
@@ -621,11 +628,17 @@ export default function GroceryPage() {
   const loadGroceryList = async () => {
     try {
       setLoading(true);
-      const meals = await fetchMealsForWeek(0);
-      setPlannedMeals(meals);
+      const [currentMeals, nextMeals] = await Promise.all([
+        fetchMealsForWeek(0),
+        fetchMealsForWeek(1),
+      ]);
+      setPlannedMealsByWeek({
+        [currentWeekOf]: currentMeals,
+        [nextWeekOf]: nextMeals,
+      });
     } catch (err) {
       console.error('Failed to load grocery list:', err);
-      setPlannedMeals([]);
+      setPlannedMealsByWeek({});
     } finally {
       setLoading(false);
     }
@@ -638,42 +651,33 @@ export default function GroceryPage() {
 
   const items = useMemo(
     () =>
-      buildGroceryList(plannedMeals, getMealMultipliers(), {
+      buildGroceryList(activePlannedMeals, getMealMultipliers(), {
         excludeMealPrep: excludePreppedMealPrep,
-        checkedKeys: new Set(currentWeekState.checkedKeys),
-        manualItems: currentWeekState.manualItems,
+        checkedKeys: new Set(activeWeekState.checkedKeys),
+        manualItems: activeWeekState.manualItems,
         recurringItems: groceryListState.recurringItems,
       }),
     [
-      currentWeekState.checkedKeys,
-      currentWeekState.manualItems,
+      activePlannedMeals,
+      activeWeekState.checkedKeys,
+      activeWeekState.manualItems,
       excludePreppedMealPrep,
       groceryListState.recurringItems,
-      plannedMeals,
     ],
   );
 
-  const postOrderItems = useMemo(
-    () =>
-      buildGroceryList([], {}, {
-        checkedKeys: new Set(currentWeekState.checkedKeys),
-        manualItems: currentWeekState.manualItems,
-        recurringItems: groceryListState.recurringItems,
-      }),
-    [currentWeekState.checkedKeys, currentWeekState.manualItems, groceryListState.recurringItems],
-  );
-
   const updateCurrentWeekState = (
+    weekOf: string,
     updater: (weekState: ReturnType<typeof defaultGroceryWeekState>) => ReturnType<typeof defaultGroceryWeekState>,
   ) => {
     setGroceryListState((previous) => {
-      const current = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      const current = previous.weekStates[weekOf] || defaultGroceryWeekState();
       const nextWeekState = updater(current);
       const nextWeekStates = { ...previous.weekStates };
       if (nextWeekState.checkedKeys.length === 0 && nextWeekState.manualItems.length === 0 && !nextWeekState.orderedAt) {
-        delete nextWeekStates[currentWeekOf];
+        delete nextWeekStates[weekOf];
       } else {
-        nextWeekStates[currentWeekOf] = nextWeekState;
+        nextWeekStates[weekOf] = nextWeekState;
       }
       return {
         ...previous,
@@ -683,7 +687,7 @@ export default function GroceryPage() {
   };
 
   const toggleItem = (itemKey: string) => {
-    updateCurrentWeekState((weekState) => {
+    updateCurrentWeekState(activeWeekOf, (weekState) => {
       const checkedKeys = new Set(weekState.checkedKeys);
       if (checkedKeys.has(itemKey)) {
         checkedKeys.delete(itemKey);
@@ -698,7 +702,7 @@ export default function GroceryPage() {
   };
 
   const checkAllItems = () => {
-    updateCurrentWeekState((weekState) => ({
+    updateCurrentWeekState(activeWeekOf, (weekState) => ({
       ...weekState,
       checkedKeys: Array.from(new Set(items.map((item) => item.key))),
     }));
@@ -720,7 +724,7 @@ export default function GroceryPage() {
   };
 
   const markCurrentWeekNotOrdered = async () => {
-    updateCurrentWeekState((weekState) => ({
+    updateCurrentWeekState(currentWeekOf, (weekState) => ({
       ...weekState,
       checkedKeys: [],
       orderedAt: null,
@@ -763,8 +767,8 @@ export default function GroceryPage() {
       return;
     }
 
-    if (!manualItemRepeatsWeekly && currentWeekState.manualItems.some(duplicateMatches)) {
-      toast({ title: 'That manual grocery item is already on this week’s list' });
+    if (!manualItemRepeatsWeekly && activeWeekState.manualItems.some(duplicateMatches)) {
+      toast({ title: 'That manual grocery item is already on this grocery order' });
       return;
     }
 
@@ -776,15 +780,16 @@ export default function GroceryPage() {
         };
       }
 
-      const weekState = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      const targetWeekOf = manualItemRepeatsWeekly ? currentWeekOf : activeWeekOf;
+      const targetWeekState = previous.weekStates[targetWeekOf] || defaultGroceryWeekState();
       return {
         ...previous,
         weekStates: {
           ...previous.weekStates,
-          [currentWeekOf]: {
-            ...weekState,
-            orderedAt: weekState.orderedAt,
-            manualItems: [...weekState.manualItems, nextItem],
+          [targetWeekOf]: {
+            ...targetWeekState,
+            orderedAt: targetWeekState.orderedAt,
+            manualItems: [...targetWeekState.manualItems, nextItem],
           },
         },
       };
@@ -796,7 +801,7 @@ export default function GroceryPage() {
       title: manualItemRepeatsWeekly ? 'Weekly grocery staple added' : 'Grocery item added',
       description: manualItemRepeatsWeekly
         ? `${name} will appear every week.`
-        : `${name} is now on this week’s list.`,
+        : `${name} is now on your current grocery order.`,
     });
   };
 
@@ -804,7 +809,7 @@ export default function GroceryPage() {
     if (item.manualItemIds.length === 0 && item.recurringItemIds.length === 0) return;
 
     setGroceryListState((previous) => {
-      const weekState = previous.weekStates[currentWeekOf] || defaultGroceryWeekState();
+      const weekState = previous.weekStates[activeWeekOf] || defaultGroceryWeekState();
       const nextManualItems = weekState.manualItems.filter(
         (manualItem) => !item.manualItemIds.includes(manualItem.id),
       );
@@ -816,16 +821,16 @@ export default function GroceryPage() {
 
       if (nextManualItems.length === 0 && nextCheckedKeys.length === 0) {
         if (weekState.orderedAt) {
-          nextWeekStates[currentWeekOf] = {
+          nextWeekStates[activeWeekOf] = {
             ...weekState,
             manualItems: nextManualItems,
             checkedKeys: nextCheckedKeys,
           };
         } else {
-          delete nextWeekStates[currentWeekOf];
+          delete nextWeekStates[activeWeekOf];
         }
       } else {
-        nextWeekStates[currentWeekOf] = {
+        nextWeekStates[activeWeekOf] = {
           ...weekState,
           manualItems: nextManualItems,
           checkedKeys: nextCheckedKeys,
@@ -847,10 +852,7 @@ export default function GroceryPage() {
     });
   };
 
-  const visibleItems = useMemo(() => {
-    if (!currentWeekOrderedAt) return items;
-    return postOrderItems;
-  }, [currentWeekOrderedAt, items, postOrderItems]);
+  const visibleItems = useMemo(() => items.filter((item) => !item.isChecked), [items]);
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = visibleItems.filter(item => item.category === category);
@@ -888,9 +890,9 @@ export default function GroceryPage() {
     });
   };
 
-  const checkedCount = visibleItems.filter(i => i.isChecked).length;
-  const totalCount = visibleItems.length;
-  const remainingItems = useMemo(() => visibleItems.filter((item) => !item.isChecked), [visibleItems]);
+  const checkedCount = items.filter((i) => i.isChecked).length;
+  const totalCount = items.length;
+  const remainingItems = visibleItems;
 
   const copyList = () => {
     const uncheckedItems = remainingItems
@@ -962,7 +964,7 @@ export default function GroceryPage() {
     const now = new Date().toISOString();
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
-    updateCurrentWeekState((weekState) => ({
+    updateCurrentWeekState(currentWeekOf, (weekState) => ({
       ...weekState,
       checkedKeys: [],
       manualItems: [],
@@ -1130,10 +1132,12 @@ export default function GroceryPage() {
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold">This week grocery order</p>
+            <p className="text-sm font-semibold">
+              {currentWeekOrderedAt ? 'Next grocery order' : 'This week grocery order'}
+            </p>
             <p className="text-xs text-muted-foreground">
               {currentWeekOrderedAt
-                ? 'This order is finished. Meal-plan and one-time items are cleared out, staples stay available, and grocery reminders are treated as handled.'
+                ? 'Your finished order is cleared out. New planned meals, staples, and new items now build the next grocery order automatically.'
                 : 'Check items off as you add them to your cart, then mark this week ordered when checkout is done.'}
             </p>
             {currentWeekOrderedAt && (
@@ -1271,12 +1275,14 @@ export default function GroceryPage() {
         </div>
       )}
 
-      {!loading && !currentWeekOrderedAt && totalCount === 0 && (
+      {!loading && totalCount === 0 && (
         <div className="text-center py-12">
           <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
           <p className="text-muted-foreground">No items on your list</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Generate a meal plan first, then ingredients will appear here
+            {currentWeekOrderedAt
+              ? 'Plan meals or add items, and your next grocery order will appear here.'
+              : 'Generate a meal plan first, then ingredients will appear here'}
           </p>
         </div>
       )}
