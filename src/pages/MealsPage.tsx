@@ -1620,6 +1620,22 @@ export default function MealsPage() {
     return acc;
   }, {});
 
+  const firstPlannerDateWithContent =
+    weekDateRows.find((row) => Boolean(dinnerBaseByDate.get(row.date)) || (entriesByDate[row.date]?.length ?? 0) > 0)?.date ||
+    weekDateRows[0]?.date ||
+    format(new Date(), 'yyyy-MM-dd');
+
+  useEffect(() => {
+    const weekStartDate = weekDateRows[0]?.date;
+    const weekEndDate = weekDateRows[weekDateRows.length - 1]?.date;
+    if (!weekStartDate || !weekEndDate) return;
+    if (plannerDay >= weekStartDate && plannerDay <= weekEndDate) return;
+
+    setPlannerDay(firstPlannerDateWithContent);
+    setPlannerForm((prev) => (prev.date === firstPlannerDateWithContent ? prev : { ...prev, date: firstPlannerDateWithContent }));
+    setSuggestionDate(firstPlannerDateWithContent);
+  }, [firstPlannerDateWithContent, plannerDay, weekDateRows]);
+
   const getProjectedForDate = (date: string) => {
     const dinnerBase = dinnerBaseByDate.get(date);
     const dinnerServings = getDinnerServingsForDate(date);
