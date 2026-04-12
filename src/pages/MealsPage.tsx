@@ -326,7 +326,6 @@ type QuickAddDraft = {
   };
   recipeQuery: string;
   photoNote: string;
-  estimateServings?: string;
   quickAddMode: 'estimate' | 'recipe' | 'manual';
   repeatMode: PlannerRepeatMode;
   repeatDays: DayOfWeek[];
@@ -422,7 +421,6 @@ export default function MealsPage() {
   const [plannerDinnerAdjustDate, setPlannerDinnerAdjustDate] = useState<string | null>(null);
   const [plannerRecipeQuery, setPlannerRecipeQuery] = useState('');
   const [plannerPhotoNote, setPlannerPhotoNote] = useState('');
-  const [plannerEstimateServings, setPlannerEstimateServings] = useState('');
   const [plannerQuickAddMode, setPlannerQuickAddMode] = useState<'estimate' | 'recipe' | 'manual'>('estimate');
   const [estimatingPlannerPhoto, setEstimatingPlannerPhoto] = useState(false);
   const [alcoholPresetQuery, setAlcoholPresetQuery] = useState('');
@@ -528,7 +526,6 @@ export default function MealsPage() {
     setPlannerForm(draft.form);
     setPlannerRecipeQuery(draft.recipeQuery || '');
     setPlannerPhotoNote(draft.photoNote || '');
-    setPlannerEstimateServings(draft.estimateServings || '');
     setPlannerQuickAddMode(draft.quickAddMode || 'estimate');
     setPlannerRepeatMode(draft.repeatMode || 'once');
     setPlannerRepeatDays(new Set(draft.repeatDays || []));
@@ -549,7 +546,6 @@ export default function MealsPage() {
       form: plannerForm,
       recipeQuery: plannerRecipeQuery,
       photoNote: plannerPhotoNote,
-      estimateServings: plannerEstimateServings,
       quickAddMode: plannerQuickAddMode,
       repeatMode: plannerRepeatMode,
       repeatDays: Array.from(plannerRepeatDays),
@@ -562,7 +558,6 @@ export default function MealsPage() {
     plannerForm,
     plannerRecipeQuery,
     plannerPhotoNote,
-    plannerEstimateServings,
     plannerQuickAddMode,
     plannerRepeatMode,
     plannerRepeatDays,
@@ -1200,7 +1195,7 @@ export default function MealsPage() {
   };
 
   const getPlannerEstimateServings = () => {
-    const trimmed = plannerEstimateServings.trim();
+    const trimmed = plannerForm.servings.trim();
     if (!trimmed) return '';
     const numeric = Number.parseFloat(trimmed);
     if (!Number.isFinite(numeric) || numeric <= 0) return '';
@@ -2709,20 +2704,9 @@ export default function MealsPage() {
                             value={plannerPhotoNote}
                             onChange={(event) => setPlannerPhotoNote(event.target.value)}
                           />
-                          <div className="max-w-[180px] space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">Servings you had</p>
-                            <Input
-                              type="number"
-                              min="0.25"
-                              step="0.25"
-                              placeholder="1"
-                              value={plannerEstimateServings}
-                              onChange={(event) => setPlannerEstimateServings(event.target.value)}
-                            />
-                            <p className="text-[11px] text-muted-foreground">
-                              If this is a nutrition label, enter how many servings you actually had.
-                            </p>
-                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            For nutrition labels, set the servings below first and the estimate will use that amount.
+                          </p>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
@@ -3806,20 +3790,9 @@ export default function MealsPage() {
                   value={plannerPhotoNote}
                   onChange={(event) => setPlannerPhotoNote(event.target.value)}
                 />
-                <div className="max-w-[180px] space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Servings you had</p>
-                  <Input
-                    type="number"
-                    min="0.25"
-                    step="0.25"
-                    placeholder="1"
-                    value={plannerEstimateServings}
-                    onChange={(event) => setPlannerEstimateServings(event.target.value)}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    If this is a nutrition label, enter how many servings you actually had.
-                  </p>
-                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  For nutrition labels, set the servings below first and the estimate will use that amount.
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
