@@ -522,6 +522,7 @@ export default function GroceryPage() {
     () => groceryListState.weekStates[activeWeekOf] || defaultGroceryWeekState(),
     [activeWeekOf, groceryListState.weekStates],
   );
+  const activeWeekOrderedAt = activeWeekState.orderedAt;
   const activePlannedMeals = plannedMealsByWeek[activeWeekOf] || [];
 
   useEffect(() => {
@@ -726,13 +727,12 @@ export default function GroceryPage() {
   const markCurrentWeekNotOrdered = async () => {
     updateCurrentWeekState(currentWeekOf, (weekState) => ({
       ...weekState,
-      checkedKeys: [],
       orderedAt: null,
     }));
     await syncNextWeekReminderHandled(false);
     toast({
-      title: 'Marked this week as not ordered',
-      description: 'This week’s grocery list is visible again and unchecked so you can use it normally.',
+      title: 'Last grocery order restored',
+      description: 'Your last order is visible again with its shopping progress intact.',
     });
   };
 
@@ -967,16 +967,17 @@ export default function GroceryPage() {
     const now = new Date().toISOString();
     markGroceryOrderCompleted(now);
     setLastOrderCompletedAt(now);
-    updateCurrentWeekState(currentWeekOf, (weekState) => ({
+    updateCurrentWeekState(activeWeekOf, (weekState) => ({
       ...weekState,
-      checkedKeys: [],
-      manualItems: [],
       orderedAt: now,
     }));
     await syncNextWeekReminderHandled(true);
     toast({
       title: 'Order marked complete',
-      description: 'This order is cleared out, and grocery reminders are considered handled until you reopen it.',
+      description:
+        activeWeekOf === currentWeekOf
+          ? 'This order is finished. Grocery now rolls forward to the next order automatically.'
+          : 'This upcoming grocery order is marked handled.',
     });
   };
 
@@ -1140,7 +1141,7 @@ export default function GroceryPage() {
             </p>
             <p className="text-xs text-muted-foreground">
               {currentWeekOrderedAt
-                ? 'You marked the last order complete. If you are still working on that same order, reopen it below. Otherwise, new planned meals, staples, and new items now build the next grocery order automatically.'
+                ? 'Your last grocery order is done. This list is now the next grocery order. If you need the last one back, restore it below.'
                 : 'Check items off as you add them to your cart, then mark this week ordered when checkout is done.'}
             </p>
             {currentWeekOrderedAt && (
@@ -1149,13 +1150,21 @@ export default function GroceryPage() {
               </p>
             )}
           </div>
-          <Button
-            size="sm"
-            variant={currentWeekOrderedAt ? 'outline' : 'default'}
-            onClick={currentWeekOrderedAt ? markCurrentWeekNotOrdered : markOrderDone}
-          >
-            {currentWeekOrderedAt ? 'Reopen This Order' : 'Mark Ordered'}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {currentWeekOrderedAt && (
+              <Button size="sm" variant="outline" onClick={markCurrentWeekNotOrdered}>
+                Restore Last Ordered List
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="default"
+              onClick={markOrderDone}
+              disabled={totalCount === 0 || Boolean(activeWeekOrderedAt)}
+            >
+              {activeWeekOrderedAt ? 'Ordered' : 'Mark Ordered'}
+            </Button>
+          </div>
         </div>
       </div>
 
