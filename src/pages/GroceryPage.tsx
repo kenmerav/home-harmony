@@ -852,7 +852,10 @@ export default function GroceryPage() {
     });
   };
 
-  const visibleItems = useMemo(() => items.filter((item) => !item.isChecked), [items]);
+  // Keep checked items visible while the current order is active so the shopping
+  // flow still feels satisfying. Once the order is marked complete, the page
+  // rolls forward to the next order and the old checked items disappear there.
+  const visibleItems = items;
 
   const groupedItems = categoryOrder.reduce((acc, category) => {
     const categoryItems = visibleItems.filter(item => item.category === category);
@@ -892,7 +895,7 @@ export default function GroceryPage() {
 
   const checkedCount = items.filter((i) => i.isChecked).length;
   const totalCount = items.length;
-  const remainingItems = visibleItems;
+  const remainingItems = items.filter((item) => !item.isChecked);
 
   const copyList = () => {
     const uncheckedItems = remainingItems
