@@ -326,8 +326,9 @@ function shouldSkipIngredientName(name: string): boolean {
   if (!lower) return true;
   if (lower === '%' || lower === 'cont') return true;
   if (lower === 'juice of') return true;
-  if (/^\d+(?:\.\d+)?\s*(oz|lb|lbs|g|kg|cup|cups|tbsp|tsp)$/.test(lower)) return true;
+  if (/^(?:\d+(?:\.\d+)?|\d+\/\d+|\d+\s+\d+\/\d+)\s*(c|cup|cups|oz|lb|lbs|g|kg|tbsp|tsp)$/.test(lower)) return true;
   if (/^\d+(?:\.\d+)?\s*\([^)]*\)\s*$/.test(lower)) return true;
+  if (/^\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s*(c|cup|cups|oz|lb|lbs|g|kg|tbsp|tsp)$/.test(lower)) return true;
   if (/^[a-z][a-z\s&/+-]{1,40}:\s*[a-z\s&/+-]*:?$/i.test(lower)) return true;
   if (/back to table of contents?/.test(lower)) return true;
   if (/\btable of cont/.test(lower)) return true;
