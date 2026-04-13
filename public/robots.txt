@@ -1,16 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /signin
-Disallow: /onboarding
-Disallow: /billing
-Disallow: /app
-Disallow: /meals
-Disallow: /recipes
-Disallow: /grocery
-Disallow: /chores
-Disallow: /tasks
-Disallow: /family
-Disallow: /me
-Disallow: /wife
 
 Sitemap: https://www.homeharmonyhq.com/sitemap.xml

@@ -95,6 +95,37 @@ const TemplateDetailPage = lazy(() =>
 const queryClient = new QueryClient();
 const GOOGLE_ANALYTICS_ID = "G-PN5Y1S4WCL";
 
+const INDEXABLE_PUBLIC_PREFIXES = [
+  "/resources",
+  "/meal-plans",
+  "/grocery-lists",
+  "/pantry-meals",
+  "/recipe-collections",
+  "/household-templates",
+  "/macro-plans",
+  "/chore-systems",
+  "/task-systems",
+  "/workout-tracking",
+  "/lifestyle-tracking",
+  "/compare",
+  "/templates",
+];
+
+function upsertRobotsMeta(content: string) {
+  let tag = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute("name", "robots");
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("content", content);
+}
+
+function isPublicIndexablePath(pathname: string): boolean {
+  if (pathname === "/") return true;
+  return INDEXABLE_PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 function RouteFallback() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
@@ -120,6 +151,19 @@ function GoogleAnalyticsPageTracker() {
   return null;
 }
 
+function RouteRobotsController() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const robotsValue = isPublicIndexablePath(location.pathname)
+      ? "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+      : "noindex,nofollow,noarchive";
+    upsertRobotsMeta(robotsValue);
+  }, [location.pathname]);
+
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -129,6 +173,7 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <GoogleAnalyticsPageTracker />
+            <RouteRobotsController />
             <Suspense fallback={<RouteFallback />}>
               <Routes>
               <Route path="/" element={<LandingPage />} />
