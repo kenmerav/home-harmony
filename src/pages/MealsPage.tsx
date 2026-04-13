@@ -73,8 +73,10 @@ import {
   deletePlannedFoodEntriesByDateAndMealType,
   getCommonFoods,
   getPlannedFoodEntries,
+  materializePlannedFoodEntriesForDate,
   listCommonPlannedFoods,
   updatePlannedFoodEntry,
+  type PlannedFoodRepeatMode,
   type PlannedFoodEntry,
   type PlannedMealType,
 } from '@/lib/mealBudgetPlanner';
@@ -193,7 +195,7 @@ interface GridQuickAddContext {
   entryId?: string | null;
 }
 
-type PlannerRepeatMode = 'once' | 'daily' | 'selected_days';
+type PlannerRepeatMode = PlannedFoodRepeatMode;
 type DinnerServingsByProfile = Record<string, Record<string, number>>;
 
 const DINNER_SERVINGS_STORAGE_KEY = 'homehub.mealPlannerDinnerServings.v1';
@@ -954,26 +956,6 @@ export default function MealsPage() {
     });
   };
 
-  const getPlannerTargetDates = (): string[] => {
-    if (plannerRepeatMode === 'once') return [plannerForm.date];
-
-    const anchorDate = new Date(`${plannerForm.date}T12:00:00`);
-    const repeatWeekStart = startOfWeek(anchorDate, { weekStartsOn: 1 });
-
-    if (plannerRepeatMode === 'daily') {
-      return days.map((_, index) => format(addDays(repeatWeekStart, index), 'yyyy-MM-dd'));
-    }
-
-    if (plannerRepeatDays.size === 0) {
-      return [plannerForm.date];
-    }
-
-    return days
-      .map((day, index) => ({ day, date: format(addDays(repeatWeekStart, index), 'yyyy-MM-dd') }))
-      .filter((entry) => plannerRepeatDays.has(entry.day))
-      .map((entry) => entry.date);
-  };
-
   const updatePlannerFormServings = (nextValue: string) => {
     setPlannerForm((prev) => {
       const normalizedServings = normalizeDecimalInput(nextValue);
@@ -1386,7 +1368,12 @@ export default function MealsPage() {
       }
     }
 
-    const targetDates = [plannerForm.date];
+    const repeatDays =
+      plannerRepeatMode === 'selected_days'
+        ? Array.from(plannerRepeatDays)
+        : plannerRepeatMode === 'daily'
+          ? [...days]
+          : null;
     const targetPersonId = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.id || plannerDashboardId;
     const targetPersonName = plannerForm.mealType === 'dinner' ? null : plannerDashboard?.name || null;
     const shouldAutoSaveToFoods = !plannerForm.recipeId;
@@ -1405,6 +1392,8 @@ export default function MealsPage() {
           carbs_g: carbs,
           fat_g: fat,
           sourceRecipeId: plannerForm.recipeId || null,
+          repeatMode: plannerRepeatMode,
+          repeatDays,
         },
         user?.id,
       );
@@ -1419,37 +1408,37 @@ export default function MealsPage() {
       return true;
     }
 
-    for (const date of targetDates) {
-      addPlannedFoodEntry(
-        {
-          date,
-          mealType: plannerForm.mealType,
-          personId: targetPersonId,
-          personName: targetPersonName,
-          name: plannerForm.name.trim(),
-          servings,
-          calories,
-          protein_g: protein,
-          carbs_g: carbs,
-          fat_g: fat,
-          sourceRecipeId: plannerForm.recipeId || null,
-        },
-        user?.id,
-      );
-    }
+    addPlannedFoodEntry(
+      {
+        date: plannerForm.date,
+        mealType: plannerForm.mealType,
+        personId: targetPersonId,
+        personName: targetPersonName,
+        name: plannerForm.name.trim(),
+        servings,
+        calories,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
+        sourceRecipeId: plannerForm.recipeId || null,
+        repeatMode: plannerRepeatMode,
+        repeatDays,
+      },
+      user?.id,
+    );
     if (shouldAutoSaveToFoods) {
       savePlannerFormAsCommonFood({ silent: true });
     }
     resetPlannerItemFields(!!options.prepareAnother);
     refreshPlannerEntries();
     toast({
-      title: targetDates.length > 1 ? 'Planned meals added' : 'Planned meal added',
+      title: plannerRepeatMode === 'once' ? 'Planned meal added' : 'Recurring meal added',
       description:
-        targetDates.length > 1
-          ? `${plannerForm.name.trim()} was added to ${targetDates.length} days this week${targetPersonName ? ` for ${targetPersonName}` : ''}.`
+        plannerRepeatMode !== 'once'
+          ? `${plannerForm.name.trim()} will now repeat ${plannerRepeatMode === 'daily' ? 'every day' : 'on the selected days'} until you delete it${targetPersonName ? ` for ${targetPersonName}` : ''}.`
           : options.prepareAnother
             ? 'Saved. You can add another recipe to this same slot now.'
-          : undefined,
+            : undefined,
     });
     return true;
   };
@@ -1495,8 +1484,8 @@ export default function MealsPage() {
     setPlannerPhotoNote(entry.name);
     setPlannerDay(entry.date);
     setSuggestionDate(entry.date);
-    setPlannerRepeatMode('once');
-    setPlannerRepeatDays(new Set());
+    setPlannerRepeatMode(entry.repeatMode || 'once');
+    setPlannerRepeatDays(new Set(entry.repeatDays || []));
     setGridQuickAddContext({ date: entry.date, mealType: entry.mealType, entryId: entry.id });
   };
 
@@ -1578,9 +1567,8 @@ export default function MealsPage() {
     [mealLogRefreshTick, plannerDashboardId],
   );
 
-  const entriesByDate = scopedPlannerEntries.reduce<Record<string, PlannedFoodEntry[]>>((acc, entry) => {
-    if (!acc[entry.date]) acc[entry.date] = [];
-    acc[entry.date].push(entry);
+  const entriesByDate = weekDateRows.reduce<Record<string, PlannedFoodEntry[]>>((acc, row) => {
+    acc[row.date] = materializePlannedFoodEntriesForDate(scopedPlannerEntries, row.date);
     return acc;
   }, {});
 
@@ -1620,6 +1608,45 @@ export default function MealsPage() {
     return acc;
   }, {});
 
+  const getProjectedForDateAndView = (
+    date: string,
+    viewMode: PlannerViewMode = plannerViewMode,
+  ): { calories: number; protein_g: number; carbs_g: number; fat_g: number } => {
+    const dinnerBase = dinnerBaseByDate.get(date);
+    const dinnerServings = getDinnerServingsForDate(date);
+    const entries = entriesByDate[date] || [];
+
+    if (viewMode === 'daily-all' || viewMode === 'weekly-meal-grid') {
+      return projectedByDate[date] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+    }
+
+    const totals = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+
+    if (viewMode === 'weekly-dinners' && dinnerBase) {
+      totals.calories += Math.round(dinnerBase.calories * dinnerServings);
+      totals.protein_g += Math.round(dinnerBase.protein_g * dinnerServings);
+      totals.carbs_g += Math.round(dinnerBase.carbs_g * dinnerServings);
+      totals.fat_g += Math.round(dinnerBase.fat_g * dinnerServings);
+    }
+
+    const filteredEntries = entries.filter((entry) => {
+      if (viewMode === 'weekly-breakfasts') return entry.mealType === 'breakfast';
+      if (viewMode === 'weekly-lunches') return entry.mealType === 'lunch';
+      if (viewMode === 'weekly-snacks') return entry.mealType === 'snack';
+      if (viewMode === 'weekly-dinners') return entry.mealType === 'dinner';
+      return true;
+    });
+
+    for (const entry of filteredEntries) {
+      totals.calories += entry.calories;
+      totals.protein_g += entry.protein_g;
+      totals.carbs_g += entry.carbs_g;
+      totals.fat_g += entry.fat_g;
+    }
+
+    return totals;
+  };
+
   const firstPlannerDateWithContent =
     weekDateRows.find((row) => Boolean(dinnerBaseByDate.get(row.date)) || (entriesByDate[row.date]?.length ?? 0) > 0)?.date ||
     weekDateRows[0]?.date ||
@@ -1635,25 +1662,6 @@ export default function MealsPage() {
     setPlannerForm((prev) => (prev.date === firstPlannerDateWithContent ? prev : { ...prev, date: firstPlannerDateWithContent }));
     setSuggestionDate(firstPlannerDateWithContent);
   }, [firstPlannerDateWithContent, plannerDay, weekDateRows]);
-
-  const getProjectedForDate = (date: string) => {
-    const dinnerBase = dinnerBaseByDate.get(date);
-    const dinnerServings = getDinnerServingsForDate(date);
-    const entries = entriesByDate[date] || [];
-    const totals = {
-      calories: Math.round((dinnerBase?.calories || 0) * dinnerServings),
-      protein_g: Math.round((dinnerBase?.protein_g || 0) * dinnerServings),
-      carbs_g: Math.round((dinnerBase?.carbs_g || 0) * dinnerServings),
-      fat_g: Math.round((dinnerBase?.fat_g || 0) * dinnerServings),
-    };
-    for (const entry of entries) {
-      totals.calories += entry.calories;
-      totals.protein_g += entry.protein_g;
-      totals.carbs_g += entry.carbs_g;
-      totals.fat_g += entry.fat_g;
-    }
-    return totals;
-  };
 
   const applyMacroSuggestionToPlanner = (suggestion: MacroMealSuggestion) => {
     setPlannerForm((prev) => ({
@@ -1681,7 +1689,7 @@ export default function MealsPage() {
     setSuggestionLoading(true);
     try {
       const recipes = await ensureRecipesLoaded();
-      const projected = getProjectedForDate(suggestionDate);
+      const projected = getProjectedForDateAndView(suggestionDate, 'daily-all');
       const remaining = {
         calories: macroTarget.calories - projected.calories,
         protein_g: macroTarget.protein_g - projected.protein_g,
@@ -1819,7 +1827,7 @@ export default function MealsPage() {
     plannerViewMode === 'daily-all'
       ? weekDateRows.filter((row) => row.date === plannerDay)
       : weekDateRows;
-  const focusedProjected = projectedByDate[plannerDay] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  const focusedProjected = getProjectedForDateAndView(plannerDay, plannerViewMode);
   const focusedCalorieDelta = focusedProjected.calories - macroTarget.calories;
   const focusedCalorieStatus =
     focusedCalorieDelta > 0
@@ -3086,7 +3094,7 @@ export default function MealsPage() {
                 : allEntries;
 
             const dinnerBase = dinnerBaseByDate.get(row.date);
-            const projected = projectedByDate[row.date] || { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+            const projected = getProjectedForDateAndView(row.date, plannerViewMode);
             const dinnerServings = getDinnerServingsForDate(row.date);
             const calorieDelta = projected.calories - macroTarget.calories;
             const calorieStatus =

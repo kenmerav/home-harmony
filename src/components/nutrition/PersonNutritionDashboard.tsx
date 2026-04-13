@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
 import { mockMealPlan } from '@/data/mockData';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
-import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
+import { getPlannedFoodEntriesForDate } from '@/lib/mealBudgetPlanner';
 import { getDinnerServingsForProfileDate } from '@/lib/mealPrefs';
 import {
   AdultId,
@@ -155,8 +155,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const weekPoints = getWeekPoints(personId, currentDate);
   const targetCalories = profile.macroPlan.calories || 2000;
   const plannedDinnerEntry = useMemo(
-    () =>
-      getPlannedFoodEntries(user?.id).find((entry) => entry.date === todayKey && entry.mealType === 'dinner') || null,
+    () => getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null,
     [todayKey, user?.id],
   );
   const liveTodaysMeal = liveMeals.find((meal) => meal.day === currentDay && !meal.is_skipped && !!meal.recipes);

@@ -54,7 +54,7 @@ import { loadTasks, taskOccursOnDate } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
-import { getPlannedFoodEntries, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
+import { getPlannedFoodEntriesForDate, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
 import { loadOnboardingResult } from '@/lib/onboardingStore';
 
 const getCurrentDay = (date = new Date()): DayOfWeek => {
@@ -447,7 +447,7 @@ export default function TodayPage() {
   };
 
   const plannedEntriesToday = useMemo(
-    () => getPlannedFoodEntries(user?.id).filter((entry) => entry.date === todayKey),
+    () => getPlannedFoodEntriesForDate(todayKey, user?.id),
     [refreshTick, todayKey, user?.id],
   );
 

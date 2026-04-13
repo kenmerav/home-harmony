@@ -1,6 +1,6 @@
 import { format, subDays } from 'date-fns';
 import { mockMealLogs, mockProfiles } from '@/data/mockData';
-import { getPlannedFoodEntries } from '@/lib/mealBudgetPlanner';
+import { getPlannedFoodEntriesForDate } from '@/lib/mealBudgetPlanner';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 import { Macros, MealLog } from '@/types';
 
@@ -1194,8 +1194,8 @@ export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey()):
     .map(fromStoredMealLog)
     .filter((log) => log.person === personId && log.date === date);
   const existingKeys = new Set(actualLogs.map((log) => buildMealIdentity(log)));
-  const supplementalPlannerLogs = getPlannedFoodEntries(currentStorageScopeUserId)
-    .filter((entry) => entry.personId === personId && entry.date === date && entry.mealType !== 'dinner')
+  const supplementalPlannerLogs = getPlannedFoodEntriesForDate(date, currentStorageScopeUserId)
+    .filter((entry) => entry.personId === personId && entry.mealType !== 'dinner')
     .map<MealLog>((entry) => ({
       id: `planner-log:${entry.id}`,
       recipeId: entry.sourceRecipeId || undefined,

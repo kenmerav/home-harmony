@@ -1,6 +1,10 @@
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
+import { DayOfWeek } from '@/types';
 
 export type PlannedMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | 'alcohol';
+export type PlannedFoodRepeatMode = 'once' | 'daily' | 'selected_days';
+
+const ALL_DAYS: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 export interface PlannedFoodEntry {
   id: string;
@@ -15,6 +19,8 @@ export interface PlannedFoodEntry {
   carbs_g: number;
   fat_g: number;
   sourceRecipeId?: string | null;
+  repeatMode?: PlannedFoodRepeatMode;
+  repeatDays?: DayOfWeek[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +50,8 @@ interface PlannedFoodEntryInput {
   carbs_g: number;
   fat_g: number;
   sourceRecipeId?: string | null;
+  repeatMode?: PlannedFoodRepeatMode;
+  repeatDays?: DayOfWeek[] | null;
 }
 
 const STORAGE_KEY = 'homehub.mealBudgetPlanner.v1';
@@ -83,10 +91,33 @@ function toFinite(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeRepeatMode(value: unknown): PlannedFoodRepeatMode {
+  return value === 'daily' || value === 'selected_days' ? value : 'once';
+}
+
+function normalizeRepeatDays(input: unknown): DayOfWeek[] | null {
+  if (!Array.isArray(input)) return null;
+  const unique = Array.from(
+    new Set(
+      input
+        .filter((value): value is DayOfWeek => typeof value === 'string' && ALL_DAYS.includes(value as DayOfWeek))
+        .map((value) => value as DayOfWeek),
+    ),
+  );
+  return unique.length > 0 ? unique : null;
+}
+
 function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<PlannedFoodEntry>;
   if (!input.id || !input.date || !input.name || !input.mealType) return null;
+  const repeatMode = normalizeRepeatMode(input.repeatMode);
+  const repeatDays =
+    repeatMode === 'selected_days'
+      ? normalizeRepeatDays(input.repeatDays)
+      : repeatMode === 'daily'
+        ? ALL_DAYS
+        : null;
   return {
     id: String(input.id),
     date: String(input.date),
@@ -100,6 +131,8 @@ function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
     carbs_g: Math.max(0, Math.round(toFinite(input.carbs_g, 0))),
     fat_g: Math.max(0, Math.round(toFinite(input.fat_g, 0))),
     sourceRecipeId: input.sourceRecipeId || null,
+    repeatMode,
+    repeatDays,
     createdAt: input.createdAt || new Date().toISOString(),
     updatedAt: input.updatedAt || new Date().toISOString(),
   };
@@ -289,6 +322,36 @@ export function getPlannedFoodEntries(userId?: string | null): PlannedFoodEntry[
   return sortEntries(readEntries(userId));
 }
 
+function dayFromIsoDate(date: string): DayOfWeek {
+  const value = new Date(`${date}T12:00:00`);
+  return ALL_DAYS[(value.getDay() + 6) % 7] || 'monday';
+}
+
+export function entryAppliesToDate(entry: PlannedFoodEntry, date: string): boolean {
+  if (entry.repeatMode === 'once' || !entry.repeatMode) {
+    return entry.date === date;
+  }
+  if (date < entry.date) return false;
+  if (entry.repeatMode === 'daily') return true;
+  const repeatDays = entry.repeatDays && entry.repeatDays.length > 0 ? entry.repeatDays : [dayFromIsoDate(entry.date)];
+  return repeatDays.includes(dayFromIsoDate(date));
+}
+
+export function materializePlannedFoodEntriesForDate(entries: PlannedFoodEntry[], date: string): PlannedFoodEntry[] {
+  return sortEntries(
+    entries
+      .filter((entry) => entryAppliesToDate(entry, date))
+      .map((entry) => ({
+        ...entry,
+        date,
+      })),
+  );
+}
+
+export function getPlannedFoodEntriesForDate(date: string, userId?: string | null): PlannedFoodEntry[] {
+  return materializePlannedFoodEntriesForDate(readEntries(userId), date);
+}
+
 export function getCommonFoods(userId?: string | null): CommonFood[] {
   return sortCommonFoods(readCommonFoods(userId));
 }
@@ -296,6 +359,13 @@ export function getCommonFoods(userId?: string | null): CommonFood[] {
 export function addPlannedFoodEntry(input: PlannedFoodEntryInput, userId?: string | null): PlannedFoodEntry {
   const entries = readEntries(userId);
   const now = new Date().toISOString();
+  const repeatMode = normalizeRepeatMode(input.repeatMode);
+  const repeatDays =
+    repeatMode === 'selected_days'
+      ? normalizeRepeatDays(input.repeatDays)
+      : repeatMode === 'daily'
+        ? ALL_DAYS
+        : null;
   const next: PlannedFoodEntry = {
     id: crypto.randomUUID(),
     date: input.date,
@@ -309,6 +379,8 @@ export function addPlannedFoodEntry(input: PlannedFoodEntryInput, userId?: strin
     carbs_g: Math.max(0, Math.round(input.carbs_g)),
     fat_g: Math.max(0, Math.round(input.fat_g)),
     sourceRecipeId: input.sourceRecipeId || null,
+    repeatMode,
+    repeatDays,
     createdAt: now,
     updatedAt: now,
   };
