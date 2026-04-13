@@ -170,6 +170,15 @@ type SmsAssistantContext = {
   } | null;
 };
 
+type SmsTextReminder = {
+  id: string;
+  title: string;
+  sendAt: string;
+  recipientPhone: string;
+  completedAt?: string | null;
+  createdAt: string;
+};
+
 type GroceryAddIntent = {
   name: string;
   quantity: string;
@@ -206,6 +215,11 @@ type MealFollowUpIntent = {
   servings?: number;
   deleteLog?: boolean;
   genericDelete?: boolean;
+};
+
+type TextReminderIntent = {
+  title: string;
+  sendAt: string;
 };
 
 type RecipeLookupRow = {
@@ -1161,6 +1175,28 @@ function normalizeGroceryState(input: unknown): StoredGroceryListState {
   };
 }
 
+function normalizeSmsTextReminders(input: unknown): SmsTextReminder[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const row = item as Record<string, unknown>;
+      const title = typeof row.title === "string" ? row.title.trim().replace(/\s+/g, " ") : "";
+      const sendAt = typeof row.sendAt === "string" ? row.sendAt.trim() : "";
+      const recipientPhone = normalizePhone(String(row.recipientPhone || ""));
+      if (!title || !sendAt || !recipientPhone) return null;
+      return {
+        id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(),
+        title,
+        sendAt,
+        recipientPhone,
+        completedAt: typeof row.completedAt === "string" && row.completedAt.trim() ? row.completedAt.trim() : null,
+        createdAt: typeof row.createdAt === "string" && row.createdAt.trim() ? row.createdAt.trim() : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is SmsTextReminder => Boolean(item));
+}
+
 function normalizeStoredTasks(input: unknown): StoredTask[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -1339,6 +1375,62 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     };
   }
 
+  const calendarPatterns = [
+    {
+      pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      defaultLayer: null,
+    },
+    {
+      pattern: /^add\s+(.+?)\s+to\s+(.+?)\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      defaultLayer: null,
+    },
+    {
+      pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      defaultLayer: "family",
+    },
+    {
+      pattern: /^add\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      defaultLayer: "family",
+    },
+    {
+      pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      defaultLayer: null,
+    },
+    {
+      pattern: /^add\s+(.+?)\s+to\s+(.+?)\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      defaultLayer: null,
+    },
+    {
+      pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      defaultLayer: "family",
+    },
+    {
+      pattern: /^add\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      defaultLayer: "family",
+    },
+  ];
+
+  for (const { pattern, defaultLayer } of calendarPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    const title = normalizeCalendarTitle(trimTrailingPunctuation(match[1] || ""));
+    const rawLayer = defaultLayer ? defaultLayer : trimTrailingPunctuation(match[2] || "");
+    const layer = normalizeCalendarLayerName(rawLayer);
+    const dateIndex = defaultLayer ? 2 : 3;
+    const timeIndex = defaultLayer ? 3 : 4;
+    const date = parseUsDate(trimTrailingPunctuation(match[dateIndex] || ""), timezone);
+    const startsAt = date ? parseTimeForZone(trimTrailingPunctuation(match[timeIndex] || ""), date, timezone) : null;
+    if (!title || !layer || !date || !startsAt) continue;
+    return {
+      title,
+      layer,
+      startsAt: startsAt.toUTC().toISO() || "",
+      endsAt: startsAt.plus({ hours: 1 }).toUTC().toISO() || null,
+      allDay: false,
+    };
+  }
+
   const patterns = [
     /^add\s+(.+?)\s+for\s+(.+?)\s+at\s+(.+?)\s+on\s+(.+)$/i,
     /^add\s+(.+?)\s+for\s+(.+?)\s+on\s+(.+?)\s+at\s+(.+)$/i,
@@ -1460,6 +1552,58 @@ function asksForGroceryList(body: string): boolean {
   return /(?:what(?:'s| is)\s+on\s+(?:the\s+)?grocery(?:\s+list)?|show\s+(?:me\s+)?(?:the\s+)?grocery(?:\s+list)?)/i.test(body);
 }
 
+function parseTextReminderIntent(body: string, timezone: string): TextReminderIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  const patterns = [
+    /^remind me\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+?)\s+to\s+(.+)$/i,
+    /^remind me\s+at\s+(.+?)\s+to\s+(.+)$/i,
+    /^remind me\s+to\s+(.+?)\s+at\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    if (pattern === patterns[0]) {
+      const date = parseUsDate(trimTrailingPunctuation(match[1] || ""), timezone);
+      const sendAt = date ? parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone) : null;
+      const title = titleCaseWords(trimTrailingPunctuation(match[3] || "").toLowerCase());
+      if (!date || !sendAt || !title) return null;
+      return { title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+
+    if (pattern === patterns[1]) {
+      const localNow = DateTime.now().setZone(timezone);
+      let date = localNow.startOf("day");
+      let sendAt = parseTimeForZone(trimTrailingPunctuation(match[1] || ""), date, timezone);
+      const title = titleCaseWords(trimTrailingPunctuation(match[2] || "").toLowerCase());
+      if (!sendAt || !title) return null;
+      if (sendAt <= localNow.plus({ minutes: 1 })) {
+        date = date.plus({ days: 1 });
+        sendAt = parseTimeForZone(trimTrailingPunctuation(match[1] || ""), date, timezone);
+      }
+      if (!sendAt) return null;
+      return { title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+
+    if (pattern === patterns[2]) {
+      const localNow = DateTime.now().setZone(timezone);
+      let date = localNow.startOf("day");
+      let sendAt = parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone);
+      const title = titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase());
+      if (!sendAt || !title) return null;
+      if (sendAt <= localNow.plus({ minutes: 1 })) {
+        date = date.plus({ days: 1 });
+        sendAt = parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone);
+      }
+      if (!sendAt) return null;
+      return { title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+  }
+
+  return null;
+}
+
 function parseWaterLogIntent(body: string): WaterLogIntent | null {
   const normalized = trimTrailingPunctuation(body);
   const patterns = [
@@ -1542,6 +1686,25 @@ function parseTaskAddIntent(body: string, timezone: string): TaskAddIntent | nul
   }
 
   return null;
+}
+
+function activeGroceryWeekOf(groceryState: StoredGroceryListState, timezone: string): string {
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const currentWeekOf = startOfWeekIso(localToday);
+  const nextWeekOf = startOfWeekIso(localToday.plus({ weeks: 1 }));
+  const currentWeek = groceryState.weekStates[currentWeekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+  return currentWeek.orderedAt ? nextWeekOf : currentWeekOf;
+}
+
+function latestOrderedGroceryWeekOf(groceryState: StoredGroceryListState): string | null {
+  let latest: { weekOf: string; orderedAt: string } | null = null;
+  Object.entries(groceryState.weekStates).forEach(([weekOf, state]) => {
+    if (!state?.orderedAt) return;
+    if (!latest || state.orderedAt > latest.orderedAt) {
+      latest = { weekOf, orderedAt: state.orderedAt };
+    }
+  });
+  return latest?.weekOf || null;
 }
 
 function parseTaskCompleteIntent(body: string): TaskCompleteIntent | null {
@@ -1997,6 +2160,9 @@ async function addGroceryItemBySms(
 ): Promise<string> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const currentWeekOf = startOfWeekIso(localToday);
+  const targetWeekOf = activeGroceryWeekOf(groceryState, timezone);
   const normalizedName = normalizeGroceryItemName(intent.name);
   const item: GroceryManualItem = {
     id: crypto.randomUUID(),
@@ -2009,9 +2175,8 @@ async function addGroceryItemBySms(
   if (intent.weekly) {
     groceryState.recurringItems = [...groceryState.recurringItems, item];
   } else {
-    const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
-    const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
-    groceryState.weekStates[weekOf] = {
+    const currentWeek = groceryState.weekStates[targetWeekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+    groceryState.weekStates[targetWeekOf] = {
       ...currentWeek,
       manualItems: [...currentWeek.manualItems, item],
     };
@@ -2022,7 +2187,7 @@ async function addGroceryItemBySms(
 
   return intent.weekly
     ? `${item.name} will now show up on your grocery list every week.`
-    : groceryState.weekStates[startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"))]?.orderedAt
+    : targetWeekOf !== currentWeekOf
       ? `${item.name} is now on your next grocery list.`
       : `${item.name} is now on this week’s grocery list.`;
 }
@@ -2035,8 +2200,10 @@ async function removeGroceryItemBySms(
 ): Promise<string> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
-  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
-  const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const currentWeekOf = startOfWeekIso(localToday);
+  const activeWeekOf = activeGroceryWeekOf(groceryState, timezone);
+  const currentWeek = groceryState.weekStates[activeWeekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
 
   const recurringBefore = groceryState.recurringItems.length;
   groceryState.recurringItems = groceryState.recurringItems.filter((item) => !groceryItemMatchesName(item.name, intent.name));
@@ -2065,7 +2232,10 @@ async function updateGroceryOrderBySms(
 ): Promise<string> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
-  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+  const weekOf =
+    action === "ordered"
+      ? activeGroceryWeekOf(groceryState, timezone)
+      : latestOrderedGroceryWeekOf(groceryState) || startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
   const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
   groceryState.weekStates[weekOf] = {
     ...currentWeek,
@@ -2087,7 +2257,10 @@ async function buildGroceryListReply(
 ): Promise<string> {
   const document = await loadProfileSettingsDocument(supabase, userId);
   const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
-  const weekOf = startOfWeekIso(DateTime.now().setZone(timezone).startOf("day"));
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const currentWeekOf = startOfWeekIso(localToday);
+  const weekOf = activeGroceryWeekOf(groceryState, timezone);
+  const activeWeekOf = weekOf;
   const currentWeek = groceryState.weekStates[weekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
 
   const names = [
@@ -2096,13 +2269,40 @@ async function buildGroceryListReply(
   ];
   const uniqueNames = [...new Set(names)].filter(Boolean);
   if (!uniqueNames.length) {
-    return currentWeek.orderedAt
+    return activeWeekOf !== currentWeekOf
       ? "Your current grocery order is marked done. Only new items or weekly staples will show for the next order."
       : "Your grocery list is empty right now.";
   }
   const preview = uniqueNames.slice(0, 10).join(", ");
   const more = uniqueNames.length > 10 ? `, +${uniqueNames.length - 10} more` : "";
   return `Your grocery list has ${uniqueNames.length} items: ${preview}${more}.`;
+}
+
+async function addTextReminderBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  recipientPhone: string,
+  intent: TextReminderIntent,
+): Promise<string> {
+  const document = await loadProfileSettingsDocument(supabase, userId);
+  const reminders = normalizeSmsTextReminders(getDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"]));
+  const reminder: SmsTextReminder = {
+    id: crypto.randomUUID(),
+    title: intent.title,
+    sendAt: intent.sendAt,
+    recipientPhone: normalizePhone(recipientPhone),
+    completedAt: null,
+    createdAt: new Date().toISOString(),
+  };
+  const nextDocument = setDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"], [...reminders, reminder]);
+  await saveProfileSettingsDocument(supabase, userId, nextDocument);
+
+  const localSendAt = safeDateTime(intent.sendAt, "utc")?.setZone(timezone);
+  const whenText = localSendAt?.isValid
+    ? `${localSendAt.toFormat("LLL d")} at ${localSendAt.toFormat("h:mm a")}`
+    : "the requested time";
+  return `Okay. I’ll text you on ${whenText} to ${intent.title.toLowerCase()}.`;
 }
 
 function taskOccursOnDate(task: StoredTask, date: DateTime): boolean {
@@ -2858,7 +3058,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt for family at 9:00 AM on 4/6\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt to Katie calendar on 4/6 at 9:00 AM\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- remind me tomorrow at 3 PM to take the trash out\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -2934,6 +3134,17 @@ serve(async (req) => {
       } catch (error) {
         console.error("sms water log failed:", error);
         return twiml("I could not save that water log right now. Please try again in a moment.");
+      }
+    }
+
+    const textReminderIntent = parseTextReminderIntent(body, timezone);
+    if (textReminderIntent) {
+      try {
+        const reply = await addTextReminderBySms(supabase, pref.user_id, timezone, from, textReminderIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms text reminder failed:", error);
+        return twiml("I could not save that reminder right now. Please try again in a moment.");
       }
     }
 

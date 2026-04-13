@@ -52,6 +52,19 @@ type SmsPreferenceRow = {
   updated_at?: string | null;
 };
 
+type ProfileSettingsRow = {
+  onboarding_settings: unknown;
+};
+
+type SmsTextReminder = {
+  id: string;
+  title: string;
+  sendAt: string;
+  recipientPhone: string;
+  completedAt?: string | null;
+  createdAt: string;
+};
+
 function preferredDinnerTimeForDay(row: SmsPreferenceRow, weekdayName: string): string {
   const fallback = String(row.preferred_dinner_time || "18:00").slice(0, 5);
   const rawMap = row.dinner_times_by_day && typeof row.dinner_times_by_day === "object"
@@ -61,6 +74,62 @@ function preferredDinnerTimeForDay(row: SmsPreferenceRow, weekdayName: string): 
   if (typeof candidate !== "string") return fallback;
   const normalized = candidate.slice(0, 5);
   return /^\d{2}:\d{2}$/.test(normalized) ? normalized : fallback;
+}
+
+function getNestedValue(input: unknown, path: string[]): unknown {
+  let current = input;
+  for (const segment of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function setNestedValue(input: unknown, path: string[], value: unknown): Record<string, unknown> {
+  const base =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? { ...(input as Record<string, unknown>) }
+      : {};
+  if (path.length === 0) return base;
+
+  let cursor = base;
+  path.forEach((segment, index) => {
+    const isLeaf = index === path.length - 1;
+    if (isLeaf) {
+      cursor[segment] = value;
+      return;
+    }
+    const existing = cursor[segment];
+    const next =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    cursor[segment] = next;
+    cursor = next;
+  });
+  return base;
+}
+
+function normalizeSmsTextReminders(input: unknown): SmsTextReminder[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const row = item as Record<string, unknown>;
+      const title = typeof row.title === "string" ? row.title.trim() : "";
+      const sendAt = typeof row.sendAt === "string" ? row.sendAt.trim() : "";
+      const recipientPhone = normalizePhone(String(row.recipientPhone || ""));
+      if (!title || !sendAt || !recipientPhone) return null;
+      return {
+        id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(),
+        title,
+        sendAt,
+        recipientPhone,
+        completedAt: typeof row.completedAt === "string" && row.completedAt.trim() ? row.completedAt.trim() : null,
+        createdAt: typeof row.createdAt === "string" && row.createdAt.trim() ? row.createdAt.trim() : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is SmsTextReminder => Boolean(item));
 }
 
 const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
@@ -803,6 +872,14 @@ serve(async (req) => {
         const nowMinutes = localNow.hour * 60 + localNow.minute;
         if (inQuietHours(nowMinutes, row.quiet_hours_start, row.quiet_hours_end)) continue;
 
+        const { data: profileRow, error: profileError } = await supabase
+          .from("profiles")
+          .select("onboarding_settings")
+          .eq("id", row.user_id)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        const profileSettingsDocument = (profileRow as ProfileSettingsRow | null)?.onboarding_settings;
+
         const todayLocal = localNow.startOf("day");
         const tomorrowLocal = todayLocal.plus({ days: 1 });
 
@@ -1011,14 +1088,7 @@ serve(async (req) => {
         );
 
         if (shouldSendWellnessNudge) {
-          const { data: profileRow, error: profileError } = await supabase
-            .from("profiles")
-            .select("onboarding_settings")
-            .eq("id", row.user_id)
-            .maybeSingle();
-          if (profileError) throw profileError;
-
-          const snapshot = parseOnboardingHealthSnapshot(profileRow?.onboarding_settings || null);
+          const snapshot = parseOnboardingHealthSnapshot(profileSettingsDocument || null);
           let workoutCountWeek = 0;
 
           if (
@@ -1061,6 +1131,73 @@ serve(async (req) => {
                 errors.push(`wellness:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
                 await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
               }
+            }
+          }
+        }
+
+        const textReminders = normalizeSmsTextReminders(
+          getNestedValue(profileSettingsDocument, ["appPreferences", "smsAssistant", "textReminders"]),
+        );
+        const dueTextReminders = textReminders.filter((reminder) => {
+          if (reminder.completedAt) return false;
+          if (!normalizePhone(reminder.recipientPhone)) return false;
+          const sendAtLocal = DateTime.fromISO(reminder.sendAt, { zone: "utc" }).setZone(timezone);
+          if (!isUsableDateTime(sendAtLocal)) return false;
+          const closeAt = sendAtLocal.plus({ minutes: Math.max(windowMinutes + lateGraceMinutes, eventCatchupMinutes) });
+          return localNow >= sendAtLocal && localNow < closeAt;
+        });
+
+        if (dueTextReminders.length > 0) {
+          let nextTextReminders = [...textReminders];
+          let remindersChanged = false;
+
+          for (const reminder of dueTextReminders) {
+            const sendAtLocal = DateTime.fromISO(reminder.sendAt, { zone: "utc" }).setZone(timezone);
+            const sendAtIso = sendAtLocal.toUTC().toISO();
+            if (!sendAtIso) continue;
+
+            const dedupeKey = `text-reminder:${row.user_id}:${reminder.id}:${reminder.recipientPhone}`;
+            const logId = await insertDedupeLog(
+              supabase,
+              row.user_id,
+              dedupeKey,
+              "text_reminder",
+              sendAtIso,
+              { timezone, reminderId: reminder.id, to: reminder.recipientPhone },
+            );
+            if (!logId) continue;
+
+            try {
+              const body = `Home Harmony reminder: ${reminder.title}.`;
+              const result = await sendTwilioSms(reminder.recipientPhone, body);
+              messagesSent += 1;
+              await markLogStatus(supabase, logId, "sent", result.sid, {
+                timezone,
+                reminderId: reminder.id,
+                to: reminder.recipientPhone,
+              });
+              nextTextReminders = nextTextReminders.map((item) =>
+                item.id === reminder.id ? { ...item, completedAt: new Date().toISOString() } : item
+              );
+              remindersChanged = true;
+            } catch (sendError) {
+              errors.push(`text-reminder:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+              await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: reminder.recipientPhone });
+            }
+          }
+
+          if (remindersChanged) {
+            const nextProfileSettings = setNestedValue(
+              profileSettingsDocument,
+              ["appPreferences", "smsAssistant", "textReminders"],
+              nextTextReminders,
+            );
+            const { error: updateProfileError } = await supabase
+              .from("profiles")
+              .update({ onboarding_settings: nextProfileSettings })
+              .eq("id", row.user_id);
+            if (updateProfileError) {
+              console.error("Failed to mark text reminders completed:", updateProfileError.message);
             }
           }
         }
