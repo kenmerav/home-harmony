@@ -1992,23 +1992,23 @@ export default function MealsPage() {
             </div>
             <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
-                className="grid min-w-[900px]"
-                style={{ gridTemplateColumns: '220px repeat(7, minmax(100px, 1fr))' }}
+                className="grid w-full min-w-0"
+                style={{ gridTemplateColumns: '180px repeat(7, minmax(0, 1fr))' }}
               >
-                <div className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0 border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Meal
                 </div>
                 {weekDateRows.map((row) => (
                   <div
                     key={`top-grid-header-${row.date}`}
-                    className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground last:border-r-0"
+                    className="min-w-0 border-b border-r border-border bg-muted/30 px-2 py-2 text-xs font-semibold text-foreground last:border-r-0"
                   >
                     {format(new Date(`${row.date}T00:00:00`), 'EEE d')}
                   </div>
                 ))}
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`top-grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3">
+                    <div className="min-w-0 border-b border-r border-border bg-muted/10 px-3 py-3">
                       <div className="flex flex-col items-start gap-1.5">
                         <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
                         <Button
@@ -2032,7 +2032,7 @@ export default function MealsPage() {
                       return (
                         <div
                           key={`top-grid-cell-${gridRow.key}-${row.date}`}
-                          className="border-b border-r border-border p-2 last:border-r-0"
+                          className="min-w-0 border-b border-r border-border p-2 last:border-r-0"
                         >
                           <div className="space-y-2">
                             {showDinner && dayMeal?.recipes && (
@@ -2992,16 +2992,16 @@ export default function MealsPage() {
             </div>
             <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
               <div
-                className="grid min-w-[900px]"
-                style={{ gridTemplateColumns: '220px repeat(7, minmax(100px, 1fr))' }}
+                className="grid w-full min-w-0"
+                style={{ gridTemplateColumns: '180px repeat(7, minmax(0, 1fr))' }}
               >
-                <div className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0 border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Meal
                 </div>
                 {weekDateRows.map((row) => (
                   <div
                     key={`grid-header-${row.date}`}
-                    className="border-b border-r border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground last:border-r-0"
+                    className="min-w-0 border-b border-r border-border bg-muted/30 px-2 py-2 text-xs font-semibold text-foreground last:border-r-0"
                   >
                     {format(new Date(`${row.date}T00:00:00`), 'EEE d')}
                   </div>
@@ -3009,7 +3009,7 @@ export default function MealsPage() {
 
                 {MEAL_GRID_ROWS.map((gridRow) => (
                   <Fragment key={`grid-row-${gridRow.key}`}>
-                    <div className="border-b border-r border-border bg-muted/10 px-3 py-3">
+                    <div className="min-w-0 border-b border-r border-border bg-muted/10 px-3 py-3">
                       <div className="flex flex-col items-start gap-1.5">
                         <span className="text-sm font-medium text-foreground">{gridRow.label}</span>
                         <Button
@@ -3032,7 +3032,7 @@ export default function MealsPage() {
                       return (
                         <div
                           key={`grid-cell-${gridRow.key}-${row.date}`}
-                          className="border-b border-r border-border p-2 last:border-r-0"
+                          className="min-w-0 border-b border-r border-border p-2 last:border-r-0"
                         >
                           <div className="space-y-2">
                             {showScheduledDinner && dinnerBase && (
