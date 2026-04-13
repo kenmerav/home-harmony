@@ -10,7 +10,7 @@ import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { DayOfWeek } from '@/types';
 import { Lock, Unlock, SkipForward, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Shuffle, Settings2, Plus, Trash2, Calculator, Sparkles, Camera, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, startOfWeek, addDays, addWeeks } from 'date-fns';
+import { format, startOfWeek, addDays, addWeeks, differenceInCalendarWeeks } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -1656,12 +1656,21 @@ export default function MealsPage() {
     const weekStartDate = weekDateRows[0]?.date;
     const weekEndDate = weekDateRows[weekDateRows.length - 1]?.date;
     if (!weekStartDate || !weekEndDate) return;
+    if (!plannerDay) {
+      setPlannerDay(firstPlannerDateWithContent);
+      setPlannerForm((prev) => (prev.date === firstPlannerDateWithContent ? prev : { ...prev, date: firstPlannerDateWithContent }));
+      setSuggestionDate(firstPlannerDateWithContent);
+      return;
+    }
     if (plannerDay >= weekStartDate && plannerDay <= weekEndDate) return;
 
-    setPlannerDay(firstPlannerDateWithContent);
-    setPlannerForm((prev) => (prev.date === firstPlannerDateWithContent ? prev : { ...prev, date: firstPlannerDateWithContent }));
-    setSuggestionDate(firstPlannerDateWithContent);
-  }, [firstPlannerDateWithContent, plannerDay, weekDateRows]);
+    const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const targetWeekStart = startOfWeek(new Date(`${plannerDay}T12:00:00`), { weekStartsOn: 1 });
+    const targetWeekOffset = differenceInCalendarWeeks(targetWeekStart, currentWeekStart, { weekStartsOn: 1 });
+    if (targetWeekOffset !== weekOffset) {
+      setWeekOffset(targetWeekOffset);
+    }
+  }, [firstPlannerDateWithContent, plannerDay, weekDateRows, weekOffset]);
 
   const applyMacroSuggestionToPlanner = (suggestion: MacroMealSuggestion) => {
     setPlannerForm((prev) => ({
