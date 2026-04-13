@@ -519,6 +519,9 @@ export default function GroceryPage() {
   const [manualItemQuantity, setManualItemQuantity] = useState('');
   const [manualItemCategory, setManualItemCategory] = useState<GroceryCategory>('other');
   const [manualItemRepeatsWeekly, setManualItemRepeatsWeekly] = useState(false);
+  const [editItemOpen, setEditItemOpen] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemRepeatsWeekly, setEditingItemRepeatsWeekly] = useState(false);
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   const restoredScrollRef = useRef(false);
   const { toast } = useToast();
@@ -754,6 +757,14 @@ export default function GroceryPage() {
     setManualItemRepeatsWeekly(false);
   };
 
+  const resetEditItemDialog = () => {
+    setEditingItemId(null);
+    setManualItemName('');
+    setManualItemQuantity('');
+    setManualItemCategory('other');
+    setEditingItemRepeatsWeekly(false);
+  };
+
   const addManualItem = () => {
     const name = manualItemName.trim().replace(/\s+/g, ' ');
     if (!name) {
@@ -860,6 +871,85 @@ export default function GroceryPage() {
       description: item.recurringItemIds.length > 0
         ? 'Weekly staple removed from future lists.'
         : 'Manual item removed from this week.',
+    });
+  };
+
+  const openEditCustomItem = (item: GroceryItem) => {
+    const recurringSource = groceryListState.recurringItems.find((entry) => item.recurringItemIds.includes(entry.id));
+    const manualSource = activeWeekState.manualItems.find((entry) => item.manualItemIds.includes(entry.id));
+    const source = recurringSource || manualSource;
+    if (!source) return;
+
+    setEditingItemId(source.id);
+    setManualItemName(source.name);
+    setManualItemQuantity(source.quantity);
+    setManualItemCategory(source.category);
+    setEditingItemRepeatsWeekly(Boolean(recurringSource));
+    setEditItemOpen(true);
+  };
+
+  const saveEditedCustomItem = () => {
+    if (!editingItemId) return;
+
+    const name = manualItemName.trim().replace(/\s+/g, ' ');
+    if (!name) {
+      toast({ title: 'Add an item name first', variant: 'destructive' });
+      return;
+    }
+
+    const nextItem: GroceryListManualItem = {
+      id: editingItemId,
+      name,
+      quantity: manualItemQuantity.trim().replace(/\s+/g, ' ') || '1x',
+      category: manualItemCategory === 'other' ? categorizeIngredient(name) : manualItemCategory,
+      createdAt: new Date().toISOString(),
+    };
+
+    setGroceryListState((previous) => {
+      const nextRecurringItems = previous.recurringItems.filter((item) => item.id !== editingItemId);
+      const activeWeek = previous.weekStates[activeWeekOf] || defaultGroceryWeekState();
+      const nextManualItems = activeWeek.manualItems.filter((item) => item.id !== editingItemId);
+      const nextWeekStates = { ...previous.weekStates };
+
+      if (editingItemRepeatsWeekly) {
+        nextWeekStates[activeWeekOf] = {
+          ...activeWeek,
+          manualItems: nextManualItems,
+        };
+        if (
+          nextWeekStates[activeWeekOf].checkedKeys.length === 0
+          && nextWeekStates[activeWeekOf].manualItems.length === 0
+          && !nextWeekStates[activeWeekOf].orderedAt
+        ) {
+          delete nextWeekStates[activeWeekOf];
+        }
+
+        return {
+          ...previous,
+          recurringItems: [...nextRecurringItems, nextItem],
+          weekStates: nextWeekStates,
+        };
+      }
+
+      nextWeekStates[activeWeekOf] = {
+        ...activeWeek,
+        manualItems: [...nextManualItems, nextItem],
+      };
+
+      return {
+        ...previous,
+        recurringItems: nextRecurringItems,
+        weekStates: nextWeekStates,
+      };
+    });
+
+    setEditItemOpen(false);
+    resetEditItemDialog();
+    toast({
+      title: 'Grocery item updated',
+      description: editingItemRepeatsWeekly
+        ? `${name} will keep showing as a weekly staple.`
+        : `${name} was updated on this grocery order.`,
     });
   };
 
@@ -1227,12 +1317,27 @@ export default function GroceryPage() {
                       onCheckedChange={() => toggleItem(item.key)}
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={cn(
-                        "font-medium text-sm transition-gentle",
-                        item.isChecked && "line-through text-muted-foreground"
-                      )}>
-                        {item.name} <span className="text-muted-foreground">({item.quantity})</span>
-                      </p>
+                      {item.manualItemIds.length > 0 || item.recurringItemIds.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditCustomItem(item)}
+                          className="w-full text-left"
+                        >
+                          <p className={cn(
+                            "font-medium text-sm transition-gentle underline decoration-dotted underline-offset-2",
+                            item.isChecked && "line-through text-muted-foreground"
+                          )}>
+                            {item.name} <span className="text-muted-foreground">({item.quantity})</span>
+                          </p>
+                        </button>
+                      ) : (
+                        <p className={cn(
+                          "font-medium text-sm transition-gentle",
+                          item.isChecked && "line-through text-muted-foreground"
+                        )}>
+                          {item.name} <span className="text-muted-foreground">({item.quantity})</span>
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                         {item.sourceRecipes.map((source, index) => (
                           <span key={`${item.id}-source-${source.label}`} className="inline-flex items-center gap-1.5">
@@ -1385,6 +1490,76 @@ export default function GroceryPage() {
               <Button onClick={addManualItem}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add item
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editItemOpen}
+        onOpenChange={(open) => {
+          setEditItemOpen(open);
+          if (!open) resetEditItemDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Grocery Item</DialogTitle>
+            <DialogDescription>
+              Update the quantity or decide whether this should stay on your weekly staples list.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Item name</p>
+              <Input
+                value={manualItemName}
+                onChange={(event) => setManualItemName(event.target.value)}
+                placeholder="Milk"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Quantity</p>
+                <Input
+                  value={manualItemQuantity}
+                  onChange={(event) => setManualItemQuantity(event.target.value)}
+                  placeholder="1 gallon"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Category</p>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={manualItemCategory}
+                  onChange={(event) => setManualItemCategory(event.target.value as GroceryCategory)}
+                >
+                  <option value="produce">Produce</option>
+                  <option value="meat">Meat & Protein</option>
+                  <option value="dairy">Dairy</option>
+                  <option value="pantry">Pantry</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={editingItemRepeatsWeekly}
+                onCheckedChange={(checked) => setEditingItemRepeatsWeekly(Boolean(checked))}
+              />
+              <span className="text-sm">Keep this as a weekly staple</span>
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditItemOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveEditedCustomItem}>
+                Save Changes
               </Button>
             </div>
           </div>
