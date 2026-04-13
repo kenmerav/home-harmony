@@ -218,6 +218,7 @@ type MealFollowUpIntent = {
 };
 
 type TextReminderIntent = {
+  personName?: string;
   title: string;
   sendAt: string;
 };
@@ -316,6 +317,15 @@ function safeDateTime(value: string | null | undefined, zone: string): DateTime 
 
 function hasAnyKeyword(text: string, words: string[]): boolean {
   return words.some((word) => text.includes(word));
+}
+
+function normalizeNameForMatch(value: string | null | undefined): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatAgendaList(label: string, date: DateTime, events: AgendaEvent[]): string {
@@ -1554,17 +1564,17 @@ function asksForGroceryList(body: string): boolean {
 
 function parseTextReminderIntent(body: string, timezone: string): TextReminderIntent | null {
   const normalized = trimTrailingPunctuation(body);
-  const patterns = [
+  const mePatterns = [
     /^remind me\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+?)\s+to\s+(.+)$/i,
     /^remind me\s+at\s+(.+?)\s+to\s+(.+)$/i,
     /^remind me\s+to\s+(.+?)\s+at\s+(.+)$/i,
   ];
 
-  for (const pattern of patterns) {
+  for (const pattern of mePatterns) {
     const match = normalized.match(pattern);
     if (!match) continue;
 
-    if (pattern === patterns[0]) {
+    if (pattern === mePatterns[0]) {
       const date = parseUsDate(trimTrailingPunctuation(match[1] || ""), timezone);
       const sendAt = date ? parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone) : null;
       const title = titleCaseWords(trimTrailingPunctuation(match[3] || "").toLowerCase());
@@ -1572,7 +1582,7 @@ function parseTextReminderIntent(body: string, timezone: string): TextReminderIn
       return { title, sendAt: sendAt.toUTC().toISO() || "" };
     }
 
-    if (pattern === patterns[1]) {
+    if (pattern === mePatterns[1]) {
       const localNow = DateTime.now().setZone(timezone);
       let date = localNow.startOf("day");
       let sendAt = parseTimeForZone(trimTrailingPunctuation(match[1] || ""), date, timezone);
@@ -1586,7 +1596,7 @@ function parseTextReminderIntent(body: string, timezone: string): TextReminderIn
       return { title, sendAt: sendAt.toUTC().toISO() || "" };
     }
 
-    if (pattern === patterns[2]) {
+    if (pattern === mePatterns[2]) {
       const localNow = DateTime.now().setZone(timezone);
       let date = localNow.startOf("day");
       let sendAt = parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone);
@@ -1598,6 +1608,56 @@ function parseTextReminderIntent(body: string, timezone: string): TextReminderIn
       }
       if (!sendAt) return null;
       return { title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+  }
+
+  const personPatterns = [
+    /^remind\s+(.+?)\s+(today|tomorrow|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+at\s+(.+?)\s+to\s+(.+)$/i,
+    /^remind\s+(.+?)\s+at\s+(.+?)\s+to\s+(.+)$/i,
+    /^remind\s+(.+?)\s+to\s+(.+?)\s+at\s+(.+)$/i,
+  ];
+
+  for (const pattern of personPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    if (pattern === personPatterns[0]) {
+      const personName = titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase());
+      const date = parseUsDate(trimTrailingPunctuation(match[2] || ""), timezone);
+      const sendAt = date ? parseTimeForZone(trimTrailingPunctuation(match[3] || ""), date, timezone) : null;
+      const title = titleCaseWords(trimTrailingPunctuation(match[4] || "").toLowerCase());
+      if (!personName || !date || !sendAt || !title) return null;
+      return { personName, title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+
+    if (pattern === personPatterns[1]) {
+      const personName = titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase());
+      const localNow = DateTime.now().setZone(timezone);
+      let date = localNow.startOf("day");
+      let sendAt = parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone);
+      const title = titleCaseWords(trimTrailingPunctuation(match[3] || "").toLowerCase());
+      if (!personName || !sendAt || !title) return null;
+      if (sendAt <= localNow.plus({ minutes: 1 })) {
+        date = date.plus({ days: 1 });
+        sendAt = parseTimeForZone(trimTrailingPunctuation(match[2] || ""), date, timezone);
+      }
+      if (!sendAt) return null;
+      return { personName, title, sendAt: sendAt.toUTC().toISO() || "" };
+    }
+
+    if (pattern === personPatterns[2]) {
+      const personName = titleCaseWords(trimTrailingPunctuation(match[1] || "").toLowerCase());
+      const localNow = DateTime.now().setZone(timezone);
+      let date = localNow.startOf("day");
+      let sendAt = parseTimeForZone(trimTrailingPunctuation(match[3] || ""), date, timezone);
+      const title = titleCaseWords(trimTrailingPunctuation(match[2] || "").toLowerCase());
+      if (!personName || !sendAt || !title) return null;
+      if (sendAt <= localNow.plus({ minutes: 1 })) {
+        date = date.plus({ days: 1 });
+        sendAt = parseTimeForZone(trimTrailingPunctuation(match[3] || ""), date, timezone);
+      }
+      if (!sendAt) return null;
+      return { personName, title, sendAt: sendAt.toUTC().toISO() || "" };
     }
   }
 
@@ -2285,13 +2345,90 @@ async function addTextReminderBySms(
   recipientPhone: string,
   intent: TextReminderIntent,
 ): Promise<string> {
-  const document = await loadProfileSettingsDocument(supabase, userId);
+  const { document, fullName } = await loadProfileSettingsContext(supabase, userId);
+  let resolvedRecipientPhone = normalizePhone(recipientPhone);
+  let resolvedRecipientName: string | null = null;
+
+  if (intent.personName) {
+    const requestedName = normalizeNameForMatch(intent.personName);
+    const senderFirstName = normalizeNameForMatch(firstNameFromFullName(fullName));
+    const senderFullName = normalizeNameForMatch(fullName);
+
+    if (requestedName === "me" || (senderFirstName && requestedName === senderFirstName) || (senderFullName && requestedName === senderFullName)) {
+      resolvedRecipientName = firstNameFromFullName(fullName) || intent.personName;
+    } else {
+      const { data: ownerProfile, error: ownerProfileError } = await supabase
+        .from("profiles")
+        .select("household_id,full_name")
+        .eq("id", userId)
+        .maybeSingle();
+      if (ownerProfileError) throw ownerProfileError;
+
+      const householdId = typeof ownerProfile?.household_id === "string" ? ownerProfile.household_id : null;
+      if (!householdId) {
+        return `I can save reminders for you right now. To text someone else, their number needs to be linked in Home Harmony.`;
+      }
+
+      const { data: householdMembers, error: householdMembersError } = await supabase
+        .from("household_members")
+        .select("user_id,status")
+        .eq("household_id", householdId)
+        .eq("status", "active");
+      if (householdMembersError) throw householdMembersError;
+
+      const memberUserIds = Array.from(
+        new Set(
+          (householdMembers || [])
+            .map((member) => (typeof member.user_id === "string" ? member.user_id : ""))
+            .filter(Boolean),
+        ),
+      );
+
+      let memberProfiles: Array<{ id: string; full_name: string | null }> = [];
+      let memberSmsPrefs: Array<{ user_id: string; phone_e164: string | null; enabled: boolean | null }> = [];
+
+      if (memberUserIds.length) {
+        const [{ data: loadedProfiles, error: memberProfilesError }, { data: loadedSmsPrefs, error: memberSmsPrefsError }] =
+          await Promise.all([
+            supabase.from("profiles").select("id,full_name").in("id", memberUserIds),
+            supabase.from("sms_preferences").select("user_id,phone_e164,enabled").in("user_id", memberUserIds),
+          ]);
+        if (memberProfilesError) throw memberProfilesError;
+        if (memberSmsPrefsError) throw memberSmsPrefsError;
+        memberProfiles = (loadedProfiles || []) as Array<{ id: string; full_name: string | null }>;
+        memberSmsPrefs = (loadedSmsPrefs || []) as Array<{ user_id: string; phone_e164: string | null; enabled: boolean | null }>;
+      }
+
+      const phoneByUserId = new Map<string, string>();
+      for (const row of memberSmsPrefs) {
+        if (row.enabled === false) continue;
+        const normalizedPhone = normalizePhone(String(row.phone_e164 || ""));
+        if (!normalizedPhone) continue;
+        phoneByUserId.set(String(row.user_id || ""), normalizedPhone);
+      }
+
+      const matchedMember = memberProfiles.find((profile) => {
+        const full = normalizeNameForMatch(String(profile.full_name || ""));
+        const first = full.split(" ")[0] || "";
+        return requestedName === full || requestedName === first;
+      });
+
+      const matchedUserId = String(matchedMember?.id || "");
+      const matchedPhone = matchedUserId ? phoneByUserId.get(matchedUserId) || null : null;
+      if (!matchedPhone) {
+        return `I can save reminders for you right now, but I couldn't find a linked phone number for ${intent.personName}.`;
+      }
+      resolvedRecipientPhone = matchedPhone;
+      resolvedRecipientName = firstNameFromFullName(String(matchedMember?.full_name || "")) || intent.personName;
+    }
+  }
+
   const reminders = normalizeSmsTextReminders(getDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"]));
   const reminder: SmsTextReminder = {
     id: crypto.randomUUID(),
     title: intent.title,
     sendAt: intent.sendAt,
-    recipientPhone: normalizePhone(recipientPhone),
+    recipientPhone: resolvedRecipientPhone,
     completedAt: null,
     createdAt: new Date().toISOString(),
   };
@@ -2302,7 +2439,9 @@ async function addTextReminderBySms(
   const whenText = localSendAt?.isValid
     ? `${localSendAt.toFormat("LLL d")} at ${localSendAt.toFormat("h:mm a")}`
     : "the requested time";
-  return `Okay. I’ll text you on ${whenText} to ${intent.title.toLowerCase()}.`;
+  return resolvedRecipientName
+    ? `Okay. I’ll text ${resolvedRecipientName} on ${whenText} to ${intent.title.toLowerCase()}.`
+    : `Okay. I’ll text you on ${whenText} to ${intent.title.toLowerCase()}.`;
 }
 
 function taskOccursOnDate(task: StoredTask, date: DateTime): boolean {
