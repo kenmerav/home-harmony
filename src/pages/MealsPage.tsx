@@ -1013,6 +1013,44 @@ export default function MealsPage() {
     updatePlannerFormServings(formatQuarterStep(currentServings));
   };
 
+  const renderPlannerServingsControl = (compact = false) => (
+    <div className={cn('space-y-1', compact && 'min-w-[180px]')}>
+      <p className="text-xs font-medium text-muted-foreground">Servings</p>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-10 w-10 shrink-0"
+          onClick={() => nudgePlannerFormServings(-0.25)}
+        >
+          -
+        </Button>
+        <Input
+          type="number"
+          step="0.25"
+          min="0.1"
+          inputMode="decimal"
+          value={plannerForm.servings}
+          onChange={(event) => updatePlannerFormServings(event.target.value)}
+          onKeyDown={handlePlannerServingsKeyDown}
+          onBlur={snapPlannerFormServingsToQuarter}
+          className="text-center"
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-10 w-10 shrink-0"
+          onClick={() => nudgePlannerFormServings(0.25)}
+        >
+          +
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">Changes calories and macros automatically.</p>
+    </div>
+  );
+
   const closeGridQuickAdd = () => {
     setGridQuickAddContext(null);
     setPlannerRepeatMode('once');
@@ -2869,7 +2907,7 @@ export default function MealsPage() {
                           ))}
                       </select>
                     </div>
-                    <div className="grid gap-2 md:grid-cols-[1fr_140px]">
+                    <div className="grid gap-2 md:grid-cols-[1fr_220px]">
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-muted-foreground">Meal name</p>
                         <Input
@@ -2878,19 +2916,7 @@ export default function MealsPage() {
                           onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
                         />
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">Servings</p>
-                        <Input
-                          type="number"
-                          step="0.25"
-                          min="0.1"
-                          inputMode="decimal"
-                          value={plannerForm.servings}
-                          onChange={(event) => updatePlannerFormServings(event.target.value)}
-                          onKeyDown={handlePlannerServingsKeyDown}
-                          onBlur={snapPlannerFormServingsToQuarter}
-                        />
-                      </div>
+                      {renderPlannerServingsControl()}
                     </div>
 
                     <details className="rounded-md border border-border bg-background px-3 py-2">
@@ -3924,20 +3950,8 @@ export default function MealsPage() {
                 onChange={(event) => setPlannerForm((prev) => ({ ...prev, name: event.target.value }))}
               />
             </div>
-            <div className="grid gap-2 md:grid-cols-5">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Servings</p>
-                <Input
-                  type="number"
-                  step="0.25"
-                  min="0.1"
-                  inputMode="decimal"
-                  value={plannerForm.servings}
-                  onChange={(event) => updatePlannerFormServings(event.target.value)}
-                  onKeyDown={handlePlannerServingsKeyDown}
-                  onBlur={snapPlannerFormServingsToQuarter}
-                />
-              </div>
+            <div className="grid gap-2 md:grid-cols-[220px_repeat(4,minmax(0,1fr))]">
+              {renderPlannerServingsControl(true)}
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Calories</p>
                 <Input
