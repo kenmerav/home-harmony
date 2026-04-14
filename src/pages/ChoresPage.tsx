@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -457,7 +458,9 @@ function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[];
 }
 
 export default function ChoresPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+  const childRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [state, setState] = useState<ChoresState>(() => defaultState());
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
   const [addChildOpen, setAddChildOpen] = useState(false);
@@ -608,6 +611,22 @@ export default function ChoresPage() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [activeKey, loadedForKey]);
+
+  useEffect(() => {
+    const childId = searchParams.get('child');
+    if (!childId) return;
+    const target = childRefs.current[childId];
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const timer = window.setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('child');
+        return next;
+      }, { replace: true });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [children, searchParams, setSearchParams]);
 
   const updateChild = (childId: string, updater: (child: ChildEconomy) => ChildEconomy) => {
     setState((prev) => ({
@@ -1284,19 +1303,28 @@ export default function ChoresPage() {
           }
 
           return (
-            <SectionCard
+            <div
               key={child.id}
-              title={child.name}
-              subtitle={
-                dailyTotal > 0 ? `${dailyCompleted}/${dailyTotal} daily chores complete` : 'No chores yet'
-              }
-              action={
-                <Button variant="ghost" size="sm" onClick={() => removeChild(child.id)}>
-                  <X className="w-4 h-4" />
-                </Button>
-              }
+              ref={(node) => {
+                childRefs.current[child.id] = node;
+              }}
+              className={cn(
+                'rounded-xl transition-colors',
+                searchParams.get('child') === child.id && 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background',
+              )}
             >
-              <div className="space-y-4">
+              <SectionCard
+                title={child.name}
+                subtitle={
+                  dailyTotal > 0 ? `${dailyCompleted}/${dailyTotal} daily chores complete` : 'No chores yet'
+                }
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => removeChild(child.id)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                }
+              >
+                <div className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -1627,8 +1655,9 @@ export default function ChoresPage() {
                   <Plus className="w-4 h-4 mr-2" />
                   Add Chore
                 </Button>
-              </div>
-            </SectionCard>
+                </div>
+              </SectionCard>
+            </div>
           );
         })}
       </div>

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Flame, Trash2, Trophy } from 'lucide-react';
 import { LocalFamilyMemberDialog } from '@/components/family/LocalFamilyMemberDialog';
+import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import {
   acceptHouseholdInvite,
   createOrGetHousehold,
@@ -60,6 +61,7 @@ export default function FamilyPage() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
   const [pendingDeleteMember, setPendingDeleteMember] = useState<DashboardProfile | null>(null);
+  const [editingLeaderboardAdultId, setEditingLeaderboardAdultId] = useState<string | null>(null);
   const inviteSectionRef = useRef<HTMLElement | null>(null);
   const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
@@ -214,6 +216,14 @@ export default function FamilyPage() {
     window.setTimeout(() => inviteEmailInputRef.current?.focus(), 120);
   };
 
+  const onLeaderboardNameClick = (entry: (typeof familyLeaderboard)[number]) => {
+    if (entry.type === 'adult') {
+      setEditingLeaderboardAdultId(entry.id);
+      return;
+    }
+    navigate(`/chores?child=${encodeURIComponent(entry.id)}`);
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -311,7 +321,18 @@ export default function FamilyPage() {
                   <div key={entry.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-5 text-xs font-semibold text-muted-foreground">{index + 1}</span>
-                      <p className="text-sm font-medium">{entry.name}</p>
+                      <button
+                        type="button"
+                        onClick={() => onLeaderboardNameClick(entry)}
+                        className="text-sm font-medium underline-offset-4 hover:underline text-left"
+                        title={
+                          entry.type === 'adult'
+                            ? `Edit ${entry.name}'s scoring targets`
+                            : `Edit ${entry.name}'s chores and skills`
+                        }
+                      >
+                        {entry.name}
+                      </button>
                       {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
                       <span className="text-xs text-muted-foreground">{entry.headline}</span>
                     </div>
@@ -440,6 +461,14 @@ export default function FamilyPage() {
         open={localMemberDialogOpen}
         onOpenChange={setLocalMemberDialogOpen}
         userId={user?.id}
+      />
+      <MacroGoalDialog
+        personId={editingLeaderboardAdultId || 'me'}
+        open={Boolean(editingLeaderboardAdultId)}
+        onOpenChange={(open) => {
+          if (!open) setEditingLeaderboardAdultId(null);
+        }}
+        onSaved={() => setRefreshTick((prev) => prev + 1)}
       />
       <AlertDialog open={Boolean(pendingDeleteMember)} onOpenChange={(open) => !open && setPendingDeleteMember(null)}>
         <AlertDialogContent>
