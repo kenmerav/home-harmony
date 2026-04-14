@@ -1,4 +1,4 @@
-import { format, subDays } from 'date-fns';
+import { addDays, format, startOfWeek, subDays } from 'date-fns';
 import { mockMealLogs, mockProfiles } from '@/data/mockData';
 import { getPlannedFoodEntriesForDate } from '@/lib/mealBudgetPlanner';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
@@ -1288,9 +1288,10 @@ export function getCurrentStreak(personId: AdultId, date = new Date()): number {
 }
 
 export function getWeekPoints(personId: AdultId, date = new Date()): number {
+  const weekStart = startOfWeek(date, { weekStartsOn: 1 });
   let points = 0;
   for (let i = 0; i < 7; i += 1) {
-    const d = format(subDays(date, i), 'yyyy-MM-dd');
+    const d = format(addDays(weekStart, i), 'yyyy-MM-dd');
     points += getDailyScore(personId, d).points;
   }
   return points;
@@ -1373,7 +1374,8 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
       }>;
     };
     const todayKey = format(date, 'yyyy-MM-dd');
-    const weekKeys = Array.from({ length: 7 }, (_, index) => format(subDays(date, index), 'yyyy-MM-dd'));
+    const weekStart = startOfWeek(date, { weekStartsOn: 1 });
+    const weekKeys = Array.from({ length: 7 }, (_, index) => format(addDays(weekStart, index), 'yyyy-MM-dd'));
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children.map((child) => {
       const dailyChores = Array.isArray(child.dailyChores) ? child.dailyChores : [];
