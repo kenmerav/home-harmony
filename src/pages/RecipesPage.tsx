@@ -808,7 +808,7 @@ export default function RecipesPage() {
   const checklistAgeDays = checklistStartDate
     ? Math.floor((Date.now() - new Date(checklistStartDate).getTime()) / 86_400_000)
     : 0;
-  const shouldShowSetupChecklist = !checklistAllDone && checklistAgeDays < 21;
+  const shouldShowSetupChecklist = !checklistAllDone && checklistAgeDays < 7;
   const activeImportJobs = importJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const bulkParsedUrls = parseBulkUrlInput(bulkUrlsInput);
   const bulkUrlCount = bulkParsedUrls.length;
