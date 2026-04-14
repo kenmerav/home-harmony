@@ -11,6 +11,16 @@ export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'ath
 export type BodyGoal = 'fat_loss' | 'maintenance' | 'muscle_gain' | 'recomp';
 export type GoalPace = 'slow' | 'moderate' | 'aggressive';
 export type BodyUnitSystem = 'imperial' | 'metric';
+export type AdultScoreCategory = 'meals' | 'protein' | 'calories' | 'water' | 'alcohol' | 'consistency';
+
+export interface AdultScoreSettings {
+  meals: boolean;
+  protein: boolean;
+  calories: boolean;
+  water: boolean;
+  alcohol: boolean;
+  consistency: boolean;
+}
 
 const STORAGE_KEY = 'homehub.macroGameState.v1';
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
@@ -51,6 +61,7 @@ export interface MacroPlan {
   proteinOnlyMode: boolean;
   waterTargetOz: number;
   alcoholLimitDrinks: number;
+  scorePointsFor: AdultScoreSettings;
 }
 
 export interface FemaleHealthSettings {
@@ -269,6 +280,14 @@ function defaultPlan(id: AdultId, name?: string): MacroPlan {
     proteinOnlyMode: false,
     waterTargetOz: isFemalePreset ? 80 : 100,
     alcoholLimitDrinks: isFemalePreset ? 1 : 2,
+    scorePointsFor: {
+      meals: true,
+      protein: true,
+      calories: true,
+      water: true,
+      alcohol: true,
+      consistency: true,
+    },
   };
 }
 
@@ -378,6 +397,10 @@ function normalizeProfiles(
           ...incomingQuestionnaire,
         },
         bodyUnitSystem: incomingMacroPlan.bodyUnitSystem || basePlan.bodyUnitSystem,
+        scorePointsFor: {
+          ...basePlan.scorePointsFor,
+          ...(incomingMacroPlan.scorePointsFor || {}),
+        },
       },
     };
   });
@@ -1234,12 +1257,16 @@ export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
   const alcoholHit = trackers.alcoholDrinks <= plan.alcoholLimitDrinks;
   const goalHit = plan.proteinOnlyMode ? proteinHit : proteinHit && calorieHit;
 
-  const pointsMeals = Math.min(20, logs.length * 5);
-  const pointsProtein = proteinHit ? 30 : 0;
-  const pointsCalories = calorieHit ? 25 : 0;
-  const pointsWater = waterHit ? 15 : 0;
-  const pointsAlcohol = alcoholHit ? 10 : 0;
-  const pointsConsistency = goalHit && waterHit ? 10 : 0;
+  const scoring = {
+    ...defaultPlan(personId, profile.name).scorePointsFor,
+    ...(plan.scorePointsFor || {}),
+  };
+  const pointsMeals = scoring.meals ? Math.min(20, logs.length * 5) : 0;
+  const pointsProtein = scoring.protein && proteinHit ? 30 : 0;
+  const pointsCalories = scoring.calories && calorieHit ? 25 : 0;
+  const pointsWater = scoring.water && waterHit ? 15 : 0;
+  const pointsAlcohol = scoring.alcohol && alcoholHit ? 10 : 0;
+  const pointsConsistency = scoring.consistency && goalHit && waterHit ? 10 : 0;
   const points =
     pointsMeals + pointsProtein + pointsCalories + pointsWater + pointsAlcohol + pointsConsistency;
 

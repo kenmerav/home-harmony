@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import {
   AdultId,
+  AdultScoreSettings,
   ActivityLevel,
   BodyUnitSystem,
   BodyGoal,
@@ -107,6 +108,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
     fat_g: profile.macroPlan.fat_g,
   });
   const [proteinOnlyMode, setProteinOnlyMode] = useState(profile.macroPlan.proteinOnlyMode);
+  const [scorePointsFor, setScorePointsFor] = useState<AdultScoreSettings>(profile.macroPlan.scorePointsFor);
   const [ageInput, setAgeInput] = useState(String(profile.macroPlan.questionnaire.age));
   const [heightFeetInput, setHeightFeetInput] = useState('');
   const [heightInchesInput, setHeightInchesInput] = useState('');
@@ -153,6 +155,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
       fat_g: String(next.macroPlan.fat_g),
     });
     setProteinOnlyMode(next.macroPlan.proteinOnlyMode);
+    setScorePointsFor(next.macroPlan.scorePointsFor);
     setWaterTargetInput(String(next.macroPlan.waterTargetOz));
     setAlcoholLimitInput(String(next.macroPlan.alcoholLimitDrinks));
     syncQuestionnaireDrafts(next.macroPlan.questionnaire, nextUnitSystem);
@@ -255,6 +258,7 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
       proteinOnlyMode,
       waterTargetOz: Math.max(16, Math.round(waterTarget)),
       alcoholLimitDrinks: Math.max(0, Number(alcoholLimit.toFixed(1))),
+      scorePointsFor,
     });
     onOpenChange(false);
     onSaved?.();
@@ -567,6 +571,35 @@ export function MacroGoalDialog({ personId, open, onOpenChange, onSaved }: Macro
               <Checkbox checked={proteinOnlyMode} onCheckedChange={(checked) => setProteinOnlyMode(!!checked)} />
               <span className="text-sm">Protein-only success mode</span>
             </label>
+            <div className="rounded-md border border-border bg-muted/10 px-3 py-3 space-y-2">
+              <p className="text-sm font-medium">Score points for</p>
+              <p className="text-xs text-muted-foreground">
+                Choose which habits actually count toward this adult&apos;s leaderboard score.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  ['protein', 'Protein target'],
+                  ['calories', 'Calories on target'],
+                  ['water', 'Water target'],
+                  ['alcohol', 'Alcohol goal'],
+                  ['meals', 'Meals logged'],
+                  ['consistency', 'Consistency bonus'],
+                ].map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2">
+                    <Checkbox
+                      checked={scorePointsFor[key as keyof AdultScoreSettings]}
+                      onCheckedChange={(checked) =>
+                        setScorePointsFor((prev) => ({
+                          ...prev,
+                          [key]: !!checked,
+                        }))
+                      }
+                    />
+                    <span className="text-sm">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Water target (oz)</p>
