@@ -222,6 +222,14 @@ function formatQuarterStep(value: number): string {
   return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function stripServingTextFromName(name: string): string {
+  return name
+    .replace(/\s*\((?:about\s+)?\d+(?:\.\d+)?\s+servings?\)\s*$/i, '')
+    .replace(/\s*-\s*\d+(?:\.\d+)?\s+servings?\s*$/i, '')
+    .replace(/\s*\b\d+(?:\.\d+)?\s+servings?\b\s*$/i, '')
+    .trim();
+}
+
 const MEAL_GRID_ROWS: MealGridRow[] = [
   { key: 'breakfast', label: 'Breakfast', mealType: 'breakfast' },
   { key: 'snack-1', label: 'Snack', mealType: 'snack' },
@@ -1135,7 +1143,8 @@ export default function MealsPage() {
     const carbs = Number.parseInt(plannerForm.carbs_g, 10) || 0;
     const fat = Number.parseInt(plannerForm.fat_g, 10) || 0;
 
-    if (!plannerForm.name.trim()) {
+    const normalizedName = stripServingTextFromName(plannerForm.name.trim());
+    if (!normalizedName) {
       toast({ title: 'Add a food name first', variant: 'destructive' });
       return;
     }
@@ -1150,7 +1159,7 @@ export default function MealsPage() {
 
     addOrUpdateCommonFood(
       {
-        name: plannerForm.name.trim(),
+        name: normalizedName,
         defaultMealType: plannerForm.mealType,
         servings,
         calories,
@@ -1164,7 +1173,7 @@ export default function MealsPage() {
     if (!options.silent) {
       toast({
         title: 'Saved to My Foods',
-        description: `${plannerForm.name.trim()} will now be easy to reuse without making it a recipe.`,
+        description: `${normalizedName} will now be easy to reuse without making it a recipe.`,
       });
     }
   };
@@ -1249,7 +1258,7 @@ export default function MealsPage() {
       setPlannerForm((prev) => ({
         ...prev,
         recipeId: '',
-        name: result.meal?.name || prev.name,
+        name: stripServingTextFromName(result.meal?.name || prev.name),
         servings: getPlannerEstimateServings() || '1',
         calories: String(result.meal?.calories || 0),
         protein_g: String(result.meal?.protein_g || 0),
@@ -1295,7 +1304,7 @@ export default function MealsPage() {
       setPlannerForm((prev) => ({
         ...prev,
         recipeId: '',
-        name: result.meal?.name || prev.name,
+        name: stripServingTextFromName(result.meal?.name || prev.name),
         servings: getPlannerEstimateServings() || '1',
         calories: String(result.meal?.calories || 0),
         protein_g: String(result.meal?.protein_g || 0),
@@ -1382,7 +1391,8 @@ export default function MealsPage() {
       toast({ title: 'Pick a date', variant: 'destructive' });
       return false;
     }
-    if (!plannerForm.name.trim()) {
+    const normalizedName = stripServingTextFromName(plannerForm.name.trim());
+    if (!normalizedName) {
       toast({ title: 'Add a meal/item name', variant: 'destructive' });
       return false;
     }
@@ -1423,7 +1433,7 @@ export default function MealsPage() {
           mealType: plannerForm.mealType,
           personId: targetPersonId,
           personName: targetPersonName,
-          name: plannerForm.name.trim(),
+          name: normalizedName,
           servings,
           calories,
           protein_g: protein,
@@ -1452,7 +1462,7 @@ export default function MealsPage() {
         mealType: plannerForm.mealType,
         personId: targetPersonId,
         personName: targetPersonName,
-        name: plannerForm.name.trim(),
+        name: normalizedName,
         servings,
         calories,
         protein_g: protein,
@@ -1473,7 +1483,7 @@ export default function MealsPage() {
       title: plannerRepeatMode === 'once' ? 'Planned meal added' : 'Recurring meal added',
       description:
         plannerRepeatMode !== 'once'
-          ? `${plannerForm.name.trim()} will now repeat ${plannerRepeatMode === 'daily' ? 'every day' : 'on the selected days'} until you delete it${targetPersonName ? ` for ${targetPersonName}` : ''}.`
+          ? `${normalizedName} will now repeat ${plannerRepeatMode === 'daily' ? 'every day' : 'on the selected days'} until you delete it${targetPersonName ? ` for ${targetPersonName}` : ''}.`
           : options.prepareAnother
             ? 'Saved. You can add another recipe to this same slot now.'
             : undefined,
@@ -1511,7 +1521,7 @@ export default function MealsPage() {
       date: entry.date,
       mealType: entry.mealType,
       recipeId: entry.sourceRecipeId || '',
-      name: entry.name,
+      name: stripServingTextFromName(entry.name),
       servings: String(entry.servings),
       calories: String(entry.calories),
       protein_g: String(entry.protein_g),
@@ -1519,7 +1529,7 @@ export default function MealsPage() {
       fat_g: String(entry.fat_g),
     });
     setPlannerRecipeQuery('');
-    setPlannerPhotoNote(entry.name);
+    setPlannerPhotoNote(stripServingTextFromName(entry.name));
     setPlannerDay(entry.date);
     setSuggestionDate(entry.date);
     setPlannerRepeatMode(entry.repeatMode || 'once');
@@ -3305,7 +3315,7 @@ export default function MealsPage() {
                         >
                           <div>
                             <p className="text-sm font-medium">
-                              {plannedMealTypeLabel[entry.mealType]}: {entry.name}
+                              {plannedMealTypeLabel[entry.mealType]}: {stripServingTextFromName(entry.name)}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {entry.servings}x • {entry.calories} cal • {entry.protein_g}P • {entry.carbs_g}C • {entry.fat_g}F
