@@ -173,12 +173,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to load subscription:', error.message);
       setSubscription(null);
     } else {
-      setSubscription({
+      const nextSubscription = {
         status: data?.status || 'inactive',
         currentPeriodEnd: data?.current_period_end || null,
         trialEndsAt: data?.trial_ends_at || null,
         priceId: data?.price_id || null,
-      });
+      };
+
+      const activeStatuses = new Set(['active', 'trialing']);
+      if (!activeStatuses.has(String(nextSubscription.status || '').toLowerCase())) {
+        try {
+          const household = await getHouseholdDashboard();
+          const activeMembers = (household.members || []).filter((member) => member.status === 'active');
+          const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
+          if (currentMember && currentMember.role !== 'owner') {
+            setSubscription({
+              status: 'active',
+              currentPeriodEnd: null,
+              trialEndsAt: null,
+              priceId: 'household-shared-access',
+            });
+            setSubscriptionLoading(false);
+            return;
+          }
+        } catch (householdError) {
+          console.error('Failed to load household coverage for subscription:', householdError);
+        }
+      }
+
+      setSubscription(nextSubscription);
     }
     setSubscriptionLoading(false);
   }, [isDemoUser, user]);
