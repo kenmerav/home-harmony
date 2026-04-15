@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek, subDays } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -166,20 +166,15 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     );
   }
   const todos = getDashboardTodos(personId);
-  const todaysActualLogs = useMemo(
-    () => getActualMealLogsForDate(personId, todayKey, user?.id),
-    [personId, refreshTick, todayKey, user?.id],
-  );
+  const todaysActualLogs = getActualMealLogsForDate(personId, todayKey, user?.id);
   const isFemaleDashboard = profile.macroPlan.questionnaire.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
   const weekPoints = getWeekPoints(personId, currentDate);
   const targetCalories = profile.macroPlan.calories || 2000;
   const dashboardDinnerServings = getDinnerServingsForProfileDate(personId, todayKey, user?.id);
-  const plannedDinnerEntry = useMemo(
-    () => getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null,
-    [todayKey, user?.id],
-  );
+  const plannedDinnerEntry =
+    getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null;
   const liveTodaysMeal = liveMeals.find(
     (meal) =>
       meal.week_of === currentWeekOf &&
@@ -187,7 +182,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       !meal.is_skipped &&
       !!meal.recipes,
   );
-  const tonightDinner = useMemo<DinnerCandidate | null>(() => {
+  const tonightDinner: DinnerCandidate | null = (() => {
     if (plannedDinnerEntry) {
       const servings = Math.max(0.1, plannedDinnerEntry.servings || 1);
       return {
@@ -219,7 +214,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     }
 
     return createMockDinnerCandidate(currentDay);
-  }, [currentDay, liveTodaysMeal, plannedDinnerEntry]);
+  })();
 
   const handleQuickAddDinner = () => {
     if (!tonightDinner) return;
