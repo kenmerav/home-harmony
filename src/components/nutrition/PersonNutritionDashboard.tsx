@@ -165,15 +165,25 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       </AppLayout>
     );
   }
+  const macroPlan = profile.macroPlan || {
+    calories: 2000,
+    protein_g: 0,
+    carbs_g: 0,
+    fat_g: 0,
+    waterTargetOz: 0,
+    alcoholLimitDrinks: 0,
+    proteinOnlyMode: false,
+    questionnaire: undefined,
+  };
   const todos = getDashboardTodos(personId);
   const todaysActualLogs = getActualMealLogsForDate(personId, todayKey, user?.id);
-  const questionnaire = profile.macroPlan.questionnaire;
+  const questionnaire = macroPlan.questionnaire;
   const goalLabel = questionnaire?.goal ? questionnaire.goal.replace('_', ' ') : 'maintain';
   const isFemaleDashboard = questionnaire?.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
   const weekPoints = getWeekPoints(personId, currentDate);
-  const targetCalories = profile.macroPlan.calories || 2000;
+  const targetCalories = macroPlan.calories || 2000;
   const dashboardDinnerServings = getDinnerServingsForProfileDate(personId, todayKey, user?.id);
   const plannedDinnerEntry =
     getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null;
@@ -430,7 +440,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       <div className="space-y-6">
         <SectionCard
           title="Today's Progress"
-          subtitle={`Final targets (editable): ${profile.macroPlan.calories} cal • ${profile.macroPlan.protein_g}P • ${profile.macroPlan.carbs_g}C • ${profile.macroPlan.fat_g}F`}
+          subtitle={`Final targets (editable): ${macroPlan.calories} cal • ${macroPlan.protein_g}P • ${macroPlan.carbs_g}C • ${macroPlan.fat_g}F`}
         >
           <MacroBar
             current={{
@@ -440,17 +450,17 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
               fat_g: todayScore.fat_g,
             }}
             target={{
-              calories: profile.macroPlan.calories,
-              protein_g: profile.macroPlan.protein_g,
-              carbs_g: profile.macroPlan.carbs_g,
-              fat_g: profile.macroPlan.fat_g,
+              calories: macroPlan.calories,
+              protein_g: macroPlan.protein_g,
+              carbs_g: macroPlan.carbs_g,
+              fat_g: macroPlan.fat_g,
             }}
           />
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <MetricPill label="Points" value={`${todayScore.points}`} highlight />
             <MetricPill label="Streak" value={`${currentStreak} days`} />
-            <MetricPill label="Water" value={`${todayScore.waterOz}/${profile.macroPlan.waterTargetOz} oz`} />
-            <MetricPill label="Alcohol" value={`${todayScore.alcoholDrinks}/${profile.macroPlan.alcoholLimitDrinks}`} />
+            <MetricPill label="Water" value={`${todayScore.waterOz}/${macroPlan.waterTargetOz} oz`} />
+            <MetricPill label="Alcohol" value={`${todayScore.alcoholDrinks}/${macroPlan.alcoholLimitDrinks}`} />
           </div>
         </SectionCard>
 
@@ -915,7 +925,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
         <SectionCard title="Game Mode">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full border border-border px-3 py-1">
-              {profile.macroPlan.proteinOnlyMode ? 'Protein-only mode' : 'Full macro mode'}
+              {macroPlan.proteinOnlyMode ? 'Protein-only mode' : 'Full macro mode'}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1">
               <Flame className="w-4 h-4 text-orange-500" />
