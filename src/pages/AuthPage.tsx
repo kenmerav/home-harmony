@@ -8,6 +8,7 @@ import { stashPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { getPostAuthRoute } from '@/lib/billing';
 import { sendWelcomeEmail } from '@/lib/api/emails';
+import { loadPendingInviteOnboarding } from '@/lib/onboardingStore';
 
 export default function AuthPage() {
   const {
@@ -38,12 +39,13 @@ export default function AuthPage() {
   const ab = search.get('ab');
   const inviteToken = search.get('invite');
   const inviteRole = search.get('role');
+  const pendingInvite = loadPendingInviteOnboarding();
 
   const buildInviteOnboardingPath = (sourceInvite?: { token?: string | null; role?: string | null }) => {
     const params = new URLSearchParams();
     params.set('force', '1');
-    const nextInviteToken = sourceInvite?.token ?? inviteToken;
-    const nextInviteRole = sourceInvite?.role ?? inviteRole;
+    const nextInviteToken = sourceInvite?.token ?? inviteToken ?? pendingInvite?.token;
+    const nextInviteRole = sourceInvite?.role ?? inviteRole ?? pendingInvite?.role;
     if (nextInviteToken) params.set('invite', nextInviteToken);
     if (nextInviteRole) params.set('role', nextInviteRole);
     return `/onboarding?${params.toString()}`;
@@ -67,6 +69,18 @@ export default function AuthPage() {
       };
     })();
     const canUpgradeLegacyInviteReturn = Boolean(legacyInviteParams?.token && legacyInviteParams?.role);
+    const hasInviteOnboardingIntent = Boolean(
+      onboardingIntent || inviteToken || pendingInvite?.token || canUpgradeLegacyInviteReturn,
+    );
+    if (hasInviteOnboardingIntent) {
+      navigate(
+        buildInviteOnboardingPath(
+          legacyInviteParams?.token || legacyInviteParams?.role ? legacyInviteParams || undefined : undefined,
+        ),
+        { replace: true },
+      );
+      return;
+    }
     if (returnTo) {
       navigate(
         isLegacyInviteReturn && canUpgradeLegacyInviteReturn
@@ -90,6 +104,8 @@ export default function AuthPage() {
     isSubscribed,
     navigate,
     onboardingIntent,
+    pendingInvite?.role,
+    pendingInvite?.token,
     profileLoading,
     returnTo,
     subscriptionLoading,

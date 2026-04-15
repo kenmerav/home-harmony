@@ -29,9 +29,11 @@ import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
 import {
+  clearPendingInviteOnboarding,
   clearOnboardingDraft,
   loadOnboardingDraft,
   loadOnboardingResult,
+  savePendingInviteOnboarding,
   saveOnboardingDraft,
   saveOnboardingResult,
   type StoredOnboardingResult,
@@ -1089,6 +1091,16 @@ export default function OnboardingPage() {
   const spouseOnboarding = effectiveHouseholdRole === 'spouse';
   const kidOnboarding = effectiveHouseholdRole === 'kid';
 
+  useEffect(() => {
+    if (inviteToken) {
+      savePendingInviteOnboarding(inviteToken, provisionalInviteRole);
+      return;
+    }
+    if (user?.id && isProfileComplete) {
+      clearPendingInviteOnboarding();
+    }
+  }, [inviteToken, isProfileComplete, provisionalInviteRole, user?.id]);
+
   const steps = useMemo(
     () =>
       invitedHouseholdMember
@@ -1541,6 +1553,7 @@ export default function OnboardingPage() {
       await updateProfile({
         onboarding_completed_at: payload.completedAt,
       });
+      clearPendingInviteOnboarding();
 
       await trackGrowthEventSafe(
         'onboarding_complete',
@@ -1643,6 +1656,9 @@ export default function OnboardingPage() {
       });
 
       if (sessionCreated) {
+        if (inviteToken) {
+          savePendingInviteOnboarding(inviteToken, provisionalInviteRole);
+        }
         saveOnboardingDraft(null, {
           onboarding: answers as unknown as Record<string, unknown>,
           stepId: 'paywallPrep',

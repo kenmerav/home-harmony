@@ -7,6 +7,11 @@ export interface StoredOnboardingResult {
   personalizedPlan: Record<string, unknown>;
 }
 
+export interface PendingInviteOnboarding {
+  token: string;
+  role: string | null;
+}
+
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
@@ -17,6 +22,10 @@ function resultKey(userId?: string | null): string {
 
 function draftKey(userId?: string | null): string {
   return `homehub.onboardingDraft.v1:${userId || 'anon'}`;
+}
+
+function pendingInviteKey(): string {
+  return 'homehub.pendingInviteOnboarding.v1';
 }
 
 function readLocalResult(userId?: string | null): StoredOnboardingResult | null {
@@ -131,4 +140,35 @@ export function saveOnboardingDraft(
 export function clearOnboardingDraft(userId?: string | null) {
   if (!canUseStorage()) return;
   window.localStorage.removeItem(draftKey(userId));
+}
+
+export function loadPendingInviteOnboarding(): PendingInviteOnboarding | null {
+  if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(pendingInviteKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingInviteOnboarding>;
+    const token = typeof parsed.token === 'string' ? parsed.token.trim() : '';
+    if (!token) return null;
+    const role = typeof parsed.role === 'string' && parsed.role.trim() ? parsed.role.trim() : null;
+    return { token, role };
+  } catch {
+    return null;
+  }
+}
+
+export function savePendingInviteOnboarding(token: string, role?: string | null) {
+  if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') return;
+  const normalizedToken = token.trim();
+  if (!normalizedToken) return;
+  const payload: PendingInviteOnboarding = {
+    token: normalizedToken,
+    role: typeof role === 'string' && role.trim() ? role.trim() : null,
+  };
+  window.sessionStorage.setItem(pendingInviteKey(), JSON.stringify(payload));
+}
+
+export function clearPendingInviteOnboarding() {
+  if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') return;
+  window.sessionStorage.removeItem(pendingInviteKey());
 }
