@@ -224,7 +224,7 @@ export default function TodayPage() {
   const { toast } = useToast();
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [mealServings, setMealServings] = useState('1');
+  const [mealServingsById, setMealServingsById] = useState<Record<string, string>>({});
   const [liveMeals, setLiveMeals] = useState<DbPlannedMeal[]>([]);
   const [prizeDialogOpen, setPrizeDialogOpen] = useState(false);
   const [leaderboardPrize, setLeaderboardPrize] = useState('');
@@ -242,7 +242,6 @@ export default function TodayPage() {
   const [quickAddPhotoNote, setQuickAddPhotoNote] = useState('');
   const [estimatingMealPhoto, setEstimatingMealPhoto] = useState(false);
   const [logMealCategory, setLogMealCategory] = useState<LogMealCategory>('dinner');
-  const [selectedLogMealId, setSelectedLogMealId] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [summaryView, setSummaryView] = useState<TodaySummaryView>('schedule');
@@ -541,10 +540,6 @@ export default function TodayPage() {
   }, [fallbackDinner, mockTodaysMeal, plannedEntriesToday]);
 
   const logMealCandidates = logMealCandidatesByCategory[logMealCategory] || [];
-  const selectedLogMeal = useMemo(
-    () => logMealCandidates.find((entry) => entry.id === selectedLogMealId) || logMealCandidates[0] || null,
-    [logMealCandidates, selectedLogMealId],
-  );
   const tonightDinnerCandidate = logMealCandidatesByCategory.dinner[0] || null;
   const myDinnerAlreadyLogged = useMemo(
     () => getEffectiveMealLogsForDate('me', todayKey, user?.id).some((log) => log.mealType === 'dinner'),
@@ -552,17 +547,14 @@ export default function TodayPage() {
   );
 
   useEffect(() => {
-    if (logMealCandidates.length === 0) {
-      if (selectedLogMealId) setSelectedLogMealId('');
-      return;
-    }
-    const exists = logMealCandidates.some((entry) => entry.id === selectedLogMealId);
-    if (!exists) {
-      const first = logMealCandidates[0];
-      setSelectedLogMealId(first.id);
-      setMealServings(String(first.defaultServings || 1));
-    }
-  }, [logMealCandidates, selectedLogMealId]);
+    setMealServingsById((prev) => {
+      const next: Record<string, string> = {};
+      logMealCandidates.forEach((entry) => {
+        next[entry.id] = prev[entry.id] || String(entry.defaultServings || 1);
+      });
+      return next;
+    });
+  }, [logMealCandidates]);
 
   const parseServings = (raw: string) => {
     const parsed = Number.parseFloat(raw);
@@ -573,10 +565,10 @@ export default function TodayPage() {
   const logMealCandidate = (
     candidate: LogMealCandidate | null,
     person: string | 'all',
-    servingsInput = mealServings,
+    servingsInput?: string,
   ) => {
     if (!candidate) return;
-    const servings = parseServings(servingsInput);
+    const servings = parseServings(servingsInput ?? mealServingsById[candidate.id] ?? String(candidate.defaultServings || 1));
     const scaledMacros = {
       calories: Math.round(candidate.macrosPerServing.calories * servings),
       protein_g: Math.round(candidate.macrosPerServing.protein_g * servings),
@@ -622,8 +614,8 @@ export default function TodayPage() {
     refresh();
   };
 
-  const logMeal = (person: string | 'all') => {
-    logMealCandidate(selectedLogMeal, selectedLogMeal?.personId || person);
+  const setCandidateServings = (candidateId: string, value: string) => {
+    setMealServingsById((prev) => ({ ...prev, [candidateId]: value }));
   };
 
   const submitQuickAdd = (input = quickAddData, options?: { closeDialog?: boolean; title?: string; description?: string }) => {
@@ -1038,7 +1030,7 @@ export default function TodayPage() {
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2 mb-4">
+            <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Meal slot</label>
                 <select
@@ -1053,113 +1045,93 @@ export default function TodayPage() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Planned item</label>
-                <select
-                  value={selectedLogMeal?.id || ''}
-                  onChange={(event) => {
-                    const nextId = event.target.value;
-                    setSelectedLogMealId(nextId);
-                    const nextCandidate = logMealCandidates.find((entry) => entry.id === nextId);
-                    if (nextCandidate) {
-                      setMealServings(String(nextCandidate.defaultServings || 1));
-                    }
-                  }}
-                  disabled={logMealCandidates.length === 0}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
-                >
-                  {logMealCandidates.length === 0 ? (
-                    <option value="">No planned items</option>
-                  ) : (
-                    logMealCandidates.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.label}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            </div>
 
-            {selectedLogMeal ? (
+            {logMealCandidates.length > 0 ? (
               <div className="space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <UtensilsCrossed className="w-6 h-6 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-lg font-semibold text-foreground">{selectedLogMeal.label}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {Math.round(selectedLogMeal.macrosPerServing.calories)} cal/serving
-                    </p>
-                    {selectedLogMeal.personName ? (
-                      <p className="text-xs text-muted-foreground">
-                        Planned for {selectedLogMeal.personName}
-                      </p>
-                    ) : null}
-                    <MacroBar current={selectedLogMeal.macrosPerServing} compact />
-                  </div>
-                </div>
+                {logMealCandidates.map((candidate) => {
+                  const servingsValue = mealServingsById[candidate.id] || String(candidate.defaultServings || 1);
+                  return (
+                    <div key={candidate.id} className="rounded-xl border border-border p-4 space-y-4">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <UtensilsCrossed className="w-6 h-6 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-display text-lg font-semibold text-foreground">{candidate.label}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {Math.round(candidate.macrosPerServing.calories)} cal/serving
+                          </p>
+                          {candidate.personName ? (
+                            <p className="text-xs text-muted-foreground">
+                              Planned for {candidate.personName}
+                            </p>
+                          ) : null}
+                          <MacroBar current={candidate.macrosPerServing} compact />
+                        </div>
+                      </div>
 
-                <div className="flex gap-2 pt-2">
-                  <div className="w-full space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-muted-foreground">Serving size to log</p>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.25"
-                        min="0.25"
-                        max="4"
-                        value={mealServings}
-                        onChange={(e) => setMealServings(normalizeDecimalInput(e.target.value))}
-                        className="h-8 w-20 text-center"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {['0.5', '0.75', '1', '1.25', '1.5', '2'].map((value) => (
-                        <Button
-                          key={value}
-                          type="button"
-                          size="sm"
-                          variant={mealServings === value ? 'default' : 'outline'}
-                          onClick={() => setMealServings(value)}
-                        >
-                          {value}x
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                      <div className="flex gap-2 pt-2">
+                        <div className="w-full space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted-foreground">Serving size to log</p>
+                            <Input
+                              type="number"
+                              inputMode="decimal"
+                              step="0.25"
+                              min="0.25"
+                              max="4"
+                              value={servingsValue}
+                              onChange={(e) => setCandidateServings(candidate.id, normalizeDecimalInput(e.target.value))}
+                              className="h-8 w-20 text-center"
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {['0.5', '0.75', '1', '1.25', '1.5', '2'].map((value) => (
+                              <Button
+                                key={value}
+                                type="button"
+                                size="sm"
+                                variant={servingsValue === value ? 'default' : 'outline'}
+                                onClick={() => setCandidateServings(candidate.id, value)}
+                              >
+                                {value}x
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
 
-                <div className="space-y-2 pt-1">
-                  <Button
-                    size="sm"
-                    className="w-full"
-                    onClick={() => logMeal(selectedLogMeal.personId || 'all')}
-                  >
-                    <Check className="w-4 h-4 mr-2" />
-                    {selectedLogMeal.personName
-                      ? `Log for ${selectedLogMeal.personName} (+points)`
-                      : dashboards.length > 1
-                        ? 'Log for all dashboards (+points)'
-                        : 'Log meal (+points)'}
-                  </Button>
-                  {!selectedLogMeal.personId && (
-                    <div className="flex flex-wrap gap-2">
-                      {dashboards.map((dashboard) => (
+                      <div className="space-y-2 pt-1">
                         <Button
-                          key={dashboard.id}
                           size="sm"
-                          variant="outline"
-                          onClick={() => logMeal(dashboard.id)}
+                          className="w-full"
+                          onClick={() => logMealCandidate(candidate, candidate.personId || 'all', servingsValue)}
                         >
-                          {dashboard.name}
+                          <Check className="w-4 h-4 mr-2" />
+                          {candidate.personName
+                            ? `Log for ${candidate.personName} (+points)`
+                            : dashboards.length > 1
+                              ? 'Log for all dashboards (+points)'
+                              : 'Log meal (+points)'}
                         </Button>
-                      ))}
+                        {!candidate.personId && (
+                          <div className="flex flex-wrap gap-2">
+                            {dashboards.map((dashboard) => (
+                              <Button
+                                key={dashboard.id}
+                                size="sm"
+                                variant="outline"
+                                onClick={() => logMealCandidate(candidate, dashboard.id, servingsValue)}
+                              >
+                                {dashboard.name}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-6 text-muted-foreground">
@@ -1170,6 +1142,7 @@ export default function TodayPage() {
                 </Link>
               </div>
             )}
+            </div>
           </SectionCard>
         </div>
 
