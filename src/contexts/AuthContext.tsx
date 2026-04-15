@@ -18,7 +18,7 @@ import {
 import { hydrateMealBudgetPlannerFromAccount, setMealBudgetPlannerStorageScope } from '@/lib/mealBudgetPlanner';
 import { hydrateTasksFromAccount, setTaskStorageScope } from '@/lib/taskStore';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
-import { getHouseholdDashboard } from '@/lib/api/family';
+import { getHouseholdDashboard, type HouseholdMember } from '@/lib/api/family';
 import { clearSharedHouseholdScope, setSharedHouseholdScope } from '@/lib/householdScope';
 import { hydrateMealPrefsFromAccount } from '@/lib/mealPrefs';
 import { hydrateGroceryPrefsFromAccount } from '@/lib/groceryPrefs';
@@ -285,16 +285,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   useEffect(() => {
+    const effectiveSharedScopeId =
+      !isDemoUser && !householdScopeLoading ? (sharedHouseholdOwnerId || user?.id || null) : null;
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
-    setMealBudgetPlannerStorageScope(!isDemoUser ? (sharedHouseholdOwnerId || user?.id) : null);
-    setTaskStorageScope(!isDemoUser ? (sharedHouseholdOwnerId || user?.id) : null);
+    setMealBudgetPlannerStorageScope(effectiveSharedScopeId);
+    setTaskStorageScope(effectiveSharedScopeId);
     setHideBuiltInWifeDashboard(false);
-    if (!isDemoUser && user?.id) {
-      setSharedHouseholdScope(user.id, sharedHouseholdOwnerId || user.id);
+    if (!isDemoUser && user?.id && effectiveSharedScopeId) {
+      setSharedHouseholdScope(user.id, effectiveSharedScopeId);
     } else {
       clearSharedHouseholdScope();
     }
-  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
+  }, [householdScopeLoading, isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser) {
@@ -308,19 +310,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const syncHouseholdDashboardMode = async () => {
       if (!cancelled) setHouseholdScopeLoading(true);
+      const pendingInvite = loadPendingInviteOnboarding();
       try {
-        const household = await getHouseholdDashboard();
+        let ownerScopeId: string | null = null;
+        let currentMember: HouseholdMember | null = null;
+        let activeMembers: HouseholdMember[] = [];
+
+        const maxAttempts = pendingInvite?.token ? 8 : 1;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          const household = await getHouseholdDashboard();
+          if (cancelled) return;
+
+          activeMembers = (household.members || []).filter((member) => member.status === 'active');
+          const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
+          currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
+          ownerScopeId = ownerMember?.user_id || null;
+
+          const hasResolvedSharedHousehold = Boolean(
+            ownerScopeId && currentMember && (currentMember.role === 'owner' || currentMember.role === 'spouse' || currentMember.role === 'kid'),
+          );
+
+          if (hasResolvedSharedHousehold || !pendingInvite?.token) {
+            break;
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));
+        }
+
         if (cancelled) return;
 
-        const activeMembers = (household.members || []).filter((member) => member.status === 'active');
-        const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
-        const ownerScopeId = ownerMember?.user_id || user.id;
-        const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
+        const resolvedOwnerScopeId = ownerScopeId || user.id;
         setHideBuiltInWifeDashboard(true);
-        setSharedHouseholdOwnerId(ownerScopeId);
+        setSharedHouseholdOwnerId(resolvedOwnerScopeId);
         void Promise.all(
           activeMembers.map((member) =>
-            upsertFamilyMemberShadow(ownerScopeId, {
+            upsertFamilyMemberShadow(resolvedOwnerScopeId, {
               userId: member.user_id,
               email: member.email,
               fullName: member.full_name,
@@ -332,7 +356,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed syncing family member shadows:', error);
         });
         if (currentMember?.user_id) {
-          void upsertFamilyMemberShadow(ownerScopeId, {
+          void upsertFamilyMemberShadow(resolvedOwnerScopeId, {
             userId: currentMember.user_id,
             email: user.email?.trim().toLowerCase() || currentMember.email || null,
             fullName: profile?.fullName?.trim() || currentMember.full_name || null,
@@ -342,7 +366,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error('Failed syncing current family member shadow:', error);
           });
         }
-        void purgeLegacyWifeDashboardFromAccount(ownerScopeId).catch((error) => {
+        void purgeLegacyWifeDashboardFromAccount(resolvedOwnerScopeId).catch((error) => {
           console.error('Failed removing legacy wife dashboard:', error);
         });
       } catch {
@@ -365,7 +389,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isDemoUser, profile?.fullName, user?.email, user?.id]);
 
   useEffect(() => {
-    if (!user?.id || isDemoUser) return;
+    if (!user?.id || isDemoUser || householdScopeLoading) return;
 
     const refreshMacroState = () => {
       void hydrateMacroGameProfilesFromAccount(user.id);
@@ -392,10 +416,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', refreshMacroState);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
+  }, [householdScopeLoading, isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
-    if (!user?.id || isDemoUser || typeof window === 'undefined') return;
+    if (!user?.id || isDemoUser || householdScopeLoading || typeof window === 'undefined') return;
 
     const handleTaskStateUpdated = () => {
       void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
@@ -403,10 +427,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('homehub:task-state-updated', handleTaskStateUpdated);
     return () => window.removeEventListener('homehub:task-state-updated', handleTaskStateUpdated);
-  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
+  }, [householdScopeLoading, isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
-    if (!user?.id || isDemoUser || typeof window === 'undefined') return;
+    if (!user?.id || isDemoUser || householdScopeLoading || typeof window === 'undefined') return;
 
     const handleChoresStateUpdated = () => {
       void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
@@ -414,7 +438,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('homehub:chores-state-updated', handleChoresStateUpdated);
     return () => window.removeEventListener('homehub:chores-state-updated', handleChoresStateUpdated);
-  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
+  }, [householdScopeLoading, isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
     if (!user || isDemoUser) return;
