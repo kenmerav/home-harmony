@@ -43,6 +43,7 @@ import {
   addMealLog,
   addWater,
   getDailyScore,
+  getEffectiveMealLogsForDate,
   getFamilyLeaderboard,
   getProfiles,
   getCurrentStreak,
@@ -545,6 +546,10 @@ export default function TodayPage() {
     [logMealCandidates, selectedLogMealId],
   );
   const tonightDinnerCandidate = logMealCandidatesByCategory.dinner[0] || null;
+  const myDinnerAlreadyLogged = useMemo(
+    () => getEffectiveMealLogsForDate('me', todayKey, user?.id).some((log) => log.mealType === 'dinner'),
+    [refreshTick, todayKey, user?.id],
+  );
 
   useEffect(() => {
     if (logMealCandidates.length === 0) {
@@ -1017,11 +1022,19 @@ export default function TodayPage() {
                       {Math.round(tonightDinnerCandidate.macrosPerServing.calories)} cal/serving
                     </p>
                   </div>
-                  <Button size="sm" onClick={() => logMealCandidate(tonightDinnerCandidate, 'all', String(tonightDinnerCandidate.defaultServings || 1))}>
+                  <Button
+                    size="sm"
+                    variant={myDinnerAlreadyLogged ? 'outline' : 'default'}
+                    disabled={myDinnerAlreadyLogged}
+                    onClick={() => logMealCandidate(tonightDinnerCandidate, 'me', String(tonightDinnerCandidate.defaultServings || 1))}
+                  >
                     <Check className="w-4 h-4 mr-2" />
-                    Quick Add Dinner
+                    {myDinnerAlreadyLogged ? 'Dinner Already Logged' : 'Quick Add Dinner'}
                   </Button>
                 </div>
+                {myDinnerAlreadyLogged ? (
+                  <p className="mt-3 text-xs text-muted-foreground">Dinner is already in your log for today.</p>
+                ) : null}
               </div>
             )}
 
