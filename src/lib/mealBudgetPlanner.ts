@@ -1,5 +1,5 @@
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
-import { resolveSharedScopeUserId } from '@/lib/householdScope';
+import { normalizeAdultScopeIdForRead, normalizeAdultScopeIdForWrite, resolveSharedScopeUserId } from '@/lib/householdScope';
 import { DayOfWeek } from '@/types';
 
 export type PlannedMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | 'alcohol';
@@ -108,9 +108,10 @@ function normalizeRepeatDays(input: unknown): DayOfWeek[] | null {
   return unique.length > 0 ? unique : null;
 }
 
-function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
+function normalizeEntry(raw: unknown, options?: { forWrite?: boolean }): PlannedFoodEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const input = raw as Partial<PlannedFoodEntry>;
+  const forWrite = options?.forWrite === true;
   if (!input.id || !input.date || !input.name || !input.mealType) return null;
   const repeatMode = normalizeRepeatMode(input.repeatMode);
   const repeatDays =
@@ -123,7 +124,11 @@ function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
     id: String(input.id),
     date: String(input.date),
     mealType: input.mealType as PlannedMealType,
-    personId: typeof input.personId === 'string' && input.personId.trim() ? String(input.personId) : null,
+    personId: (
+      forWrite
+        ? normalizeAdultScopeIdForWrite(typeof input.personId === 'string' ? String(input.personId) : null)
+        : normalizeAdultScopeIdForRead(typeof input.personId === 'string' ? String(input.personId) : null)
+    ),
     personName: typeof input.personName === 'string' && input.personName.trim() ? String(input.personName).trim() : null,
     name: String(input.name),
     servings: Math.max(0.1, toFinite(input.servings, 1)),
@@ -142,6 +147,12 @@ function normalizeEntry(raw: unknown): PlannedFoodEntry | null {
 function normalizeEntries(input: unknown): PlannedFoodEntry[] {
   return (Array.isArray(input) ? input : [])
     .map((entry) => normalizeEntry(entry))
+    .filter((entry): entry is PlannedFoodEntry => Boolean(entry));
+}
+
+function normalizeEntriesForWrite(input: unknown): PlannedFoodEntry[] {
+  return (Array.isArray(input) ? input : [])
+    .map((entry) => normalizeEntry(entry, { forWrite: true }))
     .filter((entry): entry is PlannedFoodEntry => Boolean(entry));
 }
 
@@ -195,7 +206,7 @@ function readCommonFoods(userId?: string | null): CommonFood[] {
 }
 
 function serializeEntries(entries: PlannedFoodEntry[]): string {
-  return JSON.stringify(sortEntries(normalizeEntries(entries)));
+  return JSON.stringify(sortEntries(normalizeEntriesForWrite(entries)));
 }
 
 function serializeCommonFoods(commonFoods: CommonFood[]): string {
@@ -217,7 +228,7 @@ async function loadRemoteCommonFoods(userId: string): Promise<CommonFood[] | nul
 }
 
 async function persistEntriesToAccount(userId: string, entries: PlannedFoodEntry[]): Promise<void> {
-  const normalizedEntries = sortEntries(normalizeEntries(entries));
+  const normalizedEntries = sortEntries(normalizeEntriesForWrite(entries));
   await updateProfileSettingsValue(userId, MEAL_BUDGET_PLANNER_SETTINGS_PATH, normalizedEntries);
   if (currentStorageScopeUserId === userId) {
     lastPersistedSnapshot = serializeEntries(normalizedEntries);
@@ -282,7 +293,7 @@ function scheduleCommonFoodsPersist(commonFoods: CommonFood[]) {
 
 function writeEntries(entries: PlannedFoodEntry[], userId?: string | null, skipRemotePersist = false) {
   if (!canUseStorage()) return;
-  const normalizedEntries = sortEntries(normalizeEntries(entries));
+  const normalizedEntries = sortEntries(normalizeEntriesForWrite(entries));
   window.localStorage.setItem(scopedKey(userId), JSON.stringify(normalizedEntries));
   if (!skipRemotePersist) {
     scheduleEntriesPersist(normalizedEntries);
@@ -373,7 +384,7 @@ export function addPlannedFoodEntry(input: PlannedFoodEntryInput, userId?: strin
     id: crypto.randomUUID(),
     date: input.date,
     mealType: input.mealType,
-    personId: input.personId || null,
+    personId: normalizeAdultScopeIdForWrite(input.personId || null),
     personName: input.personName?.trim() || null,
     name: input.name.trim(),
     servings: Math.max(0.1, input.servings),
@@ -404,7 +415,7 @@ export function deletePlannedFoodEntriesByDateAndMealType(
   userId?: string | null,
 ): number {
   const entries = readEntries(userId);
-  const normalizedPersonId = personId?.trim() || null;
+  const normalizedPersonId = normalizeAdultScopeIdForWrite(personId?.trim() || null);
   const next = entries.filter(
     (entry) =>
       !(
@@ -431,6 +442,10 @@ export function updatePlannedFoodEntry(
         : {
             ...entry,
             ...updates,
+            personId:
+              typeof updates.personId !== 'undefined'
+                ? normalizeAdultScopeIdForWrite(updates.personId || null)
+                : entry.personId,
             updatedAt: new Date().toISOString(),
           },
     ),

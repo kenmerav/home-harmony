@@ -213,7 +213,7 @@ function buildWellnessSummary(input: unknown): string | null {
 }
 
 export default function TodayPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const currentDate = useCurrentDate();
   const todayLabel = format(currentDate, 'EEEE, MMMM d');
   const currentDay = getCurrentDay(currentDate);
@@ -404,10 +404,20 @@ export default function TodayPage() {
   const todaysTasks = useMemo(() => {
     const today = new Date(currentDate);
     today.setHours(0, 0, 0, 0);
+    const normalizedFullName = profile?.fullName?.trim().toLowerCase() || '';
     return loadTasks(user?.id)
+      .filter((task) => {
+        if (!task.assignedToId && !task.assignedToName) return true;
+        if (task.assignedToId && user?.id && task.assignedToId === user.id) return true;
+        if (task.assignedToId === 'me') return true;
+        if (task.assignedToName && normalizedFullName && task.assignedToName.trim().toLowerCase() === normalizedFullName) {
+          return true;
+        }
+        return false;
+      })
       .filter((task) => taskOccursOnDate(task, today))
       .slice(0, 6);
-  }, [currentDate, refreshTick, user?.id]);
+  }, [currentDate, profile?.fullName, refreshTick, user?.id]);
 
   const pendingTaskCount = todaysTasks.filter((task) => task.status !== 'done').length;
   const pendingChoreCount = childChores.reduce((sum, child) => sum + Math.max(child.total - child.completed, 0), 0);
@@ -441,7 +451,10 @@ export default function TodayPage() {
   };
 
   const plannedEntriesToday = useMemo(
-    () => getPlannedFoodEntriesForDate(todayKey, user?.id),
+    () =>
+      getPlannedFoodEntriesForDate(todayKey, user?.id).filter(
+        (entry) => !entry.personId || entry.personId === 'me' || entry.personId === user?.id || entry.mealType === 'dinner',
+      ),
     [refreshTick, todayKey, user?.id],
   );
 

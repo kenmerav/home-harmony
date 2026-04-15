@@ -1,7 +1,7 @@
 import { mockHouseTasks } from '@/data/mockData';
 import { HouseTask, TaskFrequency, DayOfWeek } from '@/types';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
-import { resolveSharedScopeUserId } from '@/lib/householdScope';
+import { normalizeAdultScopeIdForRead, normalizeAdultScopeIdForWrite, resolveSharedScopeUserId } from '@/lib/householdScope';
 
 const TASKS_STORAGE_KEY_PREFIX = 'homehub.tasks.v1';
 const TASKS_SETTINGS_PATH = ['appPreferences', 'tasks'];
@@ -95,8 +95,9 @@ function getAnchorDate(task: HouseTask): Date {
   return dateOnly(task.createdAt);
 }
 
-function normalizeTask(raw: unknown, index: number): HouseTask {
+function normalizeTask(raw: unknown, index: number, options?: { forWrite?: boolean }): HouseTask {
   const input = (raw || {}) as Partial<HouseTask> & { createdAt?: string | Date };
+  const forWrite = options?.forWrite === true;
   const frequency = normalizeTaskFrequency(input.frequency);
   const reminderLead = Number.parseInt(String(input.reminderLeadMinutes ?? ''), 10);
   const assignedToId = typeof input.assignedToId === 'string' ? input.assignedToId.trim() : '';
@@ -111,7 +112,11 @@ function normalizeTask(raw: unknown, index: number): HouseTask {
         ? input.status
         : 'not_started',
     frequency,
-    assignedToId: assignedToId || undefined,
+    assignedToId: (
+      forWrite
+        ? normalizeAdultScopeIdForWrite(assignedToId || null)
+        : normalizeAdultScopeIdForRead(assignedToId || null)
+    ) || undefined,
     assignedToName: assignedToName || undefined,
     dueDate: typeof input.dueDate === 'string' ? input.dueDate : undefined,
     day: normalizeTaskDay(input.day),
@@ -128,10 +133,12 @@ function normalizeTasks(input: unknown): HouseTask[] {
 
 function serializeTasks(tasks: HouseTask[]): string {
   return JSON.stringify(
-    tasks.map((task) => ({
-      ...task,
-      createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : new Date(task.createdAt).toISOString(),
-    })),
+    normalizeTasks(tasks)
+      .map((task, index) => normalizeTask(task, index, { forWrite: true }))
+      .map((task) => ({
+        ...task,
+        createdAt: task.createdAt instanceof Date ? task.createdAt.toISOString() : new Date(task.createdAt).toISOString(),
+      })),
   );
 }
 
