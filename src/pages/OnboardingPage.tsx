@@ -830,17 +830,23 @@ function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): Step
   return steps;
 }
 
-function buildPersonalMemberSteps(needsAccountStep: boolean): StepId[] {
-  const steps: StepId[] = [
-    'welcome',
-    'healthTracking',
-    'femaleWellness',
-    'goalTracking',
-    'scheduleText',
-    'appointmentReminders',
-    'calendarSystem',
-    'paywallPrep',
-  ];
+function buildHouseholdMemberSteps(
+  role: 'spouse' | 'kid' | null,
+  needsAccountStep: boolean,
+): StepId[] {
+  const steps: StepId[] =
+    role === 'kid'
+      ? ['welcome', 'calendarSystem', 'paywallPrep']
+      : [
+          'welcome',
+          'healthTracking',
+          'femaleWellness',
+          'goalTracking',
+          'scheduleText',
+          'appointmentReminders',
+          'calendarSystem',
+          'paywallPrep',
+        ];
   if (needsAccountStep) steps.push('account');
   return steps;
 }
@@ -1058,11 +1064,16 @@ export default function OnboardingPage() {
     };
   }, [user?.id]);
 
-  const personalOnlyOnboarding = householdRole === 'spouse';
+  const invitedHouseholdMember = householdRole === 'spouse' || householdRole === 'kid';
+  const spouseOnboarding = householdRole === 'spouse';
+  const kidOnboarding = householdRole === 'kid';
 
   const steps = useMemo(
-    () => (personalOnlyOnboarding ? buildPersonalMemberSteps(needsAccountStep) : buildSteps(answers, needsAccountStep)),
-    [answers, needsAccountStep, personalOnlyOnboarding],
+    () =>
+      invitedHouseholdMember
+        ? buildHouseholdMemberSteps(householdRole, needsAccountStep)
+        : buildSteps(answers, needsAccountStep),
+    [answers, householdRole, invitedHouseholdMember, needsAccountStep],
   );
   const stepIndex = Math.max(0, steps.indexOf(currentStepId));
   const progress = (stepIndex + 1) / steps.length;
@@ -1128,10 +1139,12 @@ export default function OnboardingPage() {
       const alcoholLimitDrinks = mapAlcoholTargetToLimit(answers.alcoholTarget);
       const sleepTargetHours = mapSleepDurationToHours(answers.sleepDurationTarget);
 
-      if (personalOnlyOnboarding) {
+      if (invitedHouseholdMember) {
         return {
-          enabledModules: ['meals', 'groceries', 'tasks', 'workouts'],
-          suggestedLists: ['Your macro dashboard', 'Your reminders', 'Your calendar preferences'],
+          enabledModules: kidOnboarding ? ['chores', 'tasks'] : ['meals', 'groceries', 'tasks', 'workouts'],
+          suggestedLists: kidOnboarding
+            ? ['Your chores', 'Your reminders', 'Your calendar preferences']
+            : ['Your macro dashboard', 'Your reminders', 'Your calendar preferences'],
           weeklyPreview: {
             dinners: [],
             groceryPreview: [],
@@ -1140,16 +1153,24 @@ export default function OnboardingPage() {
           focusLabel: 'Family hub',
           launchChecklist: [
             {
-              label: 'See your family hub',
+              title: 'See your family hub',
+              detail: 'Start in the shared family view so you can see the household you joined right away.',
               href: '/family',
+              cta: 'Open Family',
             },
             {
-              label: 'Open your dashboard',
+              title: kidOnboarding ? 'Open your personal area' : 'Open your dashboard',
+              detail: kidOnboarding
+                ? 'After that, open your own area so your personal preferences and routines feel right.'
+                : 'After that, open your own dashboard so your personal goals and settings feel right.',
               href: '/dashboard/me',
+              cta: kidOnboarding ? 'Open My Area' : 'Open Dashboard',
             },
             {
-              label: 'Check your reminders',
+              title: 'Check your reminders',
+              detail: 'Review your reminders and calendar preferences so the shared family week stays clear.',
               href: '/settings',
+              cta: 'Open Settings',
             },
           ],
           wellnessTargets: {
@@ -1160,7 +1181,9 @@ export default function OnboardingPage() {
             sleepTargetHours,
           },
           summary:
-            'Your household is already set up. We are just finishing your personal dashboard, reminders, and health goals so you can join the family hub and get oriented quickly.',
+            kidOnboarding
+              ? 'Your household is already set up. We are just finishing your personal preferences so you can join the family hub and get oriented quickly.'
+              : 'Your household is already set up. We are just finishing your personal dashboard, reminders, and health goals so you can join the family hub and get oriented quickly.',
         };
       }
 
@@ -1201,7 +1224,7 @@ export default function OnboardingPage() {
         summary: `Built for ${householdSummary(answers)} with a first focus on ${focus.label.toLowerCase()}, ${answers.mealStylePreferences.join(', ').toLowerCase()} meals, and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`,
       };
     },
-    [answers, groceryPreview, personalOnlyOnboarding, previewWeek],
+    [answers, groceryPreview, invitedHouseholdMember, kidOnboarding, previewWeek],
   );
 
   const painAhaCopy = useMemo(() => {
@@ -1308,7 +1331,7 @@ export default function OnboardingPage() {
       const householdName = profile?.householdName?.trim() || account.householdName.trim() || `${familySize} Person Home`;
       const normalizedPhone = normalizePhone(resolvedAnswers.phoneNumber);
 
-      if (personalOnlyOnboarding) {
+      if (invitedHouseholdMember) {
         await updateProfile({
           full_name: fullName,
           phone: normalizedPhone || null,
@@ -1446,28 +1469,30 @@ export default function OnboardingPage() {
 
       const primaryWaterTarget = personalizedPlan.wellnessTargets.waterTargetOz;
       const primaryAlcoholLimit = personalizedPlan.wellnessTargets.alcoholLimitDrinks;
-      if (primaryWaterTarget !== null || primaryAlcoholLimit !== null) {
-        updateMacroPlan('me', {
-          ...(primaryWaterTarget !== null ? { waterTargetOz: primaryWaterTarget } : {}),
-          ...(primaryAlcoholLimit !== null ? { alcoholLimitDrinks: primaryAlcoholLimit } : {}),
+      if (!kidOnboarding) {
+        if (primaryWaterTarget !== null || primaryAlcoholLimit !== null) {
+          updateMacroPlan('me', {
+            ...(primaryWaterTarget !== null ? { waterTargetOz: primaryWaterTarget } : {}),
+            ...(primaryAlcoholLimit !== null ? { alcoholLimitDrinks: primaryAlcoholLimit } : {}),
+          });
+        }
+        const wantsCycleTracking = resolvedAnswers.femaleWellnessFocus.includes('Cycle / period tracking');
+        const wantsPregnancyTracking = resolvedAnswers.femaleWellnessFocus.includes('Pregnancy tracking');
+        const femaleProfileIds: AdultId[] = spouseOnboarding
+          ? ['me']
+          : Object.values(getProfiles())
+              .filter(
+                (dashboardProfile) =>
+                  dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
+              )
+              .map((dashboardProfile) => dashboardProfile.id);
+        femaleProfileIds.forEach((profileId) => {
+          updateFemaleHealthSettings(profileId, {
+            cycleTrackingEnabled: wantsCycleTracking,
+            pregnancyTrackingEnabled: wantsPregnancyTracking,
+          });
         });
       }
-      const wantsCycleTracking = resolvedAnswers.femaleWellnessFocus.includes('Cycle / period tracking');
-      const wantsPregnancyTracking = resolvedAnswers.femaleWellnessFocus.includes('Pregnancy tracking');
-      const femaleProfileIds: AdultId[] = personalOnlyOnboarding
-        ? ['me']
-        : Object.values(getProfiles())
-            .filter(
-              (dashboardProfile) =>
-                dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
-            )
-            .map((dashboardProfile) => dashboardProfile.id);
-      femaleProfileIds.forEach((profileId) => {
-        updateFemaleHealthSettings(profileId, {
-          cycleTrackingEnabled: wantsCycleTracking,
-          pregnancyTrackingEnabled: wantsPregnancyTracking,
-        });
-      });
 
       const payload: StoredOnboardingResult = {
         completedAt: new Date().toISOString(),
@@ -1488,9 +1513,9 @@ export default function OnboardingPage() {
           diets: resolvedAnswers.dietPreferences,
           staples: resolvedAnswers.weeklyStaples,
           kidProfiles: normalizedKidProfiles.map((kid) => `${kid.name}:${kid.age}`),
-          hasRecipeRequests: personalOnlyOnboarding ? false : parseListText(resolvedAnswers.recipesToImplement).length > 0,
-          hasRecipeLinks: personalOnlyOnboarding ? false : parseRecipeLinks(resolvedAnswers.recipeLinks).length > 0,
-          hasRecipePdf: personalOnlyOnboarding ? false : Boolean(recipePdfFile),
+          hasRecipeRequests: invitedHouseholdMember ? false : parseListText(resolvedAnswers.recipesToImplement).length > 0,
+          hasRecipeLinks: invitedHouseholdMember ? false : parseRecipeLinks(resolvedAnswers.recipeLinks).length > 0,
+          hasRecipePdf: invitedHouseholdMember ? false : Boolean(recipePdfFile),
           importedLinkRecipeCount,
           failedLinkImports,
           pdfImportQueued,
@@ -1499,18 +1524,18 @@ export default function OnboardingPage() {
           morningText:
             resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
           calendarSystem: resolvedAnswers.calendarSystem,
-          onboardingMode: personalOnlyOnboarding ? 'personal_household_member' : 'household_owner',
+          onboardingMode: invitedHouseholdMember ? 'personal_household_member' : 'household_owner',
         },
         `onboarding_complete:${user.id}`,
       );
 
-      if (!personalOnlyOnboarding && failedLinkImports > 0) {
+      if (!invitedHouseholdMember && failedLinkImports > 0) {
         toast({
           title: 'Some recipe links could not be imported',
           description: `${failedLinkImports} link${failedLinkImports === 1 ? '' : 's'} failed. You can retry from Recipes later.`,
         });
       }
-      if (!personalOnlyOnboarding && pdfImportQueued) {
+      if (!invitedHouseholdMember && pdfImportQueued) {
         toast({
           title: 'PDF import queued',
           description: 'Your PDF recipes are importing in the background. You can keep using the app.',
@@ -1519,7 +1544,7 @@ export default function OnboardingPage() {
 
       clearOnboardingDraft(user.id);
       clearOnboardingDraft(null);
-      const shouldOpenCalendarSetup = !BILLING_ENABLED && (
+      const shouldOpenCalendarSetup = !invitedHouseholdMember && !BILLING_ENABLED && (
         answers.calendarSystem === 'Google Calendar' || answers.calendarSystem === 'Apple Calendar'
       );
       if (shouldOpenCalendarSetup) {
@@ -1528,7 +1553,7 @@ export default function OnboardingPage() {
       } else {
         const fallbackRoute = getPostAuthRoute(isSubscribed);
         const nextRoute =
-          personalOnlyOnboarding || fallbackRoute === '/app' ? personalizedPlan.focusRoute : fallbackRoute;
+          invitedHouseholdMember || fallbackRoute === '/app' ? personalizedPlan.focusRoute : fallbackRoute;
         navigate(nextRoute, { replace: true });
       }
     } catch (error: unknown) {
@@ -1555,7 +1580,7 @@ export default function OnboardingPage() {
     try {
       const { sessionCreated } = await signUp(account.email.trim(), account.password.trim(), {
         fullName: account.fullName.trim(),
-        householdName: account.householdName.trim() || undefined,
+        householdName: invitedHouseholdMember ? undefined : account.householdName.trim() || undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
@@ -1608,10 +1633,18 @@ export default function OnboardingPage() {
     case 'welcome':
       content = (
         <QuestionScreen
-          title={personalOnlyOnboarding ? 'Join your household and set up your personal dashboard' : 'Build a calmer family week in a few minutes'}
+          title={
+            invitedHouseholdMember
+              ? kidOnboarding
+                ? 'Join your household and finish your personal setup'
+                : 'Join your household and set up your personal dashboard'
+              : 'Build a calmer family week in a few minutes'
+          }
           helper={
-            personalOnlyOnboarding
-              ? 'Your household is already set up. We just need a few personal preferences so your dashboard, reminders, and goals feel right.'
+            invitedHouseholdMember
+              ? kidOnboarding
+                ? 'Your household is already set up. We just need a few personal preferences so your access and reminders feel right.'
+                : 'Your household is already set up. We just need a few personal preferences so your dashboard, reminders, and goals feel right.'
               : 'We will ask a few focused questions and generate a real meal + grocery preview for your household.'
           }
           align="center"
@@ -1620,8 +1653,10 @@ export default function OnboardingPage() {
             <div className="max-w-md rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center">
               <HeartHandshake className="mx-auto mb-3 h-9 w-9 text-primary" />
               <p className="text-sm text-muted-foreground">
-                {personalOnlyOnboarding
-                  ? 'You are joining an existing Home Harmony household, so we will keep this focused on your personal reminders, health goals, and dashboard.'
+                {invitedHouseholdMember
+                  ? kidOnboarding
+                    ? 'You are joining an existing Home Harmony household, so we will keep this focused on your personal preferences and how you move through the shared family.'
+                    : 'You are joining an existing Home Harmony household, so we will keep this focused on your personal reminders, health goals, and dashboard.'
                   : 'Home Harmony is built to reduce mental load around meals, groceries, chores, and weekly planning.'}
               </p>
             </div>
@@ -2448,23 +2483,19 @@ export default function OnboardingPage() {
         <QuestionScreen
           title={
             user
-              ? BILLING_ENABLED
-                ? personalOnlyOnboarding
-                  ? 'Your personal setup is ready to unlock'
-                  : 'Your personalized plan is ready to unlock'
-                : personalOnlyOnboarding
-                  ? 'Your personal setup is ready'
+              ? invitedHouseholdMember
+                ? 'Your personal setup is ready'
+                : BILLING_ENABLED
+                  ? 'Your personalized plan is ready to unlock'
                   : 'Your Home Harmony plan is ready'
               : 'Your personalized plan is ready'
           }
           helper={
             user
-              ? BILLING_ENABLED
-                ? personalOnlyOnboarding
-                  ? 'Continue to unlock your account and join the shared household with your own dashboard.'
-                  : 'Continue to choose your plan and keep this setup running each week.'
-                : personalOnlyOnboarding
-                  ? 'Your dashboard, reminders, and preferences are ready. The shared household is already waiting for you.'
+              ? invitedHouseholdMember
+                ? 'Your household is already set up. Finish your personal setup and step into the shared family with your own login.'
+                : BILLING_ENABLED
+                  ? 'Continue to choose your plan and keep this setup running each week.'
                   : 'Meals, groceries, routines, and reminders are now personalized for your household.'
               : 'Create your account to save this setup and use it in the app.'
           }
@@ -2476,8 +2507,8 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground">{personalizedPlan.summary}</p>
               <p className="mt-3 text-sm text-muted-foreground">
                 {user
-                  ? personalOnlyOnboarding
-                    ? 'Continue to open your own dashboard and start using the shared household.'
+                  ? invitedHouseholdMember
+                    ? 'Continue to enter the shared family, then open your own dashboard and settings from there.'
                     : 'Continue to apply this plan inside the app and keep your week in sync.'
                   : 'Next step: create your account so this plan is saved to your household.'}
               </p>
@@ -2488,10 +2519,10 @@ export default function OnboardingPage() {
       );
       footer = user ? (
         <BottomCTA
-          primaryLabel={BILLING_ENABLED ? 'Continue to plans' : 'Apply my plan'}
+          primaryLabel={invitedHouseholdMember ? 'Finish setup' : BILLING_ENABLED ? 'Continue to plans' : 'Apply my plan'}
           onPrimary={completeOnboarding}
           secondaryLabel="Edit answers"
-          onSecondary={() => setCurrentStepId(personalOnlyOnboarding ? 'welcome' : 'painPoint')}
+          onSecondary={() => setCurrentStepId(invitedHouseholdMember ? 'welcome' : 'painPoint')}
           loading={submitting}
         />
       ) : (
@@ -2507,8 +2538,12 @@ export default function OnboardingPage() {
     case 'account':
       content = (
         <QuestionScreen
-          title="Create your account to save this plan"
-          helper="You finished onboarding first. This account step saves your personalized setup."
+          title={invitedHouseholdMember ? 'Create your account to join the family' : 'Create your account to save this plan'}
+          helper={
+            invitedHouseholdMember
+              ? 'Your household is already set up. This account step just gives you your own login and personal dashboard.'
+              : 'You finished onboarding first. This account step saves your personalized setup.'
+          }
         >
           <div className="space-y-3">
             <Input
@@ -2517,12 +2552,14 @@ export default function OnboardingPage() {
               value={account.fullName}
               onChange={(event) => setAccount((prev) => ({ ...prev, fullName: event.target.value }))}
             />
-            <Input
-              type="text"
-              placeholder="Household name (optional)"
-              value={account.householdName}
-              onChange={(event) => setAccount((prev) => ({ ...prev, householdName: event.target.value }))}
-            />
+            {!invitedHouseholdMember ? (
+              <Input
+                type="text"
+                placeholder="Household name (optional)"
+                value={account.householdName}
+                onChange={(event) => setAccount((prev) => ({ ...prev, householdName: event.target.value }))}
+              />
+            ) : null}
             <Input
               type="email"
               placeholder="Email"
