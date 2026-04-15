@@ -1035,7 +1035,7 @@ export default function TodayPage() {
           )}
         </SectionCard>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)]">
           <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
