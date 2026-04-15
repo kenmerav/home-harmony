@@ -12,83 +12,100 @@ import { RequireSubscription } from "./components/auth/RequireSubscription";
 import { WorkoutStoreProvider } from "./workouts/hooks/useWorkoutStore";
 import { AppLayout } from "./components/layout/AppLayout";
 
-const LandingPage = lazy(() => import("./pages/LandingPage"));
-const SeoResourcesPage = lazy(() => import("./pages/seo/SeoResourcesPage"));
-const AuthPage = lazy(() => import("./pages/AuthPage"));
-const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const BillingPage = lazy(() => import("./pages/BillingPage"));
-const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
-const TodayPage = lazy(() => import("./pages/TodayPage"));
-const CalendarPage = lazy(() => import("./pages/CalendarPage"));
-const CalendarPlannerPage = lazy(() => import("./pages/CalendarPlannerPage"));
-const AppleCalendarConnectPage = lazy(() => import("./pages/AppleCalendarConnectPage"));
-const MealsPage = lazy(() => import("./pages/MealsPage"));
-const RecipesPage = lazy(() => import("./pages/RecipesPage"));
-const GroceryPage = lazy(() => import("./pages/GroceryPage"));
-const ChoresPage = lazy(() => import("./pages/ChoresPage"));
-const TasksPage = lazy(() => import("./pages/TasksPage"));
-const FamilyPage = lazy(() => import("./pages/FamilyPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const GetStartedPage = lazy(() => import("./pages/GetStartedPage"));
-const GetStartedDetailPage = lazy(() => import("./pages/GetStartedDetailPage"));
-const GrowthAnalyticsPage = lazy(() => import("./pages/GrowthAnalyticsPage"));
-const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
-const DashboardPage = lazy(() => import("./pages/DashboardPage"));
-const WorkoutsHomePage = lazy(() => import("./workouts/pages/WorkoutsHomePage"));
-const WorkoutSessionPage = lazy(() => import("./workouts/pages/WorkoutSessionPage"));
-const WorkoutTemplatesPage = lazy(() => import("./workouts/pages/WorkoutTemplatesPage"));
-const WorkoutProgressPage = lazy(() => import("./workouts/pages/WorkoutProgressPage"));
-const WorkoutSettingsPage = lazy(() => import("./workouts/pages/WorkoutSettingsPage"));
-const WorkoutDetailPage = lazy(() => import("./workouts/pages/WorkoutDetailPage"));
-const ExerciseHistoryPage = lazy(() => import("./workouts/pages/ExerciseHistoryPage"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+function lazyWithReload<T extends { default: React.ComponentType<any> }>(
+  factory: () => Promise<T>,
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (error) {
+      const reloadKey = "homehub:lazy-reload-attempted";
+      if (typeof window !== "undefined" && window.sessionStorage.getItem(reloadKey) !== "1") {
+        window.sessionStorage.setItem(reloadKey, "1");
+        window.location.reload();
+      }
+      throw error;
+    }
+  });
+}
 
-const MealPlanHubPage = lazy(() => import("./pages/seo/MealPlanSeoPages").then((m) => ({ default: m.MealPlanHubPage })));
-const MealPlanDetailPage = lazy(() => import("./pages/seo/MealPlanSeoPages").then((m) => ({ default: m.MealPlanDetailPage })));
-const GroceryHubPage = lazy(() => import("./pages/seo/GrocerySeoPages").then((m) => ({ default: m.GroceryHubPage })));
-const GroceryDetailPage = lazy(() => import("./pages/seo/GrocerySeoPages").then((m) => ({ default: m.GroceryDetailPage })));
-const PantryHubPage = lazy(() => import("./pages/seo/PantrySeoPages").then((m) => ({ default: m.PantryHubPage })));
-const PantryDetailPage = lazy(() => import("./pages/seo/PantrySeoPages").then((m) => ({ default: m.PantryDetailPage })));
-const RecipeCollectionHubPage = lazy(() =>
+const LandingPage = lazyWithReload(() => import("./pages/LandingPage"));
+const SeoResourcesPage = lazyWithReload(() => import("./pages/seo/SeoResourcesPage"));
+const AuthPage = lazyWithReload(() => import("./pages/AuthPage"));
+const ResetPasswordPage = lazyWithReload(() => import("./pages/ResetPasswordPage"));
+const BillingPage = lazyWithReload(() => import("./pages/BillingPage"));
+const OnboardingPage = lazyWithReload(() => import("./pages/OnboardingPage"));
+const TodayPage = lazyWithReload(() => import("./pages/TodayPage"));
+const CalendarPage = lazyWithReload(() => import("./pages/CalendarPage"));
+const CalendarPlannerPage = lazyWithReload(() => import("./pages/CalendarPlannerPage"));
+const AppleCalendarConnectPage = lazyWithReload(() => import("./pages/AppleCalendarConnectPage"));
+const MealsPage = lazyWithReload(() => import("./pages/MealsPage"));
+const RecipesPage = lazyWithReload(() => import("./pages/RecipesPage"));
+const GroceryPage = lazyWithReload(() => import("./pages/GroceryPage"));
+const ChoresPage = lazyWithReload(() => import("./pages/ChoresPage"));
+const TasksPage = lazyWithReload(() => import("./pages/TasksPage"));
+const FamilyPage = lazyWithReload(() => import("./pages/FamilyPage"));
+const SettingsPage = lazyWithReload(() => import("./pages/SettingsPage"));
+const GetStartedPage = lazyWithReload(() => import("./pages/GetStartedPage"));
+const GetStartedDetailPage = lazyWithReload(() => import("./pages/GetStartedDetailPage"));
+const GrowthAnalyticsPage = lazyWithReload(() => import("./pages/GrowthAnalyticsPage"));
+const AdminDashboardPage = lazyWithReload(() => import("./pages/AdminDashboardPage"));
+const DashboardPage = lazyWithReload(() => import("./pages/DashboardPage"));
+const WorkoutsHomePage = lazyWithReload(() => import("./workouts/pages/WorkoutsHomePage"));
+const WorkoutSessionPage = lazyWithReload(() => import("./workouts/pages/WorkoutSessionPage"));
+const WorkoutTemplatesPage = lazyWithReload(() => import("./workouts/pages/WorkoutTemplatesPage"));
+const WorkoutProgressPage = lazyWithReload(() => import("./workouts/pages/WorkoutProgressPage"));
+const WorkoutSettingsPage = lazyWithReload(() => import("./workouts/pages/WorkoutSettingsPage"));
+const WorkoutDetailPage = lazyWithReload(() => import("./workouts/pages/WorkoutDetailPage"));
+const ExerciseHistoryPage = lazyWithReload(() => import("./workouts/pages/ExerciseHistoryPage"));
+const NotFound = lazyWithReload(() => import("./pages/NotFound"));
+
+const MealPlanHubPage = lazyWithReload(() => import("./pages/seo/MealPlanSeoPages").then((m) => ({ default: m.MealPlanHubPage })));
+const MealPlanDetailPage = lazyWithReload(() => import("./pages/seo/MealPlanSeoPages").then((m) => ({ default: m.MealPlanDetailPage })));
+const GroceryHubPage = lazyWithReload(() => import("./pages/seo/GrocerySeoPages").then((m) => ({ default: m.GroceryHubPage })));
+const GroceryDetailPage = lazyWithReload(() => import("./pages/seo/GrocerySeoPages").then((m) => ({ default: m.GroceryDetailPage })));
+const PantryHubPage = lazyWithReload(() => import("./pages/seo/PantrySeoPages").then((m) => ({ default: m.PantryHubPage })));
+const PantryDetailPage = lazyWithReload(() => import("./pages/seo/PantrySeoPages").then((m) => ({ default: m.PantryDetailPage })));
+const RecipeCollectionHubPage = lazyWithReload(() =>
   import("./pages/seo/RecipeCollectionSeoPages").then((m) => ({ default: m.RecipeCollectionHubPage })),
 );
-const RecipeCollectionDetailPage = lazy(() =>
+const RecipeCollectionDetailPage = lazyWithReload(() =>
   import("./pages/seo/RecipeCollectionSeoPages").then((m) => ({ default: m.RecipeCollectionDetailPage })),
 );
-const HouseholdTemplateHubPage = lazy(() =>
+const HouseholdTemplateHubPage = lazyWithReload(() =>
   import("./pages/seo/HouseholdTemplateSeoPages").then((m) => ({ default: m.HouseholdTemplateHubPage })),
 );
-const HouseholdTemplateDetailPage = lazy(() =>
+const HouseholdTemplateDetailPage = lazyWithReload(() =>
   import("./pages/seo/HouseholdTemplateSeoPages").then((m) => ({ default: m.HouseholdTemplateDetailPage })),
 );
-const MacroHubPage = lazy(() => import("./pages/seo/MacroSeoPages").then((m) => ({ default: m.MacroHubPage })));
-const MacroDetailPage = lazy(() => import("./pages/seo/MacroSeoPages").then((m) => ({ default: m.MacroDetailPage })));
-const ChoreSystemsHubPage = lazy(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.ChoreSystemsHubPage })));
-const ChoreSystemsDetailPage = lazy(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.ChoreSystemsDetailPage })));
-const TaskSystemsHubPage = lazy(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.TaskSystemsHubPage })));
-const TaskSystemsDetailPage = lazy(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.TaskSystemsDetailPage })));
-const WorkoutTrackingHubPage = lazy(() =>
+const MacroHubPage = lazyWithReload(() => import("./pages/seo/MacroSeoPages").then((m) => ({ default: m.MacroHubPage })));
+const MacroDetailPage = lazyWithReload(() => import("./pages/seo/MacroSeoPages").then((m) => ({ default: m.MacroDetailPage })));
+const ChoreSystemsHubPage = lazyWithReload(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.ChoreSystemsHubPage })));
+const ChoreSystemsDetailPage = lazyWithReload(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.ChoreSystemsDetailPage })));
+const TaskSystemsHubPage = lazyWithReload(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.TaskSystemsHubPage })));
+const TaskSystemsDetailPage = lazyWithReload(() => import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.TaskSystemsDetailPage })));
+const WorkoutTrackingHubPage = lazyWithReload(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.WorkoutTrackingHubPage })),
 );
-const WorkoutTrackingDetailPage = lazy(() =>
+const WorkoutTrackingDetailPage = lazyWithReload(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.WorkoutTrackingDetailPage })),
 );
-const LifestyleTrackingHubPage = lazy(() =>
+const LifestyleTrackingHubPage = lazyWithReload(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.LifestyleTrackingHubPage })),
 );
-const LifestyleTrackingDetailPage = lazy(() =>
+const LifestyleTrackingDetailPage = lazyWithReload(() =>
   import("./pages/seo/OperationsSeoPages").then((m) => ({ default: m.LifestyleTrackingDetailPage })),
 );
-const ComparisonHubPage = lazy(() =>
+const ComparisonHubPage = lazyWithReload(() =>
   import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonHubPage })),
 );
-const ComparisonDetailPage = lazy(() =>
+const ComparisonDetailPage = lazyWithReload(() =>
   import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonDetailPage })),
 );
-const TemplatesHubPage = lazy(() =>
+const TemplatesHubPage = lazyWithReload(() =>
   import("./pages/seo/TemplatesGalleryPages").then((m) => ({ default: m.TemplatesHubPage })),
 );
-const TemplateDetailPage = lazy(() =>
+const TemplateDetailPage = lazyWithReload(() =>
   import("./pages/seo/TemplatesGalleryPages").then((m) => ({ default: m.TemplateDetailPage })),
 );
 
@@ -164,6 +181,17 @@ function RouteRobotsController() {
   return null;
 }
 
+function LazyRouteRecoveryReset() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem("homehub:lazy-reload-attempted");
+  }, [location.pathname]);
+
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -174,6 +202,7 @@ const App = () => (
           <BrowserRouter>
             <GoogleAnalyticsPageTracker />
             <RouteRobotsController />
+            <LazyRouteRecoveryReset />
             <Suspense fallback={<RouteFallback />}>
               <Routes>
               <Route path="/" element={<LandingPage />} />
