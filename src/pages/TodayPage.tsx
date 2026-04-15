@@ -116,6 +116,10 @@ function normalizeDecimalInput(value: string): string {
   return `${whole || '0'}.${rest.join('').replace(/\./g, '')}`;
 }
 
+function normalizeMealLookup(value: string): string {
+  return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
   try {
     const parsed = (readStoredChoresState(userId) || {}) as {
@@ -552,6 +556,15 @@ export default function TodayPage() {
 
   const logMealCandidates = logMealCandidatesByCategory[logMealCategory] || [];
   const tonightDinnerCandidate = logMealCandidatesByCategory.dinner[0] || null;
+  const todayLogsByPerson = useMemo(() => {
+    const next: Record<string, MealLog[]> = {
+      me: getEffectiveMealLogsForDate('me', todayKey, user?.id),
+    };
+    dashboards.forEach((dashboard) => {
+      next[dashboard.id] = getEffectiveMealLogsForDate(dashboard.id, todayKey, user?.id);
+    });
+    return next;
+  }, [dashboards, refreshTick, todayKey, user?.id]);
   const myDinnerAlreadyLogged = useMemo(
     () => getEffectiveMealLogsForDate('me', todayKey, user?.id).some((log) => log.mealType === 'dinner'),
     [refreshTick, todayKey, user?.id],
@@ -627,6 +640,26 @@ export default function TodayPage() {
 
   const setCandidateServings = (candidateId: string, value: string) => {
     setMealServingsById((prev) => ({ ...prev, [candidateId]: value }));
+  };
+
+  const candidateAlreadyLogged = (candidate: LogMealCandidate): boolean => {
+    const targetPersonId = candidate.personId || 'me';
+    const logs = todayLogsByPerson[targetPersonId] || [];
+    const candidateMealType =
+      logMealCategory === 'snacks'
+        ? 'snack'
+        : logMealCategory === 'drinks'
+          ? 'alcohol'
+          : logMealCategory;
+    const normalizedLabel = normalizeMealLookup(candidate.label);
+    const normalizedBaseLabel = normalizeMealLookup(candidate.label.split(' - ')[0] || candidate.label);
+
+    return logs.some((log) => {
+      if (log.mealType !== candidateMealType) return false;
+      if (candidate.recipeId && log.recipeId && candidate.recipeId === log.recipeId) return true;
+      const normalizedLogName = normalizeMealLookup(log.recipeName || '');
+      return normalizedLogName === normalizedLabel || normalizedLogName === normalizedBaseLabel;
+    });
   };
 
   const submitQuickAdd = (input = quickAddData, options?: { closeDialog?: boolean; title?: string; description?: string }) => {
@@ -1109,6 +1142,7 @@ export default function TodayPage() {
               <div className="space-y-4">
                 {logMealCandidates.map((candidate) => {
                   const servingsValue = mealServingsById[candidate.id] || String(candidate.defaultServings || 1);
+                  const alreadyLogged = candidateAlreadyLogged(candidate);
                   return (
                     <div key={candidate.id} className="rounded-xl border border-border p-4 space-y-4">
                       <div className="flex items-start gap-4">
@@ -1164,15 +1198,22 @@ export default function TodayPage() {
                         <Button
                           size="sm"
                           className="w-full"
+                          variant={alreadyLogged ? 'outline' : 'default'}
+                          disabled={alreadyLogged}
                           onClick={() => logMealCandidate(candidate, candidate.personId || 'all', servingsValue)}
                         >
                           <Check className="w-4 h-4 mr-2" />
-                          {candidate.personName
-                            ? `Log for ${candidate.personName} (+points)`
-                            : dashboards.length > 1
-                              ? 'Log for all dashboards (+points)'
-                              : 'Log meal (+points)'}
+                          {alreadyLogged
+                            ? 'Already Logged'
+                            : candidate.personName
+                              ? `Log for ${candidate.personName} (+points)`
+                              : dashboards.length > 1
+                                ? 'Log for all dashboards (+points)'
+                                : 'Log meal (+points)'}
                         </Button>
+                        {alreadyLogged ? (
+                          <p className="text-xs text-muted-foreground">This item is already in today&apos;s log.</p>
+                        ) : null}
                         {!candidate.personId && (
                           <div className="flex flex-wrap gap-2">
                             {dashboards.map((dashboard) => (
