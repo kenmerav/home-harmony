@@ -43,6 +43,16 @@ const EMPTY_DASHBOARD: HouseholdDashboard = {
   invites: [],
 };
 
+function householdRoleSummary(member: HouseholdDashboard['members'][number]): string {
+  if (member.role === 'owner') {
+    return 'Owns the household setup and can manage shared family settings.';
+  }
+  if (member.role === 'spouse') {
+    return 'Can help manage family meals, grocery, calendar, chores, and tasks.';
+  }
+  return 'Part of the household with kid-focused access and chores visibility.';
+}
+
 export default function FamilyPage() {
   const { profile, user, isProfileComplete } = useAuth();
   const navigate = useNavigate();
@@ -487,6 +497,10 @@ export default function FamilyPage() {
                         <p className="text-xs text-muted-foreground capitalize">
                           {member.role} • {member.status}
                         </p>
+                        {member.email ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{member.email}</p>
+                        ) : null}
+                        <p className="mt-1 text-xs text-muted-foreground">{householdRoleSummary(member)}</p>
                       </div>
                     ))}
                     {dashboard.members.length === 0 && (

@@ -46,6 +46,16 @@ const DEFAULT_PREFS = {
   quiet_hours_end: null as string | null,
 };
 
+function buildWelcomeText(name: string | null, householdName: string | null): string {
+  const firstName = typeof name === "string" && name.trim().length > 0
+    ? name.trim().split(/\s+/)[0]
+    : "there";
+  const householdLine = householdName && householdName.trim().length > 0
+    ? ` You're connected to ${householdName.trim()}.`
+    : "";
+  return `Welcome to Home Harmony HQ, ${firstName}! Texts are now turned on for your account.${householdLine} You can reply anytime to add to grocery, log meals, set reminders, or update your calendar.`;
+}
+
 function validTime(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const normalized = value.slice(0, 5);
@@ -254,6 +264,13 @@ serve(async (req) => {
     }
 
     if (action === "save") {
+      const { data: existingPrefs, error: existingPrefsError } = await supabase
+        .from("sms_preferences")
+        .select("phone_e164, enabled")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (existingPrefsError) return json({ error: existingPrefsError.message }, 500);
+
       const normalizedPhone = normalizePhoneInput(payload?.phone_e164);
       if (payload?.phone_e164 && !normalizedPhone) {
         return json({ error: "Phone number must be E.164 format like +15551234567." });
@@ -303,7 +320,51 @@ serve(async (req) => {
         .upsert(next, { onConflict: "user_id" });
       if (error) return json({ error: error.message }, 500);
 
-      return json({ success: true, preferences: next });
+      const previousPhone = typeof existingPrefs?.phone_e164 === "string" ? existingPrefs.phone_e164.trim() : "";
+      const previousEnabled = Boolean(existingPrefs?.enabled);
+      const shouldSendWelcome =
+        Boolean(next.enabled && next.phone_e164) && (
+          !previousEnabled ||
+          !previousPhone ||
+          previousPhone !== next.phone_e164
+        );
+
+      let welcomeTextSent = false;
+      if (shouldSendWelcome && next.phone_e164) {
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("full_name, household_id")
+            .eq("id", userId)
+            .maybeSingle();
+          if (profileError) throw profileError;
+
+          let householdName: string | null = null;
+          const householdId = profileData?.household_id;
+          if (typeof householdId === "string" && householdId) {
+            const { data: householdData, error: householdError } = await supabase
+              .from("households")
+              .select("name")
+              .eq("id", householdId)
+              .maybeSingle();
+            if (householdError) throw householdError;
+            householdName = typeof householdData?.name === "string" ? householdData.name : null;
+          }
+
+          await sendTwilioSms(
+            next.phone_e164,
+            buildWelcomeText(
+              typeof profileData?.full_name === "string" ? profileData.full_name : null,
+              householdName,
+            ),
+          );
+          welcomeTextSent = true;
+        } catch (welcomeError) {
+          console.error("Failed to send welcome SMS:", welcomeError);
+        }
+      }
+
+      return json({ success: true, preferences: next, welcome_text_sent: welcomeTextSent });
     }
 
     if (action === "send_test") {
