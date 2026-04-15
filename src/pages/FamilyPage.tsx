@@ -24,6 +24,7 @@ import {
   revokeHouseholdInvite,
   type HouseholdDashboard,
 } from '@/lib/api/family';
+import { loadSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getFamilyLeaderboard,
@@ -123,11 +124,13 @@ export default function FamilyPage() {
     });
   };
 
-  const deleteLocalMember = () => {
+  const deleteLocalMember = async () => {
     if (!pendingDeleteMember) return;
 
-    const deleted = removeHouseholdProfile(pendingDeleteMember.id);
-    removeChildFromChores(pendingDeleteMember.id, user?.id);
+    const memberToDelete = pendingDeleteMember;
+
+    const deleted = removeHouseholdProfile(memberToDelete.id);
+    removeChildFromChores(memberToDelete.id, user?.id);
     setPendingDeleteMember(null);
 
     if (!deleted) {
@@ -138,11 +141,40 @@ export default function FamilyPage() {
       return;
     }
 
+    if (memberToDelete.id === 'wife') {
+      try {
+        const prefs = await loadSmsPreferences();
+        const ownerPhone = String(prefs.phone_e164 || '').trim();
+        const cleanedRecipients = Object.fromEntries(
+          Object.entries(prefs.module_recipients).map(([moduleName, recipients]) => [
+            moduleName,
+            Array.isArray(recipients)
+              ? recipients.filter((recipient) => String(recipient || '').trim() === ownerPhone)
+              : [],
+          ]),
+        ) as typeof prefs.module_recipients;
+
+        await saveSmsPreferences({
+          ...prefs,
+          module_recipients: cleanedRecipients,
+        });
+      } catch (error) {
+        console.error('Failed clearing spouse SMS recipients:', error);
+        toast({
+          title: 'Removed wife profile',
+          description:
+            'The local wife dashboard was removed, but we could not fully clear extra SMS recipients. Check Settings > Text reminders if needed.',
+        });
+        return;
+      }
+    }
+
     toast({
       title: 'Family member removed',
-      description:
-        deleted.memberType === 'child'
-          ? `${deleted.name} was removed from chores and the kid leaderboard.`
+      description: deleted.memberType === 'child'
+        ? `${deleted.name} was removed from chores and the kid leaderboard.`
+        : deleted.id === 'wife'
+          ? `${deleted.name} was removed, and extra spouse text recipients were cleared.`
           : `${deleted.name} was removed from dashboards and nutrition tracking.`,
     });
   };
