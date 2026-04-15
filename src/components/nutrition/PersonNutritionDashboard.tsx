@@ -15,7 +15,11 @@ import { useCurrentDate } from '@/hooks/useCurrentDate';
 import { mockMealPlan } from '@/data/mockData';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getPlannedFoodEntriesForDate } from '@/lib/mealBudgetPlanner';
-import { getDinnerServingsForProfileDate } from '@/lib/mealPrefs';
+import {
+  getDinnerServingsByProfile,
+  getDinnerServingsForProfileDate,
+  setDinnerServingsByProfile,
+} from '@/lib/mealPrefs';
 import {
   AdultId,
   addDashboardTodo,
@@ -155,6 +159,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const currentStreak = getCurrentStreak(personId, currentDate);
   const weekPoints = getWeekPoints(personId, currentDate);
   const targetCalories = profile.macroPlan.calories || 2000;
+  const dashboardDinnerServings = getDinnerServingsForProfileDate(personId, todayKey, user?.id);
   const plannedDinnerEntry = useMemo(
     () => getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null,
     [todayKey, user?.id],
@@ -209,14 +214,14 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       date: todayKey,
       person: personId,
       mealType: 'dinner',
-      servings: tonightDinner.defaultServings,
+      servings: dashboardDinnerServings,
       macros: {
-        calories: Math.round(tonightDinner.macros.calories * tonightDinner.defaultServings),
-        protein_g: Math.round(tonightDinner.macros.protein_g * tonightDinner.defaultServings),
-        carbs_g: Math.round(tonightDinner.macros.carbs_g * tonightDinner.defaultServings),
-        fat_g: Math.round(tonightDinner.macros.fat_g * tonightDinner.defaultServings),
+        calories: Math.round(tonightDinner.macros.calories * dashboardDinnerServings),
+        protein_g: Math.round(tonightDinner.macros.protein_g * dashboardDinnerServings),
+        carbs_g: Math.round(tonightDinner.macros.carbs_g * dashboardDinnerServings),
+        fat_g: Math.round(tonightDinner.macros.fat_g * dashboardDinnerServings),
         fiber_g: tonightDinner.macros.fiber_g
-          ? Math.round(tonightDinner.macros.fiber_g * tonightDinner.defaultServings)
+          ? Math.round(tonightDinner.macros.fiber_g * dashboardDinnerServings)
           : undefined,
       },
       isQuickAdd: false,
@@ -226,8 +231,22 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     setRefreshTick((prev) => prev + 1);
     toast({
       title: `Logged for ${profile.name}`,
-      description: `${tonightDinner.label} • ${tonightDinner.defaultServings} serving${tonightDinner.defaultServings !== 1 ? 's' : ''}`,
+      description: `${tonightDinner.label} • ${dashboardDinnerServings} serving${dashboardDinnerServings !== 1 ? 's' : ''}`,
     });
+  };
+
+  const handleDinnerServingsChange = (nextServings: number) => {
+    const normalizedServings = Math.max(0.25, Math.min(6, Math.round(nextServings * 4) / 4));
+    const currentValues = getDinnerServingsByProfile(user?.id);
+    const nextValues = {
+      ...currentValues,
+      [personId]: {
+        ...(currentValues[personId] || {}),
+        [todayKey]: normalizedServings,
+      },
+    };
+    setDinnerServingsByProfile(nextValues, user?.id);
+    setRefreshTick((prev) => prev + 1);
   };
 
   const weekData = Array.from({ length: 7 }, (_, i) => {
@@ -390,6 +409,33 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
                   <p className="text-sm text-muted-foreground">
                     {Math.round(tonightDinner.macros.calories)} cal/serving
                   </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleDinnerServingsChange(dashboardDinnerServings - 0.25)}
+                    >
+                      -
+                    </Button>
+                    <div className="rounded-md border border-border bg-background px-3 py-1 text-sm font-medium">
+                      {dashboardDinnerServings} serving{dashboardDinnerServings !== 1 ? 's' : ''}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleDinnerServingsChange(dashboardDinnerServings + 0.25)}
+                    >
+                      +
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Totals: {Math.round(tonightDinner.macros.calories * dashboardDinnerServings)} cal •{' '}
+                      {Math.round(tonightDinner.macros.protein_g * dashboardDinnerServings)}g protein
+                    </p>
+                  </div>
                 </div>
                 <Button size="sm" onClick={handleQuickAddDinner}>
                   <Check className="w-4 h-4 mr-2" />
