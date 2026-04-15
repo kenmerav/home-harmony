@@ -1154,9 +1154,11 @@ export function getMealLogs(): MealLog[] {
 
 export function getActualMealLogsForDate(personId: AdultId, date = dayKey(), userId?: string | null): MealLog[] {
   const scopedUserId = userId ?? currentStorageScopeUserId;
-  return readState(scopedUserId).mealLogs
+  const state = readState(scopedUserId);
+  const equivalentPersonIds = resolveEquivalentMealLogPersonIds(state, personId, scopedUserId);
+  return state.mealLogs
     .map(fromStoredMealLog)
-    .filter((log) => log.person === personId && log.date === date)
+    .filter((log) => equivalentPersonIds.has(log.person) && log.date === date)
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
@@ -1288,19 +1290,51 @@ function normalizeMealLookup(value: string): string {
   return value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function buildMealIdentity(log: Pick<MealLog, 'person' | 'date' | 'mealType' | 'recipeName'>): string {
-  return `${log.person}::${log.date}::${log.mealType || 'uncategorized'}::${normalizeMealLookup(log.recipeName)}`;
+function isMeProfileLike(
+  state: StoredState,
+  personId: AdultId,
+  userId?: string | null,
+): boolean {
+  if (personId === 'me') return true;
+  if (userId && personId === userId) return true;
+  const profile = state.profiles[personId];
+  return Boolean(profile && profile.memberType === 'adult' && profile.name.trim().toLowerCase() === 'me');
+}
+
+function resolveEquivalentMealLogPersonIds(
+  state: StoredState,
+  personId: AdultId,
+  userId?: string | null,
+): Set<string> {
+  const ids = new Set<string>([personId]);
+  if (!isMeProfileLike(state, personId, userId)) {
+    return ids;
+  }
+
+  ids.add('me');
+  if (userId) ids.add(userId);
+  Object.values(state.profiles).forEach((profile) => {
+    if (profile.memberType === 'adult' && profile.name.trim().toLowerCase() === 'me') {
+      ids.add(profile.id);
+    }
+  });
+  return ids;
+}
+
+function buildMealIdentityWithinScope(log: Pick<MealLog, 'date' | 'mealType' | 'recipeName'>): string {
+  return `${log.date}::${log.mealType || 'uncategorized'}::${normalizeMealLookup(log.recipeName)}`;
 }
 
 export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey(), userId?: string | null): MealLog[] {
   const scopedUserId = userId ?? currentStorageScopeUserId;
   const state = readState(scopedUserId);
+  const equivalentPersonIds = resolveEquivalentMealLogPersonIds(state, personId, scopedUserId);
   const actualLogs = state.mealLogs
     .map(fromStoredMealLog)
-    .filter((log) => log.person === personId && log.date === date);
-  const existingKeys = new Set(actualLogs.map((log) => buildMealIdentity(log)));
+    .filter((log) => equivalentPersonIds.has(log.person) && log.date === date);
+  const existingKeys = new Set(actualLogs.map((log) => buildMealIdentityWithinScope(log)));
   const supplementalPlannerLogs = getPlannedFoodEntriesForDate(date, scopedUserId)
-    .filter((entry) => entry.personId === personId && entry.mealType !== 'dinner')
+    .filter((entry) => entry.personId && equivalentPersonIds.has(entry.personId) && entry.mealType !== 'dinner')
     .map<MealLog>((entry) => ({
       id: `planner-log:${entry.id}`,
       recipeId: entry.sourceRecipeId || undefined,
@@ -1318,7 +1352,7 @@ export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey(), 
       isQuickAdd: true,
       createdAt: new Date(entry.createdAt),
     }))
-    .filter((log) => !existingKeys.has(buildMealIdentity(log)));
+    .filter((log) => !existingKeys.has(buildMealIdentityWithinScope(log)));
 
   return [...actualLogs, ...supplementalPlannerLogs].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
