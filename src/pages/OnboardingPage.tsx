@@ -1136,9 +1136,13 @@ export default function OnboardingPage() {
             dinners: [],
             groceryPreview: [],
           },
-          focusRoute: '/dashboard/me',
-          focusLabel: 'Your dashboard',
+          focusRoute: '/family',
+          focusLabel: 'Family hub',
           launchChecklist: [
+            {
+              label: 'See your family hub',
+              href: '/family',
+            },
             {
               label: 'Open your dashboard',
               href: '/dashboard/me',
@@ -1146,10 +1150,6 @@ export default function OnboardingPage() {
             {
               label: 'Check your reminders',
               href: '/settings',
-            },
-            {
-              label: 'View the family hub',
-              href: '/family',
             },
           ],
           wellnessTargets: {
@@ -1160,7 +1160,7 @@ export default function OnboardingPage() {
             sleepTargetHours,
           },
           summary:
-            'Your household is already set up. We are just finishing your personal dashboard, reminders, and health goals so you can jump in quickly.',
+            'Your household is already set up. We are just finishing your personal dashboard, reminders, and health goals so you can join the family hub and get oriented quickly.',
         };
       }
 
