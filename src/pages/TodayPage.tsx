@@ -377,10 +377,6 @@ export default function TodayPage() {
   const leaderboard = useMemo(() => getFamilyLeaderboard(currentDate, user?.id), [currentDate, refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
   const pendingChores = useMemo(() => loadPendingChoreDetails(user?.id), [refreshTick, user?.id]);
-  const myFoodsEatenToday = useMemo(
-    () => getEffectiveMealLogsForDate('me', todayKey, user?.id),
-    [refreshTick, todayKey, user?.id],
-  );
   const quickAddSavedFoods = useMemo(() => {
     const query = quickAddFoodQuery.trim().toLowerCase();
     const foods = getCommonFoods(user?.id);
@@ -1040,66 +1036,85 @@ export default function TodayPage() {
         </SectionCard>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <SectionCard
-            title="Tasks and Chores"
-            subtitle="What needs attention today"
-            action={
-              <div className="flex items-center gap-2">
-                <Link to="/tasks">
-                  <Button variant="ghost" size="sm">
-                    Tasks
-                  </Button>
-                </Link>
-                <Link to="/chores">
-                  <Button variant="ghost" size="sm">
-                    Chores
-                  </Button>
-                </Link>
-              </div>
-            }
-          >
-            <div className="space-y-5">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Today&apos;s Tasks</p>
-                <div className="space-y-2">
-                  {todaysTasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No tasks scheduled today.</p>
-                  ) : (
-                    todaysTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className="flex items-center justify-between rounded-md border border-border px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{task.title}</p>
-                          {task.notes && <p className="truncate text-xs text-muted-foreground">{task.notes}</p>}
-                        </div>
-                        <StatusBadge status={task.status} />
+          <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {todaysScores.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{entry.label}</p>
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-orange-500" />
+                          {entry.streak} day streak
+                        </span>
+                        <span className="font-semibold text-foreground">{entry.score.points} pts</span>
                       </div>
-                    ))
-                  )}
-                </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <BadgeLine label="Protein" hit={entry.score.proteinHit} />
+                      <BadgeLine label="Calories" hit={entry.score.calorieHit} />
+                      <BadgeLine label="Water" hit={entry.score.waterHit} />
+                      <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
+                        <Droplets className="w-4 h-4 mr-1" />
+                        +16oz
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
+                        <Droplets className="w-4 h-4 mr-1" />
+                        -16oz
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
+                        <Wine className="w-4 h-4 mr-1" />
+                        +1 drink
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
+                        <Wine className="w-4 h-4 mr-1" />
+                        -1 drink
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
+                    </p>
+                  </div>
+                ))}
               </div>
 
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Kids Chore Progress</p>
-                {childChores.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No kids added yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {childChores.map((child) => (
-                      <div key={child.id} className="rounded-md border border-border px-3 py-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium">{child.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {child.completed}/{child.total}
-                          </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {todaysScores.map((entry) => {
+                  const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
+                  return (
+                    <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
+                      <SectionCard className="card-hover">
+                        <div className="text-center mb-3">
+                          <p className="text-sm text-muted-foreground">{entry.label}</p>
+                          <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
+                          <p className="text-xs text-muted-foreground">calories today</p>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Protein</span>
+                            <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
+                          </div>
+                          <div className="h-1 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full"
+                              style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </SectionCard>
+                    </Link>
+                  );
+                })}
               </div>
+
+              <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Quick Add Meal
+              </Button>
             </div>
           </SectionCard>
 
@@ -1300,119 +1315,63 @@ export default function TodayPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {todaysScores.map((entry) => (
-                  <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">{entry.label}</p>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1">
-                          <Flame className="w-3.5 h-3.5 text-orange-500" />
-                          {entry.streak} day streak
-                        </span>
-                        <span className="font-semibold text-foreground">{entry.score.points} pts</span>
+        <SectionCard
+          title="Tasks and Chores"
+          subtitle="What needs attention today"
+          action={
+            <div className="flex items-center gap-2">
+              <Link to="/tasks">
+                <Button variant="ghost" size="sm">
+                  Tasks
+                </Button>
+              </Link>
+              <Link to="/chores">
+                <Button variant="ghost" size="sm">
+                  Chores
+                </Button>
+              </Link>
+            </div>
+          }
+        >
+          <div className="space-y-5">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Today&apos;s Tasks</p>
+              <div className="space-y-2">
+                {todaysTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No tasks scheduled today.</p>
+                ) : (
+                  todaysTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{task.title}</p>
+                        {task.notes && <p className="truncate text-xs text-muted-foreground">{task.notes}</p>}
                       </div>
+                      <StatusBadge status={task.status} />
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <BadgeLine label="Protein" hit={entry.score.proteinHit} />
-                      <BadgeLine label="Calories" hit={entry.score.calorieHit} />
-                      <BadgeLine label="Water" hit={entry.score.waterHit} />
-                      <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
-                        <Droplets className="w-4 h-4 mr-1" />
-                        +16oz
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
-                        <Droplets className="w-4 h-4 mr-1" />
-                        -16oz
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
-                        <Wine className="w-4 h-4 mr-1" />
-                        +1 drink
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
-                        <Wine className="w-4 h-4 mr-1" />
-                        -1 drink
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
-                    </p>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {todaysScores.map((entry) => {
-                  const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
-                  return (
-                    <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
-                      <SectionCard className="card-hover">
-                        <div className="text-center mb-3">
-                          <p className="text-sm text-muted-foreground">{entry.label}</p>
-                          <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
-                          <p className="text-xs text-muted-foreground">calories today</p>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Protein</span>
-                            <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
-                          </div>
-                          <div className="h-1 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full"
-                              style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-                      </SectionCard>
-                    </Link>
-                  );
-                })}
-              </div>
-
-              <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Quick Add Meal
-              </Button>
             </div>
 
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Foods Eaten Today</p>
-                  <p className="text-sm text-muted-foreground">Your Me dashboard log for today</p>
-                </div>
-                <span className="text-sm text-muted-foreground">{myFoodsEatenToday.length} item{myFoodsEatenToday.length === 1 ? '' : 's'}</span>
-              </div>
-
-              {myFoodsEatenToday.length > 0 ? (
-                <div className="space-y-3">
-                  {myFoodsEatenToday.map((log) => (
-                    <div key={log.id} className="rounded-md border border-border/80 px-3 py-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">{log.recipeName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {log.mealType ? log.mealType.charAt(0).toUpperCase() + log.mealType.slice(1) : 'Meal'} • {log.servings} serving{log.servings !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">{Math.round(log.macros.calories)} cal</p>
-                          <p className="text-xs text-muted-foreground">{Math.round(log.macros.protein_g)}g protein</p>
-                        </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Kids Chore Progress</p>
+              {childChores.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No kids added yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {childChores.map((child) => (
+                    <div key={child.id} className="rounded-md border border-border px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">{child.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {child.completed}/{child.total}
+                        </p>
                       </div>
                     </div>
                   ))}
-                </div>
-              ) : (
-                <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                  Nothing logged for Me yet today.
                 </div>
               )}
             </div>
