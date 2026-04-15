@@ -193,6 +193,16 @@ export default function FamilyPage() {
 
     return merged.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
   }, [dashboard.members, sharedMemberShadows]);
+  const linkedHouseholdAdults = useMemo(
+    () =>
+      visibleHouseholdMembers.filter(
+        (member) =>
+          member.status === 'active' &&
+          (member.role === 'owner' || member.role === 'spouse') &&
+          member.user_id !== user?.id,
+      ),
+    [user?.id, visibleHouseholdMembers],
+  );
   const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
 
   const updateLocalMemberType = (memberId: string, nextType: 'adult' | 'child') => {
@@ -443,7 +453,21 @@ export default function FamilyPage() {
                     </div>
                   );
                 })}
-                {localProfiles.length === 0 && (
+                {linkedHouseholdAdults.map((member) => (
+                  <div
+                    key={`linked-${member.user_id}`}
+                    className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{member.full_name || member.email || 'Household member'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Adult dashboard • Household member with own login
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground capitalize">{member.role}</span>
+                  </div>
+                ))}
+                {localProfiles.length === 0 && linkedHouseholdAdults.length === 0 && (
                   <p className="text-sm text-muted-foreground">No local family members set up yet.</p>
                 )}
               </div>
