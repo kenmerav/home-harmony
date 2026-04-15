@@ -8,7 +8,7 @@ import { stashPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { getPostAuthRoute } from '@/lib/billing';
 import { sendWelcomeEmail } from '@/lib/api/emails';
-import { loadPendingInviteOnboarding } from '@/lib/onboardingStore';
+import { clearPendingInviteOnboarding, loadPendingInviteOnboarding } from '@/lib/onboardingStore';
 
 export default function AuthPage() {
   const {
@@ -59,6 +59,9 @@ export default function AuthPage() {
   useEffect(() => {
     if (!user) return;
     if (profileLoading || subscriptionLoading) return;
+    if (isProfileComplete && pendingInvite?.token) {
+      clearPendingInviteOnboarding();
+    }
     const isLegacyInviteReturn = Boolean(returnTo && returnTo.startsWith('/family?invite='));
     const legacyInviteParams = (() => {
       if (!isLegacyInviteReturn || !returnTo) return null;
@@ -70,7 +73,7 @@ export default function AuthPage() {
     })();
     const canUpgradeLegacyInviteReturn = Boolean(legacyInviteParams?.token && legacyInviteParams?.role);
     const hasInviteOnboardingIntent = Boolean(
-      onboardingIntent || inviteToken || pendingInvite?.token || canUpgradeLegacyInviteReturn,
+      !isProfileComplete && (onboardingIntent || inviteToken || pendingInvite?.token || canUpgradeLegacyInviteReturn),
     );
     if (hasInviteOnboardingIntent) {
       navigate(
