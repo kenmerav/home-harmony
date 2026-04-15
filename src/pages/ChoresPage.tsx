@@ -26,7 +26,11 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
-import { choresStateStorageKey, persistChoresStateToAccount } from '@/lib/choresStateStore';
+import {
+  choresStateStorageKey,
+  hydrateChoresStateFromAccount,
+  persistChoresStateToAccount,
+} from '@/lib/choresStateStore';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -459,7 +463,7 @@ function markOverdueExtras(children: ChildEconomy[]): { updated: ChildEconomy[];
 
 export default function ChoresPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, sharedHouseholdOwnerId, householdScopeLoading } = useAuth();
   const childRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [state, setState] = useState<ChoresState>(() => defaultState());
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
@@ -509,25 +513,61 @@ export default function ChoresPage() {
   const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
   const currentDay = getCurrentDay();
   const { toast } = useToast();
-  const activeKey = user?.id || 'anon';
+  const activeScopeId = sharedHouseholdOwnerId || user?.id || null;
+  const activeKey = activeScopeId || 'anon';
 
   const children = state.children;
   const availableExtraChores = state.availableExtraChores;
 
   useEffect(() => {
-    setState(loadState(user?.id));
-    setLoadedForKey(activeKey);
-  }, [user?.id, activeKey]);
+    if (householdScopeLoading) return;
+
+    let cancelled = false;
+
+    const loadSharedState = async () => {
+      if (activeScopeId) {
+        try {
+          await hydrateChoresStateFromAccount(activeScopeId);
+        } catch (error) {
+          console.error('Failed to hydrate chores state for page load:', error);
+        }
+      }
+
+      if (cancelled) return;
+      setState(loadState(activeScopeId));
+      setLoadedForKey(activeKey);
+    };
+
+    void loadSharedState();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKey, activeScopeId, householdScopeLoading]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || householdScopeLoading) return;
+
+    const refreshFromSharedState = () => {
+      setState((current) => {
+        const next = loadState(activeScopeId);
+        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+      });
+      setLoadedForKey(activeKey);
+    };
+
+    window.addEventListener('homehub:chores-state-updated', refreshFromSharedState);
+    return () => window.removeEventListener('homehub:chores-state-updated', refreshFromSharedState);
+  }, [activeKey, activeScopeId, householdScopeLoading]);
 
   useEffect(() => {
     if (loadedForKey !== activeKey) return;
-    saveState(state, user?.id);
-  }, [state, user?.id, loadedForKey, activeKey]);
+    saveState(state, activeScopeId);
+  }, [state, activeScopeId, loadedForKey, activeKey]);
 
   useEffect(() => {
     if (loadedForKey !== activeKey) return;
-    void syncDerivedCalendarSnapshot(user?.id, new Date());
-  }, [state, user?.id, loadedForKey, activeKey]);
+    void syncDerivedCalendarSnapshot(activeScopeId, new Date());
+  }, [state, activeScopeId, loadedForKey, activeKey]);
 
   useEffect(() => {
     if (loadedForKey !== activeKey) return;
