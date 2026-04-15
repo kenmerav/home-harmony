@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -110,7 +110,7 @@ function buildWellnessSummary(input: unknown): string | null {
   return parts.length > 0 ? parts.join(' • ') : null;
 }
 
-export default function GetStartedPage() {
+function GetStartedPageContent() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
@@ -403,3 +403,67 @@ export default function GetStartedPage() {
     </AppLayout>
   );
 }
+
+class GetStartedErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('GetStartedPage crashed:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <AppLayout>
+          <PageHeader
+            title="Setup + tutorials"
+            subtitle="We hit a snag loading this page, but you can still open the main setup areas below."
+          />
+          <div className="space-y-6">
+            <SectionCard title="Quick links" subtitle="Use these while we keep tightening the tutorials page.">
+              <div className="flex flex-wrap gap-2">
+                <Link to="/family">
+                  <Button variant="outline">Family</Button>
+                </Link>
+                <Link to="/meals">
+                  <Button variant="outline">Meals</Button>
+                </Link>
+                <Link to="/grocery">
+                  <Button variant="outline">Grocery</Button>
+                </Link>
+                <Link to="/calendar">
+                  <Button variant="outline">Calendar</Button>
+                </Link>
+                <Link to="/recipes">
+                  <Button variant="outline">Recipes</Button>
+                </Link>
+                <Link to="/settings">
+                  <Button variant="outline">Settings</Button>
+                </Link>
+              </div>
+            </SectionCard>
+          </div>
+        </AppLayout>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export function SafeGetStartedPage() {
+  return (
+    <GetStartedErrorBoundary>
+      <GetStartedPageContent />
+    </GetStartedErrorBoundary>
+  );
+}
+
+export default SafeGetStartedPage;
