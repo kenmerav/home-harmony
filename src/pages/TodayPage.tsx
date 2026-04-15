@@ -473,7 +473,9 @@ export default function TodayPage() {
     [refreshTick, todayKey, user?.id],
   );
 
-  const liveTodaysMeal = liveMeals.find((m) => m.day === currentDay && !m.is_skipped && !!m.recipes);
+  const liveTodaysMeal = liveMeals.find(
+    (m) => m.week_of === weekKey && m.day === currentDay && !m.is_skipped && !!m.recipes,
+  );
   const fallbackDinner = liveTodaysMeal
     ? {
         recipeId: liveTodaysMeal.recipe_id,
