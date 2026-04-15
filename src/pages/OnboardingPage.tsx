@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
-import { createOrGetHousehold, getHouseholdDashboard } from '@/lib/api/family';
+import { acceptHouseholdInvite, createOrGetHousehold, getHouseholdDashboard } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import {
   enqueueCookbookImportFromPdf,
@@ -953,6 +953,8 @@ export default function OnboardingPage() {
   const { toast } = useToast();
 
   const forceOnboarding = searchParams.get('force') === '1';
+  const inviteToken = searchParams.get('invite');
+  const inviteRoleParam = searchParams.get('role');
   const needsAccountStep = !user;
   const actorKey = user?.id || 'anon';
   const hydratedForActor = useRef<string | null>(null);
@@ -965,6 +967,7 @@ export default function OnboardingPage() {
   const [account, setAccount] = useState<AccountDraft>(DEFAULT_ACCOUNT);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [pendingInviteFinalization, setPendingInviteFinalization] = useState(false);
   const [householdRole, setHouseholdRole] = useState<'owner' | 'spouse' | 'kid' | null>(null);
   const [householdRoleLoading, setHouseholdRoleLoading] = useState(Boolean(user));
   const recipePdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -1077,16 +1080,21 @@ export default function OnboardingPage() {
     };
   }, [user?.id]);
 
-  const invitedHouseholdMember = householdRole === 'spouse' || householdRole === 'kid';
-  const spouseOnboarding = householdRole === 'spouse';
-  const kidOnboarding = householdRole === 'kid';
+  const provisionalInviteRole =
+    inviteRoleParam === 'spouse' || inviteRoleParam === 'kid'
+      ? inviteRoleParam
+      : null;
+  const effectiveHouseholdRole = householdRole || provisionalInviteRole;
+  const invitedHouseholdMember = effectiveHouseholdRole === 'spouse' || effectiveHouseholdRole === 'kid';
+  const spouseOnboarding = effectiveHouseholdRole === 'spouse';
+  const kidOnboarding = effectiveHouseholdRole === 'kid';
 
   const steps = useMemo(
     () =>
       invitedHouseholdMember
-        ? buildHouseholdMemberSteps(householdRole, needsAccountStep)
+        ? buildHouseholdMemberSteps(effectiveHouseholdRole, needsAccountStep)
         : buildSteps(answers, needsAccountStep),
-    [answers, householdRole, invitedHouseholdMember, needsAccountStep],
+    [answers, effectiveHouseholdRole, invitedHouseholdMember, needsAccountStep],
   );
   const stepIndex = Math.max(0, steps.indexOf(currentStepId));
   const progress = (stepIndex + 1) / steps.length;
@@ -1320,7 +1328,11 @@ export default function OnboardingPage() {
 
   const completeOnboarding = async () => {
     if (!user) {
-      navigate('/signin?onboarding=1', { replace: true });
+      const params = new URLSearchParams();
+      params.set('onboarding', '1');
+      if (inviteToken) params.set('invite', inviteToken);
+      if (provisionalInviteRole) params.set('role', provisionalInviteRole);
+      navigate(`/signin?${params.toString()}`, { replace: true });
       return;
     }
 
@@ -1328,6 +1340,18 @@ export default function OnboardingPage() {
     setSubmitError(null);
 
     try {
+      if (
+        inviteToken &&
+        invitedHouseholdMember &&
+        householdRole !== 'spouse' &&
+        householdRole !== 'kid'
+      ) {
+        await acceptHouseholdInvite(inviteToken);
+        if (effectiveHouseholdRole === 'spouse' || effectiveHouseholdRole === 'kid') {
+          setHouseholdRole(effectiveHouseholdRole);
+        }
+      }
+
       let importedLinkRecipeCount = 0;
       let failedLinkImports = 0;
       let pdfImportQueued = false;
@@ -1582,6 +1606,24 @@ export default function OnboardingPage() {
     }
   };
 
+  useEffect(() => {
+    if (!pendingInviteFinalization || !user?.id) return;
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        await completeOnboarding();
+      } finally {
+        if (!cancelled) setPendingInviteFinalization(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingInviteFinalization, user?.id]);
+
   const createAccountFromOnboarding = async () => {
     if (user) {
       setCurrentStepId('paywallPrep');
@@ -1598,17 +1640,31 @@ export default function OnboardingPage() {
       });
 
       if (sessionCreated) {
+        saveOnboardingDraft(null, {
+          onboarding: answers as unknown as Record<string, unknown>,
+          stepId: 'paywallPrep',
+        });
         toast({
           title: 'Account created',
-          description: 'Great. Finishing your setup now.',
+          description: inviteToken
+            ? 'Great. Joining your family and finishing your setup now.'
+            : 'Great. Finishing your setup now.',
         });
-        setCurrentStepId('paywallPrep');
+        if (inviteToken) {
+          setPendingInviteFinalization(true);
+        } else {
+          setCurrentStepId('paywallPrep');
+        }
       } else {
         toast({
           title: 'Account created',
           description: 'Check your email if verification is enabled, then sign in to apply your plan.',
         });
-        navigate('/signin?onboarding=1', { replace: true });
+        const params = new URLSearchParams();
+        params.set('onboarding', '1');
+        if (inviteToken) params.set('invite', inviteToken);
+        if (provisionalInviteRole) params.set('role', provisionalInviteRole);
+        navigate(`/signin?${params.toString()}`, { replace: true });
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not create account.';
@@ -2588,7 +2644,19 @@ export default function OnboardingPage() {
             />
             {accountError && <p className="text-sm text-destructive">{accountError}</p>}
             <p className="text-xs text-muted-foreground">
-              Already have an account? <Link to="/signin?onboarding=1" className="underline">Sign in and continue</Link>.
+              Already have an account?{' '}
+              <Link
+                to={`/signin?${(() => {
+                  const params = new URLSearchParams();
+                  params.set('onboarding', '1');
+                  if (inviteToken) params.set('invite', inviteToken);
+                  if (provisionalInviteRole) params.set('role', provisionalInviteRole);
+                  return params.toString();
+                })()}`}
+                className="underline"
+              >
+                Sign in and continue
+              </Link>.
             </p>
           </div>
         </QuestionScreen>

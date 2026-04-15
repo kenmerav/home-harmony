@@ -36,6 +36,18 @@ export default function AuthPage() {
   const source = search.get('source');
   const intent = search.get('intent');
   const ab = search.get('ab');
+  const inviteToken = search.get('invite');
+  const inviteRole = search.get('role');
+
+  const buildInviteOnboardingPath = (sourceInvite?: { token?: string | null; role?: string | null }) => {
+    const params = new URLSearchParams();
+    params.set('force', '1');
+    const nextInviteToken = sourceInvite?.token ?? inviteToken;
+    const nextInviteRole = sourceInvite?.role ?? inviteRole;
+    if (nextInviteToken) params.set('invite', nextInviteToken);
+    if (nextInviteRole) params.set('role', nextInviteRole);
+    return `/onboarding?${params.toString()}`;
+  };
 
   useEffect(() => {
     if (!referralCode) return;
@@ -45,16 +57,31 @@ export default function AuthPage() {
   useEffect(() => {
     if (!user) return;
     if (profileLoading || subscriptionLoading) return;
+    const isLegacyInviteReturn = Boolean(returnTo && returnTo.startsWith('/family?invite='));
+    const legacyInviteParams = (() => {
+      if (!isLegacyInviteReturn || !returnTo) return null;
+      const params = new URLSearchParams(returnTo.split('?')[1] || '');
+      return {
+        token: params.get('invite'),
+        role: params.get('role'),
+      };
+    })();
+    const canUpgradeLegacyInviteReturn = Boolean(legacyInviteParams?.token && legacyInviteParams?.role);
     if (returnTo) {
-      navigate(returnTo, { replace: true });
+      navigate(
+        isLegacyInviteReturn && canUpgradeLegacyInviteReturn
+          ? buildInviteOnboardingPath(legacyInviteParams || undefined)
+          : returnTo,
+        { replace: true },
+      );
       return;
     }
     if (onboardingIntent) {
-      navigate('/onboarding?force=1', { replace: true });
+      navigate(inviteToken ? buildInviteOnboardingPath() : '/onboarding?force=1', { replace: true });
       return;
     }
     if (!isProfileComplete) {
-      navigate('/onboarding', { replace: true });
+      navigate(inviteToken ? buildInviteOnboardingPath() : '/onboarding', { replace: true });
       return;
     }
     navigate(getPostAuthRoute(isSubscribed), { replace: true });
@@ -67,6 +94,8 @@ export default function AuthPage() {
     returnTo,
     subscriptionLoading,
     user,
+    inviteRole,
+    inviteToken,
   ]);
 
   const onSubmit = async (e: FormEvent) => {

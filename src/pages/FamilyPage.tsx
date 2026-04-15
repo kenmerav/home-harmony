@@ -210,7 +210,7 @@ export default function FamilyPage() {
     const targetEmail = inviteEmail.trim().toLowerCase();
     try {
       const token = await inviteHouseholdMember(targetEmail, inviteRole);
-      const link = `${window.location.origin}/family?invite=${token}`;
+      const link = `${window.location.origin}/onboarding?force=1&invite=${token}&role=${inviteRole}`;
       setLastInviteLink(link);
       try {
         await sendFamilyInviteEmail({
