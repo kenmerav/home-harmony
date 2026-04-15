@@ -24,7 +24,9 @@ import {
   AdultId,
   addDashboardTodo,
   addMealLog,
+  deleteMealLog,
   deleteDashboardTodo,
+  getActualMealLogsForDate,
   getFemaleHealthSettings,
   getCurrentStreak,
   getDailyScore,
@@ -35,10 +37,11 @@ import {
   hydrateMacroGameActivityFromAccount,
   isDailyLogFullyLogged,
   toggleDashboardTodo,
+  updateMealLog,
   updateFemaleHealthSettings,
 } from '@/lib/macroGame';
 import { DayOfWeek, MealLog } from '@/types';
-import { Check, Flame, Plus, Target, Trash2, Trophy, TrendingUp } from 'lucide-react';
+import { Check, Flame, Pencil, Plus, Target, Trash2, Trophy, TrendingUp, X } from 'lucide-react';
 import { MacroGoalDialog } from './MacroGoalDialog';
 
 interface PersonNutritionDashboardProps {
@@ -75,6 +78,16 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [liveMeals, setLiveMeals] = useState<DbPlannedMeal[]>([]);
   const [todoDraft, setTodoDraft] = useState('');
+  const [editingMealLogId, setEditingMealLogId] = useState<string | null>(null);
+  const [mealEditDraft, setMealEditDraft] = useState({
+    recipeName: '',
+    mealType: 'breakfast' as NonNullable<MealLog['mealType']>,
+    servings: '1',
+    calories: '0',
+    protein: '0',
+    carbs: '0',
+    fat: '0',
+  });
   const currentDate = useCurrentDate();
   const todayKey = format(currentDate, 'yyyy-MM-dd');
   const currentDay = getCurrentDay(currentDate);
@@ -153,7 +166,10 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     );
   }
   const todos = getDashboardTodos(personId);
-  const todaysLogs = getEffectiveMealLogsForDate(personId, todayKey);
+  const todaysActualLogs = useMemo(
+    () => getActualMealLogsForDate(personId, todayKey, user?.id),
+    [personId, refreshTick, todayKey, user?.id],
+  );
   const isFemaleDashboard = profile.macroPlan.questionnaire.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
@@ -247,6 +263,59 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     };
     setDinnerServingsByProfile(nextValues, user?.id);
     setRefreshTick((prev) => prev + 1);
+  };
+
+  const startEditingMealLog = (log: MealLog) => {
+    setEditingMealLogId(log.id);
+    setMealEditDraft({
+      recipeName: log.recipeName,
+      mealType: (log.mealType || 'breakfast') as NonNullable<MealLog['mealType']>,
+      servings: String(log.servings),
+      calories: String(Math.round(log.macros.calories)),
+      protein: String(Math.round(log.macros.protein_g)),
+      carbs: String(Math.round(log.macros.carbs_g)),
+      fat: String(Math.round(log.macros.fat_g)),
+    });
+  };
+
+  const cancelEditingMealLog = () => {
+    setEditingMealLogId(null);
+  };
+
+  const saveMealLogEdit = () => {
+    if (!editingMealLogId) return;
+    const servings = Math.max(0.25, Number.parseFloat(mealEditDraft.servings) || 1);
+    updateMealLog(
+      editingMealLogId,
+      {
+        recipeName: mealEditDraft.recipeName.trim() || 'Meal',
+        mealType: mealEditDraft.mealType,
+        servings,
+        macros: {
+          calories: Math.max(0, Number.parseFloat(mealEditDraft.calories) || 0),
+          protein_g: Math.max(0, Number.parseFloat(mealEditDraft.protein) || 0),
+          carbs_g: Math.max(0, Number.parseFloat(mealEditDraft.carbs) || 0),
+          fat_g: Math.max(0, Number.parseFloat(mealEditDraft.fat) || 0),
+        },
+      },
+      user?.id,
+    );
+    setEditingMealLogId(null);
+    setRefreshTick((prev) => prev + 1);
+    toast({
+      title: 'Meal updated',
+      description: 'Your dashboard meal log now matches the updated values.',
+    });
+  };
+
+  const handleDeleteMealLog = (logId: string) => {
+    deleteMealLog(logId, user?.id);
+    setEditingMealLogId((current) => (current === logId ? null : current));
+    setRefreshTick((prev) => prev + 1);
+    toast({
+      title: 'Meal removed',
+      description: 'That meal was removed from today’s log.',
+    });
   };
 
   const weekData = Array.from({ length: 7 }, (_, i) => {
@@ -445,21 +514,112 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
             </div>
           )}
 
-          {todaysLogs.length > 0 ? (
+          {todaysActualLogs.length > 0 ? (
             <div className="space-y-3">
-              {todaysLogs.map((log) => (
-                <div key={log.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="font-medium text-sm">{log.recipeName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {log.servings} serving{log.servings !== 1 ? 's' : ''}
-                      {log.isQuickAdd && ' • Quick Add'}
-                    </p>
+              {todaysActualLogs.map((log) => (
+                <div key={log.id} className="py-2 border-b border-border last:border-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-sm">{log.recipeName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {log.mealType ? log.mealType.charAt(0).toUpperCase() + log.mealType.slice(1) : 'Meal'} •{' '}
+                        {log.servings} serving{log.servings !== 1 ? 's' : ''}
+                        {log.isQuickAdd && ' • Quick Add'}
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="text-right">
+                        <p className="font-medium text-sm">{Math.round(log.macros.calories)} cal</p>
+                        <p className="text-xs text-muted-foreground">{Math.round(log.macros.protein_g)}g protein</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => startEditingMealLog(log)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDeleteMealLog(log.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-medium text-sm">{Math.round(log.macros.calories)} cal</p>
-                    <p className="text-xs text-muted-foreground">{Math.round(log.macros.protein_g)}g protein</p>
-                  </div>
+
+                  {editingMealLogId === log.id ? (
+                    <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Input
+                          value={mealEditDraft.recipeName}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, recipeName: event.target.value }))}
+                          placeholder="Meal name"
+                        />
+                        <select
+                          value={mealEditDraft.mealType}
+                          onChange={(event) =>
+                            setMealEditDraft((prev) => ({
+                              ...prev,
+                              mealType: event.target.value as NonNullable<MealLog['mealType']>,
+                            }))
+                          }
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="breakfast">Breakfast</option>
+                          <option value="lunch">Lunch</option>
+                          <option value="dinner">Dinner</option>
+                          <option value="snack">Snack</option>
+                          <option value="dessert">Dessert</option>
+                          <option value="alcohol">Alcohol</option>
+                        </select>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-5">
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.25"
+                          min="0.25"
+                          value={mealEditDraft.servings}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, servings: event.target.value }))}
+                          placeholder="Servings"
+                        />
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={mealEditDraft.calories}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, calories: event.target.value }))}
+                          placeholder="Calories"
+                        />
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={mealEditDraft.protein}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, protein: event.target.value }))}
+                          placeholder="Protein"
+                        />
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={mealEditDraft.carbs}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, carbs: event.target.value }))}
+                          placeholder="Carbs"
+                        />
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={mealEditDraft.fat}
+                          onChange={(event) => setMealEditDraft((prev) => ({ ...prev, fat: event.target.value }))}
+                          placeholder="Fat"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={cancelEditingMealLog}>
+                          <X className="w-4 h-4 mr-1" />
+                          Cancel
+                        </Button>
+                        <Button type="button" size="sm" onClick={saveMealLogEdit}>
+                          <Check className="w-4 h-4 mr-1" />
+                          Save Meal
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>

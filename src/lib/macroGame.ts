@@ -1152,10 +1152,50 @@ export function getMealLogs(): MealLog[] {
   return readState().mealLogs.map(fromStoredMealLog);
 }
 
+export function getActualMealLogsForDate(personId: AdultId, date = dayKey(), userId?: string | null): MealLog[] {
+  const scopedUserId = userId ?? currentStorageScopeUserId;
+  return readState(scopedUserId).mealLogs
+    .map(fromStoredMealLog)
+    .filter((log) => log.person === personId && log.date === date)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
 export function addMealLog(log: MealLog) {
   const state = readState();
   state.mealLogs.push(toStoredMealLog(log));
   writeState(state);
+}
+
+export function updateMealLog(
+  logId: string,
+  updates: Partial<Pick<MealLog, 'recipeName' | 'mealType' | 'servings' | 'macros'>>,
+  userId?: string | null,
+) {
+  const scopedUserId = userId ?? currentStorageScopeUserId;
+  const state = readState(scopedUserId);
+  let changed = false;
+  state.mealLogs = state.mealLogs.map((storedLog) => {
+    if (storedLog.id !== logId) return storedLog;
+    changed = true;
+    const nextLog = fromStoredMealLog(storedLog);
+    return toStoredMealLog({
+      ...nextLog,
+      recipeName: typeof updates.recipeName === 'string' ? updates.recipeName : nextLog.recipeName,
+      mealType: typeof updates.mealType === 'undefined' ? nextLog.mealType : updates.mealType,
+      servings: typeof updates.servings === 'number' ? updates.servings : nextLog.servings,
+      macros: updates.macros ? { ...nextLog.macros, ...updates.macros } : nextLog.macros,
+    });
+  });
+  if (changed) writeState(state, { userId: scopedUserId });
+}
+
+export function deleteMealLog(logId: string, userId?: string | null) {
+  const scopedUserId = userId ?? currentStorageScopeUserId;
+  const state = readState(scopedUserId);
+  const nextLogs = state.mealLogs.filter((storedLog) => storedLog.id !== logId);
+  if (nextLogs.length === state.mealLogs.length) return;
+  state.mealLogs = nextLogs;
+  writeState(state, { userId: scopedUserId });
 }
 
 export function addWater(personId: AdultId, ounces: number, date = dayKey()) {
