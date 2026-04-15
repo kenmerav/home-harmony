@@ -85,10 +85,23 @@ export async function acceptHouseholdInvite(token: string) {
   let { data, error } = await attemptAccept();
   if (
     error &&
-    /household_members_user_id_fkey|violates foreign key constraint/i.test(error.message || '')
+    /household_members_user_id_fkey|violates foreign key constraint|still finishing setup/i.test(
+      error.message || '',
+    )
   ) {
     await delay(1200);
     await waitForOwnProfileReady(4);
+    ({ data, error } = await attemptAccept());
+  }
+
+  if (
+    error &&
+    /household_members_user_id_fkey|violates foreign key constraint|still finishing setup/i.test(
+      error.message || '',
+    )
+  ) {
+    await delay(1800);
+    await waitForOwnProfileReady(6);
     ({ data, error } = await attemptAccept());
   }
 
