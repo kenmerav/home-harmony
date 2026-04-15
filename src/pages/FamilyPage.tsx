@@ -369,7 +369,13 @@ export default function FamilyPage() {
     setPendingRemoveHouseholdMember(null);
     setMessage(null);
     try {
-      await removeHouseholdMember(member.user_id);
+      const isShadowOnlyMember =
+        member.id.startsWith('shadow-') ||
+        !dashboard.members.some((dashboardMember) => dashboardMember.user_id === member.user_id);
+
+      if (!isShadowOnlyMember) {
+        await removeHouseholdMember(member.user_id);
+      }
       await removeFamilyMemberShadow(householdProfilesScopeId, member.user_id);
       await loadDashboard();
       setRefreshTick((prev) => prev + 1);
