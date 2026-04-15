@@ -74,6 +74,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const currentDate = useCurrentDate();
   const todayKey = format(currentDate, 'yyyy-MM-dd');
   const currentDay = getCurrentDay(currentDate);
+  const currentWeekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
 
   useEffect(() => {
     let cancelled = false;
@@ -158,7 +159,13 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
     () => getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null,
     [todayKey, user?.id],
   );
-  const liveTodaysMeal = liveMeals.find((meal) => meal.day === currentDay && !meal.is_skipped && !!meal.recipes);
+  const liveTodaysMeal = liveMeals.find(
+    (meal) =>
+      meal.week_of === currentWeekOf &&
+      meal.day === currentDay &&
+      !meal.is_skipped &&
+      !!meal.recipes,
+  );
   const tonightDinner = useMemo<DinnerCandidate | null>(() => {
     if (plannedDinnerEntry) {
       const servings = Math.max(0.1, plannedDinnerEntry.servings || 1);
