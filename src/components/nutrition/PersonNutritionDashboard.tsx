@@ -177,6 +177,8 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   };
   const todos = getDashboardTodos(personId);
   const todaysActualLogs = getActualMealLogsForDate(personId, todayKey, user?.id);
+  const todaysDisplayLogs = getEffectiveMealLogsForDate(personId, todayKey, user?.id);
+  const actualMealLogIds = new Set(todaysActualLogs.map((log) => log.id));
   const questionnaire = macroPlan.questionnaire;
   const goalLabel = questionnaire?.goal ? questionnaire.goal.replace('_', ' ') : 'maintain';
   const isFemaleDashboard = questionnaire?.sex === 'female';
@@ -521,9 +523,11 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
             </div>
           )}
 
-          {todaysActualLogs.length > 0 ? (
+          {todaysDisplayLogs.length > 0 ? (
             <div className="space-y-3">
-              {todaysActualLogs.map((log) => (
+              {todaysDisplayLogs.map((log) => {
+                const isEditableLog = actualMealLogIds.has(log.id);
+                return (
                 <div key={log.id} className="py-2 border-b border-border last:border-0">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -532,6 +536,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
                         {log.mealType ? log.mealType.charAt(0).toUpperCase() + log.mealType.slice(1) : 'Meal'} •{' '}
                         {log.servings} serving{log.servings !== 1 ? 's' : ''}
                         {log.isQuickAdd && ' • Quick Add'}
+                        {!isEditableLog && ' • Planned'}
                       </p>
                     </div>
                     <div className="flex items-start gap-3">
@@ -539,18 +544,20 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
                         <p className="font-medium text-sm">{Math.round(log.macros.calories)} cal</p>
                         <p className="text-xs text-muted-foreground">{Math.round(log.macros.protein_g)}g protein</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => startEditingMealLog(log)}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDeleteMealLog(log.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                      {isEditableLog ? (
+                        <div className="flex items-center gap-1">
+                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => startEditingMealLog(log)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDeleteMealLog(log.id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
-                  {editingMealLogId === log.id ? (
+                  {isEditableLog && editingMealLogId === log.id ? (
                     <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 space-y-3">
                       <div className="grid gap-3 md:grid-cols-2">
                         <Input
@@ -628,7 +635,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
                     </div>
                   ) : null}
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             <p className="text-center py-6 text-muted-foreground">No meals logged today.</p>
