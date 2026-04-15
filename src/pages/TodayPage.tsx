@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCurrentDate } from '@/hooks/useCurrentDate';
-import { estimateMealFromPhoto } from '@/lib/api/mealPhoto';
+import { estimateMealFromDescription, estimateMealFromPhoto } from '@/lib/api/mealPhoto';
 import {
   addAlcohol,
   addMealLog,
@@ -55,7 +55,7 @@ import { loadTasks, taskOccursOnDate } from '@/lib/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calendarFeed';
 import { CalendarEvent } from '@/lib/calendarStore';
-import { getPlannedFoodEntriesForDate, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
+import { getCommonFoods, getPlannedFoodEntriesForDate, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
 import { loadOnboardingResult } from '@/lib/onboardingStore';
 import { readStoredChoresState } from '@/lib/choresStateStore';
 
@@ -240,6 +240,7 @@ export default function TodayPage() {
     person: 'all',
   });
   const [quickAddPhotoNote, setQuickAddPhotoNote] = useState('');
+  const [quickAddFoodQuery, setQuickAddFoodQuery] = useState('');
   const [estimatingMealPhoto, setEstimatingMealPhoto] = useState(false);
   const [logMealCategory, setLogMealCategory] = useState<LogMealCategory>('dinner');
   const [refreshTick, setRefreshTick] = useState(0);
@@ -372,6 +373,16 @@ export default function TodayPage() {
   const leaderboard = useMemo(() => getFamilyLeaderboard(currentDate, user?.id), [currentDate, refreshTick, user?.id]);
   const childChores = useMemo(() => loadChildChoreSummary(user?.id), [refreshTick, user?.id]);
   const pendingChores = useMemo(() => loadPendingChoreDetails(user?.id), [refreshTick, user?.id]);
+  const myFoodsEatenToday = useMemo(
+    () => getEffectiveMealLogsForDate('me', todayKey, user?.id),
+    [refreshTick, todayKey, user?.id],
+  );
+  const quickAddSavedFoods = useMemo(() => {
+    const query = quickAddFoodQuery.trim().toLowerCase();
+    const foods = getCommonFoods(user?.id);
+    if (!query) return foods.slice(0, 8);
+    return foods.filter((food) => food.name.toLowerCase().includes(query)).slice(0, 8);
+  }, [quickAddFoodQuery, refreshTick, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -670,6 +681,19 @@ export default function TodayPage() {
     submitQuickAdd();
   };
 
+  const applyQuickAddSavedFood = (foodId: string) => {
+    const selected = getCommonFoods(user?.id).find((food) => food.id === foodId);
+    if (!selected) return;
+    setQuickAddData((prev) => ({
+      ...prev,
+      name: selected.name,
+      calories: String(selected.calories || 0),
+      protein: String(selected.protein_g || 0),
+      carbs: String(selected.carbs_g || 0),
+      fat: String(selected.fat_g || 0),
+    }));
+  };
+
   const handleEstimateMealPhoto = async (file: File | null) => {
     if (!file) return;
     setEstimatingMealPhoto(true);
@@ -678,7 +702,7 @@ export default function TodayPage() {
       if (!result.success || !result.meal) {
         toast({
           title: 'Could not estimate meal',
-          description: result.error || 'Try another photo or add a note with what is in the meal.',
+          description: result.error || 'Try a clearer nutrition label or add a short description of what you ate.',
           variant: 'destructive',
         });
         return;
@@ -717,6 +741,41 @@ export default function TodayPage() {
           description: result.meal.assumptions || `${result.meal.name} is ready to review before logging.`,
         });
       }
+    } finally {
+      setEstimatingMealPhoto(false);
+    }
+  };
+
+  const handleEstimateMealDescription = async () => {
+    if (!quickAddPhotoNote.trim()) {
+      toast({ title: 'Describe what you ate first', variant: 'destructive' });
+      return;
+    }
+    setEstimatingMealPhoto(true);
+    try {
+      const result = await estimateMealFromDescription(quickAddPhotoNote);
+      if (!result.success || !result.meal) {
+        toast({
+          title: 'Could not estimate meal',
+          description: result.error || 'Try a little more detail about what you ate.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setQuickAddData((prev) => ({
+        ...prev,
+        name: result.meal?.name || prev.name,
+        calories: String(result.meal?.calories || 0),
+        protein: String(result.meal?.protein_g || 0),
+        carbs: String(result.meal?.carbs_g || 0),
+        fat: String(result.meal?.fat_g || 0),
+      }));
+
+      toast({
+        title: 'Meal estimated',
+        description: result.meal.assumptions || `${result.meal.name} is ready to review before adding.`,
+      });
     } finally {
       setEstimatingMealPhoto(false);
     }
@@ -1183,89 +1242,126 @@ export default function TodayPage() {
         </SectionCard>
 
         <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {todaysScores.map((entry) => (
-                <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium">{entry.label}</p>
-                    <div className="text-xs text-muted-foreground flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1">
-                        <Flame className="w-3.5 h-3.5 text-orange-500" />
-                        {entry.streak} day streak
-                      </span>
-                      <span className="font-semibold text-foreground">{entry.score.points} pts</span>
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {todaysScores.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{entry.label}</p>
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-orange-500" />
+                          {entry.streak} day streak
+                        </span>
+                        <span className="font-semibold text-foreground">{entry.score.points} pts</span>
+                      </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <BadgeLine label="Protein" hit={entry.score.proteinHit} />
+                      <BadgeLine label="Calories" hit={entry.score.calorieHit} />
+                      <BadgeLine label="Water" hit={entry.score.waterHit} />
+                      <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
+                        <Droplets className="w-4 h-4 mr-1" />
+                        +16oz
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
+                        <Droplets className="w-4 h-4 mr-1" />
+                        -16oz
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
+                        <Wine className="w-4 h-4 mr-1" />
+                        +1 drink
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
+                        <Wine className="w-4 h-4 mr-1" />
+                        -1 drink
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
+                    </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <BadgeLine label="Protein" hit={entry.score.proteinHit} />
-                    <BadgeLine label="Calories" hit={entry.score.calorieHit} />
-                    <BadgeLine label="Water" hit={entry.score.waterHit} />
-                    <BadgeLine label="Alcohol" hit={entry.score.alcoholHit} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, 16)}>
-                      <Droplets className="w-4 h-4 mr-1" />
-                      +16oz
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => adjustWater(entry.id, -16)}>
-                      <Droplets className="w-4 h-4 mr-1" />
-                      -16oz
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, 1)}>
-                      <Wine className="w-4 h-4 mr-1" />
-                      +1 drink
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => adjustAlcohol(entry.id, -1)}>
-                      <Wine className="w-4 h-4 mr-1" />
-                      -1 drink
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Water: {entry.score.waterOz} oz • Alcohol: {entry.score.alcoholDrinks} drinks
-                  </p>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {todaysScores.map((entry) => {
+                  const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
+                  return (
+                    <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
+                      <SectionCard className="card-hover">
+                        <div className="text-center mb-3">
+                          <p className="text-sm text-muted-foreground">{entry.label}</p>
+                          <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
+                          <p className="text-xs text-muted-foreground">calories today</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Protein</span>
+                            <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
+                          </div>
+                          <div className="h-1 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full"
+                              style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </SectionCard>
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Quick Add Meal
+              </Button>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Foods Eaten Today</p>
+                  <p className="text-sm text-muted-foreground">Your Me dashboard log for today</p>
                 </div>
-              ))}
-            </div>
+                <span className="text-sm text-muted-foreground">{myFoodsEatenToday.length} item{myFoodsEatenToday.length === 1 ? '' : 's'}</span>
+              </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {todaysScores.map((entry) => {
-                const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
-                return (
-                  <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
-                    <SectionCard className="card-hover">
-                      <div className="text-center mb-3">
-                        <p className="text-sm text-muted-foreground">{entry.label}</p>
-                        <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
-                        <p className="text-xs text-muted-foreground">calories today</p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Protein</span>
-                          <span className="font-medium">{Math.round(entry.score.protein_g)}g</span>
+              {myFoodsEatenToday.length > 0 ? (
+                <div className="space-y-3">
+                  {myFoodsEatenToday.map((log) => (
+                    <div key={log.id} className="rounded-md border border-border/80 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{log.recipeName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {log.mealType ? log.mealType.charAt(0).toUpperCase() + log.mealType.slice(1) : 'Meal'} • {log.servings} serving{log.servings !== 1 ? 's' : ''}
+                          </p>
                         </div>
-                        <div className="h-1 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary rounded-full"
-                            style={{ width: `${targetProtein > 0 ? Math.min((entry.score.protein_g / targetProtein) * 100, 100) : 0}%` }}
-                          />
+                        <div className="text-right">
+                          <p className="text-sm font-medium">{Math.round(log.macros.calories)} cal</p>
+                          <p className="text-xs text-muted-foreground">{Math.round(log.macros.protein_g)}g protein</p>
                         </div>
                       </div>
-                    </SectionCard>
-                  </Link>
-                );
-              })}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                  Nothing logged for Me yet today.
+                </div>
+              )}
             </div>
-
-            <Button variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Quick Add Meal
-            </Button>
           </div>
         </SectionCard>
       </div>
       <Dialog open={quickAddOpen} onOpenChange={setQuickAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-display">Quick Add</DialogTitle>
             <DialogDescription>Log an unplanned meal or snack</DialogDescription>
@@ -1273,16 +1369,32 @@ export default function TodayPage() {
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
               <div>
-                <p className="text-sm font-medium">Estimate from photo</p>
+                <p className="text-sm font-medium">Estimate from nutrition label or description</p>
                 <p className="text-xs text-muted-foreground">
-                  Upload a meal photo and optionally add a short note so AI can estimate calories and macros.
+                  Type what you ate or upload a nutrition label picture, then review and add it.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Estimate only. Manually entering your macros gives you the most reliable tracking.
                 </p>
               </div>
               <Input
-                placeholder="Optional note: tuna sandwich with mayo, one slice of cheese"
+                placeholder="Describe what you ate: tuna sandwich, Greek yogurt, chips"
                 value={quickAddPhotoNote}
                 onChange={(e) => setQuickAddPhotoNote(e.target.value)}
               />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleEstimateMealDescription()}
+                disabled={estimatingMealPhoto}
+              >
+                {estimatingMealPhoto ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-2 h-4 w-4" />
+                )}
+                Estimate from description
+              </Button>
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm font-medium text-foreground hover:bg-muted/30">
                 {estimatingMealPhoto ? (
                   <>
@@ -1292,7 +1404,7 @@ export default function TodayPage() {
                 ) : (
                   <>
                     <Camera className="h-4 w-4" />
-                    Upload meal photo
+                    Upload picture of nutrition label
                   </>
                 )}
                 <input
@@ -1307,6 +1419,37 @@ export default function TodayPage() {
                   }}
                 />
               </label>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/10 p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">Saved Foods</p>
+                <p className="text-xs text-muted-foreground">
+                  Pick something you already log often and we’ll drop the macros in for you.
+                </p>
+              </div>
+              <Input
+                placeholder="Search My Foods..."
+                value={quickAddFoodQuery}
+                onChange={(e) => setQuickAddFoodQuery(e.target.value)}
+              />
+              {quickAddSavedFoods.length > 0 ? (
+                <div className="rounded-md border border-border bg-background p-1">
+                  {quickAddSavedFoods.map((food) => (
+                    <button
+                      key={food.id}
+                      type="button"
+                      className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                      onClick={() => applyQuickAddSavedFood(food.id)}
+                    >
+                      <span className="truncate">{food.name}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{food.calories} cal</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No saved foods matched that search.</p>
+              )}
             </div>
 
             <Input
