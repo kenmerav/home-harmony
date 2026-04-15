@@ -1,4 +1,5 @@
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
 import { DayOfWeek } from '@/types';
 
 export type PlannedMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | 'alcohol';
@@ -72,11 +73,11 @@ function canUseStorage(): boolean {
 }
 
 function scopedKey(userId?: string | null): string {
-  return `${STORAGE_KEY}:${userId || 'anon'}`;
+  return `${STORAGE_KEY}:${resolveSharedScopeUserId(userId) || 'anon'}`;
 }
 
 function plannerScopeKey(userId?: string | null): string {
-  return userId || 'anon';
+  return resolveSharedScopeUserId(userId) || 'anon';
 }
 
 function dispatchPlannerUpdated() {
@@ -183,7 +184,8 @@ function readEntries(userId?: string | null): PlannedFoodEntry[] {
 function readCommonFoods(userId?: string | null): CommonFood[] {
   if (!canUseStorage()) return [];
   try {
-    const raw = window.localStorage.getItem(`${COMMON_FOODS_STORAGE_KEY}:${userId || 'anon'}`);
+    const scopedUserId = resolveSharedScopeUserId(userId);
+    const raw = window.localStorage.getItem(`${COMMON_FOODS_STORAGE_KEY}:${scopedUserId || 'anon'}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown[];
     return sortCommonFoods(normalizeCommonFoods(parsed));
@@ -291,7 +293,8 @@ function writeEntries(entries: PlannedFoodEntry[], userId?: string | null, skipR
 function writeCommonFoods(commonFoods: CommonFood[], userId?: string | null, skipRemotePersist = false) {
   if (!canUseStorage()) return;
   const normalizedFoods = sortCommonFoods(normalizeCommonFoods(commonFoods));
-  window.localStorage.setItem(`${COMMON_FOODS_STORAGE_KEY}:${userId || 'anon'}`, JSON.stringify(normalizedFoods));
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  window.localStorage.setItem(`${COMMON_FOODS_STORAGE_KEY}:${scopedUserId || 'anon'}`, JSON.stringify(normalizedFoods));
   if (!skipRemotePersist) {
     scheduleCommonFoodsPersist(normalizedFoods);
   }

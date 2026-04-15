@@ -21,6 +21,7 @@ import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { listTaskDatesInRange, loadTasks } from '@/lib/taskStore';
 import { fetchManualCalendarEventsInRange, CalendarEvent, CalendarEventModule } from '@/lib/calendarStore';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
 
 const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
@@ -120,7 +121,7 @@ function guessUserTimeZone(): string {
 }
 
 function choresStateKey(userId?: string | null): string {
-  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+  return `${CHORES_STATE_KEY_PREFIX}:${resolveSharedScopeUserId(userId || 'scope') || 'anon'}`;
 }
 
 function dayToIndexMonday(day: DayOfWeek): number {
@@ -188,7 +189,8 @@ export async function syncDerivedCalendarEvents(
   rangeEnd: Date,
   events: CalendarEvent[],
 ): Promise<void> {
-  if (!userId || userId === 'demo-user') return;
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  if (!scopedUserId || scopedUserId === 'demo-user') return;
 
   const desiredEvents = events
     .filter((event) => DERIVED_SYNC_SOURCES.includes(event.source as SyncCalendarEventSource))
@@ -206,7 +208,7 @@ export async function syncDerivedCalendarEvents(
   const { data: existingRows, error: existingError } = await supabaseCalendarSync
     .from('calendar_events')
     .select('id,related_id,is_deleted')
-    .eq('owner_id', userId)
+    .eq('owner_id', scopedUserId)
     .gte('starts_at', windowStart)
     .lt('starts_at', windowEnd)
     .in('source', [...DERIVED_SYNC_SOURCES]);
@@ -262,7 +264,7 @@ export async function syncDerivedCalendarEvents(
         supabaseCalendarSync
           .from('calendar_events')
           .insert({
-            owner_id: userId,
+            owner_id: scopedUserId,
             ...payload,
           }),
       );
@@ -520,14 +522,16 @@ export async function syncDerivedCalendarSnapshot(
   userId: string | null | undefined,
   anchorDate: Date = new Date(),
 ): Promise<void> {
-  if (!userId || userId === 'demo-user') return;
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  if (!scopedUserId || scopedUserId === 'demo-user') return;
   const snapshotStart = addDays(anchorDate, -14);
   const snapshotEnd = addDays(anchorDate, 180);
-  const derivedEvents = collectDerivedEventsForRange(snapshotStart, snapshotEnd, userId);
-  await syncDerivedCalendarEvents(userId, snapshotStart, snapshotEnd, derivedEvents);
+  const derivedEvents = collectDerivedEventsForRange(snapshotStart, snapshotEnd, scopedUserId);
+  await syncDerivedCalendarEvents(scopedUserId, snapshotStart, snapshotEnd, derivedEvents);
 }
 
 export async function fetchCalendarEventsForMonth(month: Date, userId?: string | null): Promise<CalendarEvent[]> {
+  const scopedUserId = resolveSharedScopeUserId(userId);
   const rangeStart = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
   const rangeEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 0 });
   const nextEvents: CalendarEvent[] = [];
@@ -581,7 +585,7 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
 
   });
 
-  nextEvents.push(...collectDerivedEventsForRange(rangeStart, rangeEnd, userId));
+  nextEvents.push(...collectDerivedEventsForRange(rangeStart, rangeEnd, scopedUserId));
 
   const groceryReminder = getOrderReminderSettings();
   if (groceryReminder.enabled) {
@@ -619,8 +623,8 @@ export async function fetchCalendarEventsForMonth(month: Date, userId?: string |
     });
   }
 
-  nextEvents.push(...await fetchManualCalendarEventsInRange(rangeStart, addDays(rangeEnd, 1), userId));
+  nextEvents.push(...await fetchManualCalendarEventsInRange(rangeStart, addDays(rangeEnd, 1), scopedUserId));
   nextEvents.sort((a, b) => (a.startsAt > b.startsAt ? 1 : -1));
-  void syncDerivedCalendarEvents(userId, rangeStart, rangeEnd, nextEvents);
+  void syncDerivedCalendarEvents(scopedUserId, rangeStart, rangeEnd, nextEvents);
   return nextEvents;
 }

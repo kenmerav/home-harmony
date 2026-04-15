@@ -1,4 +1,6 @@
 import { DayOfWeek } from '@/types';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
+import { loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 
 const FAVORITES_KEY = 'homehub.favoriteRecipeIds';
 const KID_FRIENDLY_KEY = 'homehub.kidFriendlyRecipeOverrides';
@@ -93,6 +95,10 @@ function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function scopedKey(baseKey: string, userId?: string | null): string {
+  return `${baseKey}:${resolveSharedScopeUserId(userId || 'scope') || 'anon'}`;
+}
+
 function readJson<T>(key: string, fallback: T): T {
   if (!canUseStorage()) return fallback;
   try {
@@ -121,29 +127,31 @@ function setIdMap(key: string, id: string, enabled: boolean) {
 }
 
 export function getFavoriteIds(): Set<string> {
-  return new Set(Object.keys(getIdMap(FAVORITES_KEY)));
+  return new Set(Object.keys(getIdMap(scopedKey(FAVORITES_KEY))));
 }
 
 export function isFavorite(id: string): boolean {
-  return !!getIdMap(FAVORITES_KEY)[id];
+  return !!getIdMap(scopedKey(FAVORITES_KEY))[id];
 }
 
 export function setFavorite(id: string, enabled: boolean) {
-  setIdMap(FAVORITES_KEY, id, enabled);
+  setIdMap(scopedKey(FAVORITES_KEY), id, enabled);
+  void persistMealPrefsToAccount();
 }
 
 export function getKidFriendlyOverrides(): Record<string, boolean> {
-  return readJson<Record<string, boolean>>(KID_FRIENDLY_KEY, {});
+  return readJson<Record<string, boolean>>(scopedKey(KID_FRIENDLY_KEY), {});
 }
 
 export function setKidFriendly(id: string, enabled: boolean) {
   const next = getKidFriendlyOverrides();
   next[id] = enabled;
-  writeJson(KID_FRIENDLY_KEY, next);
+  writeJson(scopedKey(KID_FRIENDLY_KEY), next);
+  void persistMealPrefsToAccount();
 }
 
 export function getMealMultipliers(): MultiplierMap {
-  const raw = readJson<MultiplierMap>(MEAL_MULTIPLIER_KEY, {});
+  const raw = readJson<MultiplierMap>(scopedKey(MEAL_MULTIPLIER_KEY), {});
   const clean: MultiplierMap = {};
   for (const [k, v] of Object.entries(raw)) {
     clean[k] = v === 2 ? 2 : 1;
@@ -159,11 +167,12 @@ export function setMealMultiplier(mealId: string, multiplier: number) {
   const next = getMealMultipliers();
   if (multiplier <= 1) delete next[mealId];
   else next[mealId] = 2;
-  writeJson(MEAL_MULTIPLIER_KEY, next);
+  writeJson(scopedKey(MEAL_MULTIPLIER_KEY), next);
+  void persistMealPrefsToAccount();
 }
 
 function dinnerServingsStorageKey(userId?: string | null): string {
-  return `homehub.mealPlannerDinnerServings.v1:${userId || 'anon'}`;
+  return `homehub.mealPlannerDinnerServings.v1:${resolveSharedScopeUserId(userId || 'scope') || 'anon'}`;
 }
 
 export function getDinnerServingsByProfile(userId?: string | null): DinnerServingsByProfile {
@@ -194,8 +203,14 @@ export function getDinnerServingsForProfileDate(profileId: string, date: string,
   return Number.isFinite(value) ? Math.min(6, Math.max(0, value)) : 1;
 }
 
+export function setDinnerServingsByProfile(values: DinnerServingsByProfile, userId?: string | null) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(dinnerServingsStorageKey(userId), JSON.stringify(values));
+  void persistMealPrefsToAccount(userId);
+}
+
 export function getPlanRules(): PlanRules {
-  const raw = readJson<Partial<PlanRules>>(PLAN_RULES_KEY, {});
+  const raw = readJson<Partial<PlanRules>>(scopedKey(PLAN_RULES_KEY), {});
   return {
     preferFavorites: raw.preferFavorites ?? defaultRules.preferFavorites,
     preferKidFriendly: raw.preferKidFriendly ?? defaultRules.preferKidFriendly,
@@ -210,14 +225,15 @@ export function getPlanRules(): PlanRules {
 }
 
 export function setPlanRules(rules: PlanRules) {
-  writeJson(PLAN_RULES_KEY, {
+  writeJson(scopedKey(PLAN_RULES_KEY), {
     ...rules,
     dayLocks: sanitizeDayLocks(rules.dayLocks),
   });
+  void persistMealPrefsToAccount();
 }
 
 export function getDinnerReminderPrefs(): DinnerReminderPrefs {
-  const raw = readJson<Partial<DinnerReminderPrefs>>(DINNER_REMINDER_KEY, {});
+  const raw = readJson<Partial<DinnerReminderPrefs>>(scopedKey(DINNER_REMINDER_KEY), {});
   const preferredDinnerTime =
     typeof raw.preferredDinnerTime === 'string' && /^\d{2}:\d{2}$/.test(raw.preferredDinnerTime)
       ? raw.preferredDinnerTime
@@ -253,11 +269,12 @@ export function setDinnerReminderPrefs(prefs: DinnerReminderPrefs) {
     return acc;
   }, {} as Record<DayOfWeek, string>);
 
-  writeJson(DINNER_REMINDER_KEY, {
+  writeJson(scopedKey(DINNER_REMINDER_KEY), {
     enabled: !!prefs.enabled,
     preferredDinnerTime,
     dinnerTimesByDay,
   });
+  void persistMealPrefsToAccount();
 }
 
 export function getDinnerTimeForDay(day: DayOfWeek, prefs = getDinnerReminderPrefs()): string {
@@ -265,7 +282,7 @@ export function getDinnerTimeForDay(day: DayOfWeek, prefs = getDinnerReminderPre
 }
 
 export function getMenuRejuvenatePrefs(): MenuRejuvenatePrefs {
-  const raw = readJson<Partial<MenuRejuvenatePrefs>>(MENU_REJUVENATE_KEY, {});
+  const raw = readJson<Partial<MenuRejuvenatePrefs>>(scopedKey(MENU_REJUVENATE_KEY), {});
   return {
     enabled: !!raw.enabled,
     day: (raw.day || defaultMenuRejuvenatePrefs.day) as DayOfWeek,
@@ -281,7 +298,7 @@ export function getMenuRejuvenatePrefs(): MenuRejuvenatePrefs {
 }
 
 export function setMenuRejuvenatePrefs(prefs: MenuRejuvenatePrefs) {
-  writeJson(MENU_REJUVENATE_KEY, {
+  writeJson(scopedKey(MENU_REJUVENATE_KEY), {
     enabled: !!prefs.enabled,
     day: prefs.day,
     time:
@@ -293,6 +310,7 @@ export function setMenuRejuvenatePrefs(prefs: MenuRejuvenatePrefs) {
         ? prefs.lastRanForWeekOf
         : null,
   });
+  void persistMealPrefsToAccount();
 }
 
 export function markMenuRejuvenatedForWeek(weekOf: string) {
@@ -301,12 +319,67 @@ export function markMenuRejuvenatedForWeek(weekOf: string) {
 }
 
 export function hasShownDinnerReminder(dateKey: string, mealId: string): boolean {
-  const log = readJson<Record<string, string>>(DINNER_REMINDER_LOG_KEY, {});
+  const log = readJson<Record<string, string>>(scopedKey(DINNER_REMINDER_LOG_KEY), {});
   return log[dateKey] === mealId;
 }
 
 export function markDinnerReminderShown(dateKey: string, mealId: string) {
-  const log = readJson<Record<string, string>>(DINNER_REMINDER_LOG_KEY, {});
+  const log = readJson<Record<string, string>>(scopedKey(DINNER_REMINDER_LOG_KEY), {});
   log[dateKey] = mealId;
-  writeJson(DINNER_REMINDER_LOG_KEY, log);
+  writeJson(scopedKey(DINNER_REMINDER_LOG_KEY), log);
+  void persistMealPrefsToAccount();
+}
+
+interface SharedMealPrefsSnapshot {
+  favorites?: Record<string, boolean>;
+  kidFriendlyOverrides?: Record<string, boolean>;
+  mealMultipliers?: Record<string, number>;
+  planRules?: PlanRules;
+  dinnerReminderPrefs?: DinnerReminderPrefs;
+  menuRejuvenatePrefs?: MenuRejuvenatePrefs;
+  dinnerReminderLog?: Record<string, string>;
+  dinnerServingsByProfile?: DinnerServingsByProfile;
+}
+
+function buildMealPrefsSnapshot(): SharedMealPrefsSnapshot {
+  return {
+    favorites: getIdMap(scopedKey(FAVORITES_KEY)),
+    kidFriendlyOverrides: getKidFriendlyOverrides(),
+    mealMultipliers: getMealMultipliers(),
+    planRules: getPlanRules(),
+    dinnerReminderPrefs: getDinnerReminderPrefs(),
+    menuRejuvenatePrefs: getMenuRejuvenatePrefs(),
+    dinnerReminderLog: readJson<Record<string, string>>(scopedKey(DINNER_REMINDER_LOG_KEY), {}),
+    dinnerServingsByProfile: getDinnerServingsByProfile(),
+  };
+}
+
+async function persistMealPrefsToAccount(userId?: string | null): Promise<void> {
+  const scopedUserId = resolveSharedScopeUserId(userId || 'scope');
+  if (!scopedUserId) return;
+  await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'meals'], buildMealPrefsSnapshot());
+}
+
+export async function hydrateMealPrefsFromAccount(userId?: string | null): Promise<void> {
+  const scopedUserId = resolveSharedScopeUserId(userId || 'scope');
+  if (!scopedUserId || !canUseStorage()) return;
+
+  const document = await loadProfileSettingsDocument(scopedUserId);
+  const shared = document?.shared_preferences;
+  if (!shared || typeof shared !== 'object' || Array.isArray(shared)) return;
+
+  const snapshot = (shared as Record<string, unknown>).meals;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return;
+
+  const typed = snapshot as SharedMealPrefsSnapshot;
+  if (typed.favorites) writeJson(scopedKey(FAVORITES_KEY), typed.favorites);
+  if (typed.kidFriendlyOverrides) writeJson(scopedKey(KID_FRIENDLY_KEY), typed.kidFriendlyOverrides);
+  if (typed.mealMultipliers) writeJson(scopedKey(MEAL_MULTIPLIER_KEY), typed.mealMultipliers);
+  if (typed.planRules) writeJson(scopedKey(PLAN_RULES_KEY), { ...typed.planRules, dayLocks: sanitizeDayLocks(typed.planRules.dayLocks) });
+  if (typed.dinnerReminderPrefs) writeJson(scopedKey(DINNER_REMINDER_KEY), typed.dinnerReminderPrefs);
+  if (typed.menuRejuvenatePrefs) writeJson(scopedKey(MENU_REJUVENATE_KEY), typed.menuRejuvenatePrefs);
+  if (typed.dinnerReminderLog) writeJson(scopedKey(DINNER_REMINDER_LOG_KEY), typed.dinnerReminderLog);
+  if (typed.dinnerServingsByProfile) {
+    window.localStorage.setItem(dinnerServingsStorageKey(scopedUserId), JSON.stringify(typed.dinnerServingsByProfile));
+  }
 }

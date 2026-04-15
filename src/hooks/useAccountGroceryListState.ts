@@ -8,6 +8,7 @@ import {
   saveLocalGroceryListState,
   StoredGroceryListState,
 } from '@/lib/groceryListStateStore';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
 
 function applyStateAction<T>(value: SetStateAction<T>, previous: T): T {
   return typeof value === 'function' ? (value as (current: T) => T)(previous) : value;
@@ -23,9 +24,10 @@ interface UseAccountGroceryListStateResult {
 }
 
 export function useAccountGroceryListState(userId?: string | null): UseAccountGroceryListStateResult {
-  const scopeKey = userId || 'anon';
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  const scopeKey = scopedUserId || 'anon';
   const [groceryListState, setInternalState] = useState<StoredGroceryListState>(() =>
-    loadLocalGroceryListState(userId),
+    loadLocalGroceryListState(scopedUserId),
   );
   const activeScopeRef = useRef<string | null>(null);
   const persistedSnapshotRef = useRef<string | null>(null);
@@ -39,7 +41,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
     let cancelled = false;
     activeScopeRef.current = null;
 
-    const localState = loadLocalGroceryListState(userId);
+    const localState = loadLocalGroceryListState(scopedUserId);
     const localSnapshot = serializeState(localState);
     latestStateRef.current = localState;
     setInternalState(localState);
@@ -48,14 +50,14 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
       if (cancelled) return;
       const normalized = normalizeStoredGroceryListState(next);
       const snapshot = serializeState(normalized);
-      saveLocalGroceryListState(normalized, userId);
+      saveLocalGroceryListState(normalized, scopedUserId);
       latestStateRef.current = normalized;
       persistedSnapshotRef.current = snapshot;
       activeScopeRef.current = scopeKey;
       setInternalState(normalized);
     };
 
-    if (!userId) {
+    if (!scopedUserId) {
       finishHydration(localState);
       return () => {
         cancelled = true;
@@ -64,7 +66,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
 
     void (async () => {
       try {
-        const remoteState = await loadAccountGroceryListState(userId);
+        const remoteState = await loadAccountGroceryListState(scopedUserId);
         if (cancelled) return;
 
         const currentSnapshot = serializeState(latestStateRef.current);
@@ -72,7 +74,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
 
         if (localChangedDuringLoad) {
           const currentState = normalizeStoredGroceryListState(latestStateRef.current);
-          await saveAccountGroceryListState(userId, currentState);
+          await saveAccountGroceryListState(scopedUserId, currentState);
           finishHydration(currentState);
           return;
         }
@@ -83,7 +85,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
         }
 
         if (hasMeaningfulGroceryListState(localState)) {
-          await saveAccountGroceryListState(userId, localState);
+          await saveAccountGroceryListState(scopedUserId, localState);
         }
 
         finishHydration(localState);
@@ -96,7 +98,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
     return () => {
       cancelled = true;
     };
-  }, [scopeKey, userId]);
+  }, [scopeKey, scopedUserId]);
 
   useEffect(() => {
     if (activeScopeRef.current !== scopeKey) return;
@@ -105,15 +107,15 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
     const snapshot = serializeState(normalized);
     if (snapshot === persistedSnapshotRef.current) return;
 
-    saveLocalGroceryListState(normalized, userId);
-    if (!userId) {
+    saveLocalGroceryListState(normalized, scopedUserId);
+    if (!scopedUserId) {
       persistedSnapshotRef.current = snapshot;
       return;
     }
 
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
-      void saveAccountGroceryListState(userId, normalized)
+      void saveAccountGroceryListState(scopedUserId, normalized)
         .then(() => {
           if (cancelled) return;
           persistedSnapshotRef.current = snapshot;
@@ -127,10 +129,10 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [groceryListState, scopeKey, userId]);
+  }, [groceryListState, scopeKey, scopedUserId]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!scopedUserId) return;
 
     let cancelled = false;
 
@@ -143,14 +145,14 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
       }
 
       try {
-        const remoteState = await loadAccountGroceryListState(userId);
+        const remoteState = await loadAccountGroceryListState(scopedUserId);
         if (cancelled || !remoteState) return;
 
         const normalized = normalizeStoredGroceryListState(remoteState);
         const remoteSnapshot = serializeState(normalized);
         if (remoteSnapshot === serializeState(latestStateRef.current)) return;
 
-        saveLocalGroceryListState(normalized, userId);
+        saveLocalGroceryListState(normalized, scopedUserId);
         latestStateRef.current = normalized;
         persistedSnapshotRef.current = remoteSnapshot;
         setInternalState(normalized);
@@ -177,15 +179,15 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [scopeKey, userId]);
+  }, [scopeKey, scopedUserId]);
 
   const setGroceryListState = useCallback<Dispatch<SetStateAction<StoredGroceryListState>>>((value) => {
     setInternalState((previous) => {
       const next = normalizeStoredGroceryListState(applyStateAction(value, previous));
-      saveLocalGroceryListState(next, userId);
+      saveLocalGroceryListState(next, scopedUserId);
       return next;
     });
-  }, [userId]);
+  }, [scopedUserId]);
 
   return useMemo(
     () => ({

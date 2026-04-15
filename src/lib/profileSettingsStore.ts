@@ -12,17 +12,15 @@ function normalizeProfileSettingsDocument(input: unknown): ProfileSettingsDocume
 export async function loadProfileSettingsDocument(userId?: string | null): Promise<ProfileSettingsDocument> {
   if (!userId) return {};
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('onboarding_settings')
-    .eq('id', userId)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('get_profile_onboarding_settings', {
+    target_user_id: userId,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return normalizeProfileSettingsDocument(data?.onboarding_settings);
+  return normalizeProfileSettingsDocument(data);
 }
 
 export function getProfileSettingsValue(document: ProfileSettingsDocument, path: string[]): unknown {
@@ -77,10 +75,10 @@ export async function updateProfileSettingsValue(
   const current = await loadProfileSettingsDocument(userId);
   const next = setProfileSettingsValue(current, path, value);
 
-  const { error } = await supabase
-    .from('profiles')
-    .update({ onboarding_settings: next })
-    .eq('id', userId);
+  const { error } = await supabase.rpc('set_profile_onboarding_settings', {
+    target_user_id: userId,
+    next_settings: next,
+  });
 
   if (error) {
     throw new Error(error.message);

@@ -4,6 +4,7 @@ import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
 import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
+import { getSharedHouseholdOwnerId } from '@/lib/householdScope';
 
 export type RecipeCourseType = 'main' | 'side' | 'dessert';
 export const NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME = '__No Meal Needed Placeholder__';
@@ -1082,9 +1083,15 @@ export async function fetchRecipes(): Promise<DbRecipe[]> {
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
 
+  const ownerId = getSharedHouseholdOwnerId();
+  if (!ownerId) {
+    throw new Error('Please sign in again, then retry loading recipes.');
+  }
+
   const { data, error } = await supabase
     .from('recipes')
     .select('*')
+    .eq('owner_id', ownerId)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -1259,7 +1266,7 @@ export async function saveRecipes(recipes: ExtractedRecipe[]): Promise<DbRecipe[
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError) throw authError;
-  const ownerId = authData.user?.id;
+  const ownerId = getSharedHouseholdOwnerId() || authData.user?.id;
   if (!ownerId) {
     throw new Error('Please sign in again, then retry importing your recipes.');
   }

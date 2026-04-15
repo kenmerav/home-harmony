@@ -18,6 +18,10 @@ import { hydrateMealBudgetPlannerFromAccount, setMealBudgetPlannerStorageScope }
 import { hydrateTasksFromAccount, setTaskStorageScope } from '@/lib/taskStore';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 import { getHouseholdDashboard } from '@/lib/api/family';
+import { clearSharedHouseholdScope, setSharedHouseholdScope } from '@/lib/householdScope';
+import { hydrateMealPrefsFromAccount } from '@/lib/mealPrefs';
+import { hydrateGroceryPrefsFromAccount } from '@/lib/groceryPrefs';
+import { hydrateChoresStateFromAccount } from '@/lib/choresStateStore';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -89,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [sharedHouseholdOwnerId, setSharedHouseholdOwnerId] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
@@ -248,14 +253,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
-    setMealBudgetPlannerStorageScope(!isDemoUser ? user?.id : null);
-    setTaskStorageScope(!isDemoUser ? user?.id : null);
+    setMealBudgetPlannerStorageScope(!isDemoUser ? (sharedHouseholdOwnerId || user?.id) : null);
+    setTaskStorageScope(!isDemoUser ? (sharedHouseholdOwnerId || user?.id) : null);
     setHideBuiltInWifeDashboard(false);
-  }, [isDemoUser, user?.id]);
+    if (!isDemoUser && user?.id) {
+      setSharedHouseholdScope(user.id, sharedHouseholdOwnerId || user.id);
+    } else {
+      clearSharedHouseholdScope();
+    }
+  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser) {
       setHideBuiltInWifeDashboard(false);
+      setSharedHouseholdOwnerId(null);
       return;
     }
 
@@ -268,14 +279,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const activeMembers = (household.members || []).filter((member) => member.status === 'active');
         const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
+        const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
         const hasOtherActiveSpouse = activeMembers.some(
           (member) => member.role === 'spouse' && member.user_id !== user.id,
         );
         const shouldHide = currentMember?.role === 'spouse' || hasOtherActiveSpouse;
         setHideBuiltInWifeDashboard(shouldHide);
+        setSharedHouseholdOwnerId(ownerMember?.user_id || user.id);
       } catch {
         if (!cancelled) {
           setHideBuiltInWifeDashboard(false);
+          setSharedHouseholdOwnerId(user.id);
         }
       }
     };
@@ -292,9 +306,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshMacroState = () => {
       void hydrateMacroGameProfilesFromAccount(user.id);
       void hydrateMacroGameActivityFromAccount(user.id);
-      void hydrateMealBudgetPlannerFromAccount(user.id);
-      void hydrateTasksFromAccount(user.id);
-      void syncDerivedCalendarSnapshot(user.id, new Date());
+      void hydrateMealPrefsFromAccount(sharedHouseholdOwnerId || user.id);
+      void hydrateGroceryPrefsFromAccount(sharedHouseholdOwnerId || user.id);
+      void hydrateChoresStateFromAccount(sharedHouseholdOwnerId || user.id);
+      void hydrateMealBudgetPlannerFromAccount(sharedHouseholdOwnerId || user.id);
+      void hydrateTasksFromAccount(sharedHouseholdOwnerId || user.id);
+      void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
     };
 
     const handleVisibilityChange = () => {
@@ -311,18 +328,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', refreshMacroState);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isDemoUser, user?.id]);
+  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser || typeof window === 'undefined') return;
 
     const handleTaskStateUpdated = () => {
-      void syncDerivedCalendarSnapshot(user.id, new Date());
+      void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
     };
 
     window.addEventListener('homehub:task-state-updated', handleTaskStateUpdated);
     return () => window.removeEventListener('homehub:task-state-updated', handleTaskStateUpdated);
-  }, [isDemoUser, user?.id]);
+  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser || typeof window === 'undefined') return;
+
+    const handleChoresStateUpdated = () => {
+      void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
+    };
+
+    window.addEventListener('homehub:chores-state-updated', handleChoresStateUpdated);
+    return () => window.removeEventListener('homehub:chores-state-updated', handleChoresStateUpdated);
+  }, [isDemoUser, sharedHouseholdOwnerId, user?.id]);
 
   useEffect(() => {
     if (!user || isDemoUser) return;

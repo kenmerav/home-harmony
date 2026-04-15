@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { getDinnerReminderPrefs, getDinnerTimeForDay } from '@/lib/mealPrefs';
 import { DayOfWeek } from '@/types';
+import { getSharedHouseholdOwnerId, resolveSharedScopeUserId } from '@/lib/householdScope';
 
 export type CalendarEventModule = 'manual' | 'meals' | 'tasks' | 'chores' | 'workouts' | 'reminders';
 export type CalendarEventSource = 'manual' | 'meal' | 'task' | 'chore' | 'workout' | 'reminder';
@@ -142,7 +143,7 @@ function canUseStorage(): boolean {
 }
 
 function scopedKey(baseKey: string, userId?: string | null): string {
-  return `${baseKey}:${userId || 'anon'}`;
+  return `${baseKey}:${resolveSharedScopeUserId(userId || 'scope') || 'anon'}`;
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -278,8 +279,9 @@ function buildManualEventRemotePayload(
   timezoneName: string,
   userId?: string | null,
 ): Record<string, unknown> {
+  const scopedUserId = resolveSharedScopeUserId(userId || 'scope');
   return {
-    ...(userId ? { owner_id: userId } : {}),
+    ...(scopedUserId ? { owner_id: scopedUserId } : {}),
     title: row.title,
     description: row.description || null,
     location_text: row.location || null,
@@ -306,10 +308,15 @@ function buildManualEventRemotePayload(
   };
 }
 
-async function insertManualEventRemote(remoteId: string, row: StoredManualEvent, timezoneName: string) {
+async function insertManualEventRemote(
+  remoteId: string,
+  row: StoredManualEvent,
+  timezoneName: string,
+  userId?: string | null,
+) {
   const payload = {
     id: remoteId,
-    ...buildManualEventRemotePayload(row, timezoneName),
+    ...buildManualEventRemotePayload(row, timezoneName, userId),
   };
   let result = await supabaseCalendarSync.from('calendar_events').insert(payload);
   if (isMissingArriveByColumn(result.error)) {
@@ -320,9 +327,10 @@ async function insertManualEventRemote(remoteId: string, row: StoredManualEvent,
 }
 
 async function upsertManualEventRemote(remoteId: string, row: StoredManualEvent, timezoneName: string, userId: string) {
+  const scopedUserId = resolveSharedScopeUserId(userId) || userId;
   const payload = {
     id: remoteId,
-    ...buildManualEventRemotePayload(row, timezoneName, userId),
+    ...buildManualEventRemotePayload(row, timezoneName, scopedUserId),
   };
   let result = await supabaseCalendarSync.from('calendar_events').upsert(payload, { onConflict: 'id' });
   if (isMissingArriveByColumn(result.error)) {
@@ -394,7 +402,8 @@ async function fetchRemoteManualEventsInRange(
   rangeEnd: Date,
   userId?: string | null,
 ): Promise<CalendarEvent[]> {
-  if (!userId || userId === 'demo-user') return [];
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  if (!scopedUserId || scopedUserId === 'demo-user') return [];
 
   const selectColumns =
     'id,title,description,module,calendar_layer,location_text,arrive_by,event_reminder_enabled,event_reminder_lead_minutes,travel_from_address,travel_mode,travel_duration_minutes,traffic_duration_minutes,leave_by,leave_reminder_enabled,leave_reminder_lead_minutes,starts_at,ends_at,all_day,created_at,updated_at';
@@ -402,7 +411,7 @@ async function fetchRemoteManualEventsInRange(
   let query = supabase
     .from('calendar_events')
     .select(selectColumns)
-    .eq('owner_id', userId)
+    .eq('owner_id', scopedUserId)
     .eq('source', 'manual')
     .eq('is_deleted', false)
     .gte('starts_at', rangeStart.toISOString())
@@ -417,7 +426,7 @@ async function fetchRemoteManualEventsInRange(
     const legacyResult = await supabase
       .from('calendar_events')
       .select(legacyColumns)
-      .eq('owner_id', userId)
+      .eq('owner_id', scopedUserId)
       .eq('source', 'manual')
       .eq('is_deleted', false)
       .gte('starts_at', rangeStart.toISOString())
@@ -511,7 +520,7 @@ export async function syncScheduledMealsToCalendar(meals: MealCalendarSyncItem[]
   if (!Array.isArray(meals) || meals.length === 0) return;
 
   const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const userId = getSharedHouseholdOwnerId() || authData.user?.id;
   if (!userId) return;
 
   const raw = supabase as unknown as {
@@ -746,7 +755,7 @@ export function addManualCalendarEvent(input: ManualCalendarEventInput, userId?:
 
   if (userId) {
     const timezoneName = guessUserTimeZone();
-    void insertManualEventRemote(remoteId, row, timezoneName)
+    void insertManualEventRemote(remoteId, row, timezoneName, userId)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to sync manual event to Supabase:', error.message || error);
       })
@@ -840,8 +849,9 @@ export function updateManualCalendarEvent(
 
   const remoteId = remoteIdFromLocalId(eventId);
   if (userId && remoteId) {
+    const scopedUserId = resolveSharedScopeUserId(userId) || userId;
     const timezoneName = guessUserTimeZone();
-    void upsertManualEventRemote(remoteId, updated, timezoneName, userId)
+    void upsertManualEventRemote(remoteId, updated, timezoneName, scopedUserId)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to update manual event in Supabase:', error.message || error);
       })
@@ -887,10 +897,12 @@ export function deleteManualCalendarEvent(eventId: string, userId?: string | nul
 
   const remoteId = remoteIdFromLocalId(eventId);
   if (userId && remoteId) {
+    const scopedUserId = resolveSharedScopeUserId(userId) || userId;
     void supabaseCalendarSync
       .from('calendar_events')
       .update({ is_deleted: true, deleted_at: new Date().toISOString() })
       .eq('id', remoteId)
+      .eq('owner_id', scopedUserId)
       .then(({ error }: { error?: { message?: string } | null }) => {
         if (error) console.error('Failed to delete manual event in Supabase:', error.message || error);
       })

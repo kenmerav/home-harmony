@@ -3,6 +3,7 @@ import { mockMealLogs, mockProfiles } from '@/data/mockData';
 import { getPlannedFoodEntriesForDate } from '@/lib/mealBudgetPlanner';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 import { Macros, MealLog } from '@/types';
+import { choresStateStorageKey } from '@/lib/choresStateStore';
 
 export type AdultId = string;
 export type HouseholdMemberType = 'adult' | 'child';
@@ -23,7 +24,6 @@ export interface AdultScoreSettings {
 }
 
 const STORAGE_KEY = 'homehub.macroGameState.v1';
-const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const MACRO_GAME_PROFILES_SETTINGS_PATH = ['appPreferences', 'macroGame', 'profiles'];
 const MACRO_GAME_ACTIVITY_SETTINGS_PATH = ['appPreferences', 'macroGame', 'activity'];
 
@@ -253,7 +253,7 @@ function dispatchMacroStateUpdated() {
 }
 
 function choresStateKey(userId?: string | null): string {
-  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+  return choresStateStorageKey(userId);
 }
 
 function toStoredMealLog(log: MealLog): StoredMealLog {

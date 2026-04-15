@@ -26,8 +26,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
-
-const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
+import { choresStateStorageKey, persistChoresStateToAccount } from '@/lib/choresStateStore';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -291,7 +290,7 @@ function dispatchChoresStateUpdated() {
 }
 
 function choresStateKey(userId?: string | null): string {
-  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+  return choresStateStorageKey(userId);
 }
 
 function defaultState(): ChoresState {
@@ -423,6 +422,7 @@ function loadState(userId?: string | null): ChoresState {
 function saveState(state: ChoresState, userId?: string | null) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(choresStateKey(userId), JSON.stringify(state));
+  void persistChoresStateToAccount(userId, state as unknown as Record<string, unknown>);
   dispatchChoresStateUpdated();
 }
 

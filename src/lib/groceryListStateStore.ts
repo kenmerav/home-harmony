@@ -4,6 +4,7 @@ import {
   loadProfileSettingsDocument,
   updateProfileSettingsValue,
 } from '@/lib/profileSettingsStore';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
 
 const GROCERY_LIST_STATE_KEY = 'homehub.groceryListState.v1';
 const GROCERY_LIST_STATE_PATH = ['appPreferences', 'groceryList'];
@@ -41,7 +42,7 @@ function canUseStorage(): boolean {
 }
 
 function scopedKey(userId?: string | null): string {
-  return `${GROCERY_LIST_STATE_KEY}:${userId || 'anon'}`;
+  return `${GROCERY_LIST_STATE_KEY}:${resolveSharedScopeUserId(userId) || 'anon'}`;
 }
 
 function normalizeCategory(value: unknown): GroceryCategory {
@@ -166,8 +167,9 @@ export function saveLocalGroceryListState(
 export async function loadAccountGroceryListState(
   userId?: string | null,
 ): Promise<StoredGroceryListState | null> {
-  if (!userId) return null;
-  const document = await loadProfileSettingsDocument(userId);
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  if (!scopedUserId) return null;
+  const document = await loadProfileSettingsDocument(scopedUserId);
   const value = getProfileSettingsValue(document, GROCERY_LIST_STATE_PATH);
   if (typeof value === 'undefined') return null;
   return normalizeStoredGroceryListState(value);
@@ -177,8 +179,10 @@ export async function saveAccountGroceryListState(
   userId: string,
   state: StoredGroceryListState,
 ): Promise<void> {
+  const scopedUserId = resolveSharedScopeUserId(userId);
+  if (!scopedUserId) return;
   await updateProfileSettingsValue(
-    userId,
+    scopedUserId,
     GROCERY_LIST_STATE_PATH,
     normalizeStoredGroceryListState(state),
   );

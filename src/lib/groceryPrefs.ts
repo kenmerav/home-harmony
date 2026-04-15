@@ -1,4 +1,6 @@
 import { DayOfWeek } from '@/types';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
+import { loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
 
 const GROCERY_PREFS_KEY = 'homehub.groceryPrefs';
 
@@ -69,10 +71,14 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function readState(): GroceryPrefsState {
+function scopedKey(userId?: string | null): string {
+  return `${GROCERY_PREFS_KEY}:${resolveSharedScopeUserId(userId || 'scope') || 'anon'}`;
+}
+
+function readState(userId?: string | null): GroceryPrefsState {
   if (!canUseStorage()) return defaultState;
   try {
-    const raw = window.localStorage.getItem(GROCERY_PREFS_KEY);
+    const raw = window.localStorage.getItem(scopedKey(userId));
     if (!raw) return defaultState;
     const parsed = JSON.parse(raw) as Partial<GroceryPrefsState>;
 
@@ -112,14 +118,16 @@ function readState(): GroceryPrefsState {
   }
 }
 
-function writeState(next: GroceryPrefsState) {
+function writeState(next: GroceryPrefsState, userId?: string | null) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(GROCERY_PREFS_KEY, JSON.stringify(next));
+  window.localStorage.setItem(scopedKey(userId), JSON.stringify(next));
 }
 
-function updateState(updater: (current: GroceryPrefsState) => GroceryPrefsState) {
-  const current = readState();
-  writeState(updater(current));
+function updateState(updater: (current: GroceryPrefsState) => GroceryPrefsState, userId?: string | null) {
+  const current = readState(userId);
+  const next = updater(current);
+  writeState(next, userId);
+  void persistGroceryPrefsToAccount(userId);
 }
 
 export function toIngredientKey(itemName: string): string {
@@ -242,6 +250,25 @@ export function isGroceryOrderReminderDue(now = new Date()): boolean {
 export function buildStoreSearchUrl(storeId: string, itemName: string): string {
   const store = GROCERY_STORES.find((s) => s.id === storeId) || GROCERY_STORES[0];
   return `${store.searchUrl}${encodeURIComponent(itemName)}`;
+}
+
+type SharedGroceryPrefsSnapshot = GroceryPrefsState;
+
+async function persistGroceryPrefsToAccount(userId?: string | null): Promise<void> {
+  const scopedUserId = resolveSharedScopeUserId(userId || 'scope');
+  if (!scopedUserId) return;
+  await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'grocery'], readState(scopedUserId));
+}
+
+export async function hydrateGroceryPrefsFromAccount(userId?: string | null): Promise<void> {
+  const scopedUserId = resolveSharedScopeUserId(userId || 'scope');
+  if (!scopedUserId || !canUseStorage()) return;
+  const document = await loadProfileSettingsDocument(scopedUserId);
+  const shared = document?.shared_preferences;
+  if (!shared || typeof shared !== 'object' || Array.isArray(shared)) return;
+  const snapshot = (shared as Record<string, unknown>).grocery;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return;
+  writeState(snapshot as SharedGroceryPrefsSnapshot, scopedUserId);
 }
 
 export function buildWeeklyAdUrl(storeId: string, zipCode: string): string {

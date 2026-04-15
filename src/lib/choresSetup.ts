@@ -1,6 +1,5 @@
 import { DayOfWeek } from '@/types';
-
-const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
+import { choresStateStorageKey, persistChoresStateToAccount } from '@/lib/choresStateStore';
 
 interface RewardChore {
   id: string;
@@ -73,7 +72,7 @@ function canUseStorage() {
 }
 
 function choresStateKey(userId?: string | null): string {
-  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+  return choresStateStorageKey(userId);
 }
 
 function dateKey(date = new Date()): string {
@@ -141,15 +140,14 @@ function parseExistingState(userId?: string | null): ChoresState {
 
 function saveState(state: ChoresState, userId?: string | null) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(
-    choresStateKey(userId),
-    JSON.stringify({
-      children: state.children,
-      availableExtraChores: state.availableExtraChores,
-      lastDailyResetDate: state.lastDailyResetDate || dateKey(),
-      lastWeeklyResetDate: state.lastWeeklyResetDate || weekResetDateKey(),
-    }),
-  );
+  const nextState = {
+    children: state.children,
+    availableExtraChores: state.availableExtraChores,
+    lastDailyResetDate: state.lastDailyResetDate || dateKey(),
+    lastWeeklyResetDate: state.lastWeeklyResetDate || weekResetDateKey(),
+  };
+  window.localStorage.setItem(choresStateKey(userId), JSON.stringify(nextState));
+  void persistChoresStateToAccount(userId, nextState as unknown as Record<string, unknown>);
   window.dispatchEvent(new CustomEvent('homehub:chores-state-updated'));
 }
 
@@ -285,15 +283,14 @@ export function seedChoresForKidsIfEmpty(kids: KidChoreSeedInput[], userId?: str
     };
   });
 
-  window.localStorage.setItem(
-    choresStateKey(userId),
-    JSON.stringify({
-      children: seededChildren,
-      availableExtraChores: existing.availableExtraChores,
-      lastDailyResetDate: dateKey(),
-      lastWeeklyResetDate: weekResetDateKey(),
-    }),
-  );
+  const nextState = {
+    children: seededChildren,
+    availableExtraChores: existing.availableExtraChores,
+    lastDailyResetDate: dateKey(),
+    lastWeeklyResetDate: weekResetDateKey(),
+  };
+  window.localStorage.setItem(choresStateKey(userId), JSON.stringify(nextState));
+  void persistChoresStateToAccount(userId, nextState as unknown as Record<string, unknown>);
   window.dispatchEvent(new CustomEvent('homehub:chores-state-updated'));
   return true;
 }

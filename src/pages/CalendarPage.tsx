@@ -90,8 +90,8 @@ import type { Workout, CardioSession } from '@/workouts/types/workout';
 import { CalendarDays, ChevronDown, ExternalLink, Pencil, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
+import { choresStateStorageKey, readStoredChoresState } from '@/lib/choresStateStore';
 
-const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const WORKOUTS_KEY = 'liftlog_workouts';
 const CARDIO_KEY = 'liftlog_cardio_sessions';
 
@@ -230,7 +230,7 @@ function normalizeCalendarLayerName(value: string | null | undefined): string {
 }
 
 function choresStateKey(userId?: string | null): string {
-  return `${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`;
+  return choresStateStorageKey(userId);
 }
 
 function inRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
@@ -291,9 +291,7 @@ function loadChoreState(userId?: string | null): ChildChoreState[] {
   if (!canUseStorage()) return [];
 
   try {
-    const raw = window.localStorage.getItem(choresStateKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as { children?: unknown[] };
+    const parsed = (readStoredChoresState(userId) || {}) as { children?: unknown[] };
     const children = Array.isArray(parsed.children) ? parsed.children : [];
     return children
       .map((entry) => {

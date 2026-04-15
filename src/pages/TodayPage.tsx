@@ -56,6 +56,7 @@ import { CALENDAR_MODULE_META, fetchCalendarEventsForMonth } from '@/lib/calenda
 import { CalendarEvent } from '@/lib/calendarStore';
 import { getPlannedFoodEntriesForDate, PlannedFoodEntry } from '@/lib/mealBudgetPlanner';
 import { loadOnboardingResult } from '@/lib/onboardingStore';
+import { readStoredChoresState } from '@/lib/choresStateStore';
 
 const getCurrentDay = (date = new Date()): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -63,7 +64,6 @@ const getCurrentDay = (date = new Date()): DayOfWeek => {
 };
 
 const LEADERBOARD_PRIZE_KEY = 'homehub.leaderboardPrizeByWeek.v1';
-const CHORES_STATE_KEY_PREFIX = 'homehub.choresEconomyState.v2';
 const DEFAULT_WEEKLY_PRIZE = 'Winner gets M&Ms in their popcorn during family movie night.';
 
 interface ChildChoreSummary {
@@ -116,11 +116,8 @@ function normalizeDecimalInput(value: string): string {
 }
 
 function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(`${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as {
+    const parsed = (readStoredChoresState(userId) || {}) as {
       children?: Array<{ id?: string; name?: string; dailyChores?: Array<{ isCompleted?: boolean }> }>;
     };
     const children = Array.isArray(parsed.children) ? parsed.children : [];
@@ -139,11 +136,8 @@ function loadChildChoreSummary(userId?: string | null): ChildChoreSummary[] {
 }
 
 function loadPendingChoreDetails(userId?: string | null): PendingChoreDetail[] {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(`${CHORES_STATE_KEY_PREFIX}:${userId || 'anon'}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as {
+    const parsed = (readStoredChoresState(userId) || {}) as {
       children?: Array<{
         id?: string;
         name?: string;

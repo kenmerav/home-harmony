@@ -51,6 +51,7 @@ import {
   markDinnerReminderShown,
   markMenuRejuvenatedForWeek,
   setDinnerReminderPrefs,
+  setDinnerServingsByProfile,
   setMealMultiplier,
   setMenuRejuvenatePrefs,
   setPlanRules,
@@ -198,7 +199,6 @@ interface GridQuickAddContext {
 type PlannerRepeatMode = PlannedFoodRepeatMode;
 type DinnerServingsByProfile = Record<string, Record<string, number>>;
 
-const DINNER_SERVINGS_STORAGE_KEY = 'homehub.mealPlannerDinnerServings.v1';
 const QUICK_ADD_DRAFT_STORAGE_KEY = 'homehub.mealsQuickAddDraft.v1';
 
 function normalizeIntegerInput(value: string): string {
@@ -304,17 +304,13 @@ function canUseSessionStorage() {
   return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
 }
 
-function dinnerServingsStorageKey(userId?: string | null): string {
-  return `${DINNER_SERVINGS_STORAGE_KEY}:${userId || 'anon'}`;
-}
-
 function readDinnerServings(userId?: string | null): DinnerServingsByProfile {
   return getDinnerServingsByProfile(userId);
 }
 
 function writeDinnerServings(values: DinnerServingsByProfile, userId?: string | null) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(dinnerServingsStorageKey(userId), JSON.stringify(values));
+  setDinnerServingsByProfile(values, userId);
 }
 
 function quickAddDraftStorageKey(userId?: string | null) {

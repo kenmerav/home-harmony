@@ -1,6 +1,7 @@
 import { mockHouseTasks } from '@/data/mockData';
 import { HouseTask, TaskFrequency, DayOfWeek } from '@/types';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
+import { resolveSharedScopeUserId } from '@/lib/householdScope';
 
 const TASKS_STORAGE_KEY_PREFIX = 'homehub.tasks.v1';
 const TASKS_SETTINGS_PATH = ['appPreferences', 'tasks'];
@@ -26,11 +27,11 @@ function canUseStorage(): boolean {
 }
 
 function keyForUser(userId?: string | null): string {
-  return `${TASKS_STORAGE_KEY_PREFIX}:${userId || 'anon'}`;
+  return `${TASKS_STORAGE_KEY_PREFIX}:${resolveSharedScopeUserId(userId) || 'anon'}`;
 }
 
 function taskScopeKey(userId?: string | null): string {
-  return userId || 'anon';
+  return resolveSharedScopeUserId(userId) || 'anon';
 }
 
 function parseIsoDateOnly(value?: string): Date | null {

@@ -10,6 +10,7 @@ import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getDemoMeals, getDemoRecipes, setDemoMeals } from '@/lib/demoStore';
 import { normalizeRecipeIngredients } from '@/lib/recipeText';
 import { syncScheduledMealsToCalendar } from '@/lib/calendarStore';
+import { getSharedHouseholdOwnerId } from '@/lib/householdScope';
 
 export interface DbPlannedMeal {
   id: string;
@@ -116,10 +117,20 @@ function getWeekOffsetFromWeekOf(weekOf: string): number {
   return Math.round((mealWeek.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
 }
 
+function requireSharedMealsOwnerId(): string {
+  const ownerId = getSharedHouseholdOwnerId();
+  if (!ownerId) {
+    throw new Error('Please sign in again, then retry loading family meals.');
+  }
+  return ownerId;
+}
+
 async function ensureNoMealNeededPlaceholderRecipeId(): Promise<string> {
+  const ownerId = requireSharedMealsOwnerId();
   const { data: existing, error: existingError } = await supabase
     .from('recipes')
     .select('id')
+    .eq('owner_id', ownerId)
     .eq('name', NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME)
     .maybeSingle();
   if (existingError) throw existingError;
@@ -128,6 +139,7 @@ async function ensureNoMealNeededPlaceholderRecipeId(): Promise<string> {
   const { data: inserted, error: insertError } = await supabase
     .from('recipes')
     .insert({
+      owner_id: ownerId,
       name: NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME,
       servings: 1,
       calories: 0,
@@ -169,9 +181,11 @@ export async function fetchMealsForWeek(weekOffset: number): Promise<DbPlannedMe
   }
 
   const weekOf = getWeekOf(weekOffset);
+  const ownerId = requireSharedMealsOwnerId();
   const { data, error } = await supabase
     .from('planned_meals')
     .select('*, recipes(*)')
+    .eq('owner_id', ownerId)
     .eq('week_of', weekOf);
 
   if (error) throw error;
@@ -220,9 +234,11 @@ export async function setMealForDay(
   }
 
   const weekOf = getWeekOf(weekOffset);
+  const ownerId = requireSharedMealsOwnerId();
   const { data: existing, error: existingError } = await supabase
     .from('planned_meals')
     .select('id')
+    .eq('owner_id', ownerId)
     .eq('day', day)
     .eq('week_of', weekOf)
     .maybeSingle();
@@ -236,6 +252,7 @@ export async function setMealForDay(
     if (updateError) throw updateError;
   } else {
     const { error: insertError } = await supabase.from('planned_meals').insert({
+      owner_id: ownerId,
       day,
       week_of: weekOf,
       recipe_id: recipeId,
@@ -285,9 +302,11 @@ export async function setNoMealNeededForDay(
   }
 
   const weekOf = getWeekOf(weekOffset);
+  const ownerId = requireSharedMealsOwnerId();
   const { data: existing, error: existingError } = await supabase
     .from('planned_meals')
     .select('id')
+    .eq('owner_id', ownerId)
     .eq('day', day)
     .eq('week_of', weekOf)
     .maybeSingle();
@@ -302,6 +321,7 @@ export async function setNoMealNeededForDay(
       if (updateError) throw updateError;
     } else {
       const { error: insertError } = await supabase.from('planned_meals').insert({
+        owner_id: ownerId,
         day,
         week_of: weekOf,
         recipe_id: null,
@@ -319,6 +339,7 @@ export async function setNoMealNeededForDay(
       if (fallbackUpdateError) throw fallbackUpdateError;
     } else {
       const { error: fallbackInsertError } = await supabase.from('planned_meals').insert({
+        owner_id: ownerId,
         day,
         week_of: weekOf,
         recipe_id: placeholderRecipeId,
@@ -437,11 +458,13 @@ export async function generateMeals(
 
   const weekOf = getWeekOf(weekOffset);
   const targetDays = daysToRegenerate || DAYS;
+  const ownerId = requireSharedMealsOwnerId();
 
   // Fetch all recipes
   const { data: allRecipesRaw, error: recipeErr } = await supabase
     .from('recipes')
-    .select('*');
+    .select('*')
+    .eq('owner_id', ownerId);
   if (recipeErr) throw recipeErr;
   const allRecipes = (allRecipesRaw || []).filter((recipe) => recipe.name !== NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME);
   if (allRecipes.length === 0) throw new Error('No recipes available');
@@ -468,6 +491,7 @@ export async function generateMeals(
   const { data: existing } = await supabase
     .from('planned_meals')
     .select('*')
+    .eq('owner_id', ownerId)
     .eq('week_of', weekOf);
 
   const existingMeals = existing || [];
@@ -561,7 +585,7 @@ export async function generateMeals(
   if (newMeals.length > 0) {
     const { error } = await supabase
       .from('planned_meals')
-      .insert(newMeals);
+      .insert(newMeals.map((meal) => ({ ...meal, owner_id: ownerId })));
     if (error) throw error;
   }
 
@@ -589,9 +613,11 @@ export async function swapMeal(mealId: string, weekOf: string, day: string): Pro
   }
 
   // Get current recipe to exclude it
+  const ownerId = requireSharedMealsOwnerId();
   const { data: current } = await supabase
     .from('planned_meals')
     .select('recipe_id')
+    .eq('owner_id', ownerId)
     .eq('id', mealId)
     .single();
 
@@ -599,12 +625,13 @@ export async function swapMeal(mealId: string, weekOf: string, day: string): Pro
   const { data: weekMeals } = await supabase
     .from('planned_meals')
     .select('recipe_id')
+    .eq('owner_id', ownerId)
     .eq('week_of', weekOf);
 
   const usedIds = new Set((weekMeals || []).map((m) => m.recipe_id).filter(Boolean));
 
   // Get a random unused recipe
-  const { data: allRecipesRaw } = await supabase.from('recipes').select('id,name');
+  const { data: allRecipesRaw } = await supabase.from('recipes').select('id,name').eq('owner_id', ownerId);
   const allRecipes = (allRecipesRaw || []).filter((recipe) => recipe.name !== NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME);
   const available = allRecipes.filter(r => !usedIds.has(r.id));
   
