@@ -52,6 +52,29 @@ interface LaunchChecklistItem {
   cta: string;
 }
 
+const SAFE_GET_STARTED_ROUTES = new Set([
+  '/app',
+  '/family',
+  '/meals',
+  '/calendar',
+  '/grocery',
+  '/tasks',
+  '/chores',
+  '/settings',
+  '/dashboard/me',
+  '/recipes',
+  '/workouts',
+  '/getting-started',
+]);
+
+function normalizeInternalRoute(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('/')) return fallback;
+  const pathOnly = trimmed.split('?')[0]?.split('#')[0] || trimmed;
+  return SAFE_GET_STARTED_ROUTES.has(pathOnly) ? trimmed : fallback;
+}
+
 function readLaunchChecklist(input: unknown): LaunchChecklistItem[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -114,7 +137,12 @@ export default function GetStartedPage() {
       const incomingFocusRoute = plan?.focusRoute;
       const incomingWellnessSummary = buildWellnessSummary(plan?.wellnessTargets);
       if (launchChecklist.length > 0) {
-        setStartSteps(launchChecklist);
+        setStartSteps(
+          launchChecklist.map((step) => ({
+            ...step,
+            href: normalizeInternalRoute(step.href, '/getting-started'),
+          })),
+        );
       } else {
         setStartSteps(DEFAULT_START_STEPS);
       }
@@ -124,13 +152,25 @@ export default function GetStartedPage() {
         setFocusLabel('First-week setup');
       }
       if (typeof incomingFocusRoute === 'string' && incomingFocusRoute.trim()) {
-        setFocusRoute(incomingFocusRoute.trim());
+        setFocusRoute(normalizeInternalRoute(incomingFocusRoute.trim(), '/app'));
       } else {
         setFocusRoute('/app');
       }
       setWellnessSummary(incomingWellnessSummary);
     };
-    void loadPlan();
+    const safeLoadPlan = async () => {
+      try {
+        await loadPlan();
+      } catch (error) {
+        console.error('Failed loading Start Here plan:', error);
+        if (!mounted) return;
+        setStartSteps(DEFAULT_START_STEPS);
+        setFocusLabel('First-week setup');
+        setFocusRoute('/app');
+        setWellnessSummary(null);
+      }
+    };
+    void safeLoadPlan();
     return () => {
       mounted = false;
     };
