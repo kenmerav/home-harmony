@@ -48,6 +48,7 @@ interface AuthContextValue {
   isDemoUser: boolean;
   isAdmin: boolean;
   loading: boolean;
+  sharedHouseholdOwnerId: string | null;
   profile: ProfileInfo | null;
   profileLoading: boolean;
   isProfileComplete: boolean;
@@ -399,6 +400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isDemoUser,
       isAdmin,
       loading,
+      sharedHouseholdOwnerId,
       profile,
       profileLoading,
       isProfileComplete,
@@ -513,6 +515,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profileLoading,
     refreshProfile,
     refreshSubscription,
+    sharedHouseholdOwnerId,
     subscription,
     subscriptionLoading,
     user,

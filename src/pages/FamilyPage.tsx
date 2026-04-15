@@ -29,6 +29,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getFamilyLeaderboard,
   listHouseholdProfiles,
+  loadHouseholdProfilesFromAccount,
   removeHouseholdProfile,
   setHouseholdProfileType,
   type DashboardProfile,
@@ -54,7 +55,7 @@ function householdRoleSummary(member: HouseholdDashboard['members'][number]): st
 }
 
 export default function FamilyPage() {
-  const { profile, user, isProfileComplete } = useAuth();
+  const { profile, user, isProfileComplete, sharedHouseholdOwnerId } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
@@ -72,6 +73,7 @@ export default function FamilyPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [sharedLocalProfiles, setSharedLocalProfiles] = useState<DashboardProfile[]>(() => listHouseholdProfiles());
   const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
   const [pendingDeleteMember, setPendingDeleteMember] = useState<DashboardProfile | null>(null);
   const [editingLeaderboardAdultId, setEditingLeaderboardAdultId] = useState<string | null>(null);
@@ -115,7 +117,34 @@ export default function FamilyPage() {
     () => dashboard.members.some((m) => m.role === 'owner' || m.role === 'spouse'),
     [dashboard.members],
   );
-  const localProfiles = useMemo(() => listHouseholdProfiles(), [refreshTick]);
+  const householdProfilesScopeId = useMemo(
+    () =>
+      dashboard.members.find((member) => member.role === 'owner' && member.status === 'active')?.user_id ||
+      sharedHouseholdOwnerId ||
+      user?.id ||
+      null,
+    [dashboard.members, sharedHouseholdOwnerId, user?.id],
+  );
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateSharedProfiles = async () => {
+      const fallbackProfiles = listHouseholdProfiles(householdProfilesScopeId);
+      setSharedLocalProfiles(fallbackProfiles);
+
+      if (!householdProfilesScopeId) return;
+      const remoteProfiles = await loadHouseholdProfilesFromAccount(householdProfilesScopeId);
+      if (cancelled) return;
+      setSharedLocalProfiles(remoteProfiles);
+    };
+
+    void hydrateSharedProfiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [householdProfilesScopeId, refreshTick]);
+
+  const localProfiles = sharedLocalProfiles;
   const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
 
   const updateLocalMemberType = (memberId: string, nextType: 'adult' | 'child') => {

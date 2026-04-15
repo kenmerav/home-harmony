@@ -943,21 +943,25 @@ export function calculateMacroRecommendation(input: MacroQuestionnaire): Pick<Ma
   return { calories, protein_g, carbs_g, fat_g };
 }
 
-export function getProfiles(): Record<AdultId, PersonGameProfile> {
-  return readState().profiles;
+export function getProfiles(userId?: string | null): Record<AdultId, PersonGameProfile> {
+  return readState(userId ?? currentStorageScopeUserId).profiles;
 }
 
-export function listDashboardProfiles(): DashboardProfile[] {
-  const profiles = Object.values(getProfiles()).filter(
-    (profile) => profile.memberType === 'adult' && !(hideBuiltInWifeDashboard && profile.id === 'wife'),
-  );
+function toSortedDashboardProfiles(
+  profiles: PersonGameProfile[],
+  options?: { includeChildren?: boolean },
+): DashboardProfile[] {
+  const includeChildren = !!options?.includeChildren;
   return profiles
+    .filter((profile) => includeChildren || profile.memberType === 'adult')
+    .filter((profile) => !(hideBuiltInWifeDashboard && profile.id === 'wife'))
     .slice()
     .sort((a, b) => {
       if (a.id === 'me') return -1;
       if (b.id === 'me') return 1;
       if (a.id === 'wife') return -1;
       if (b.id === 'wife') return 1;
+      if (includeChildren && a.memberType !== b.memberType) return a.memberType === 'adult' ? -1 : 1;
       return (a.createdAt || '').localeCompare(b.createdAt || '');
     })
     .map((profile) => ({
@@ -966,6 +970,10 @@ export function listDashboardProfiles(): DashboardProfile[] {
       memberType: profile.memberType,
       createdAt: profile.createdAt,
     }));
+}
+
+export function listDashboardProfiles(userId?: string | null): DashboardProfile[] {
+  return toSortedDashboardProfiles(Object.values(getProfiles(userId)));
 }
 
 export function setHideBuiltInWifeDashboard(hide: boolean) {
@@ -974,26 +982,23 @@ export function setHideBuiltInWifeDashboard(hide: boolean) {
   dispatchMacroStateUpdated();
 }
 
-export function listHouseholdProfiles(): DashboardProfile[] {
-  const profiles = Object.values(getProfiles()).filter(
-    (profile) => !(hideBuiltInWifeDashboard && profile.id === 'wife'),
-  );
-  return profiles
-    .slice()
-    .sort((a, b) => {
-      if (a.id === 'me') return -1;
-      if (b.id === 'me') return 1;
-      if (a.id === 'wife') return -1;
-      if (b.id === 'wife') return 1;
-      if (a.memberType !== b.memberType) return a.memberType === 'adult' ? -1 : 1;
-      return (a.createdAt || '').localeCompare(b.createdAt || '');
-    })
-    .map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-      memberType: profile.memberType,
-      createdAt: profile.createdAt,
-    }));
+export function listHouseholdProfiles(userId?: string | null): DashboardProfile[] {
+  return toSortedDashboardProfiles(Object.values(getProfiles(userId)), { includeChildren: true });
+}
+
+export async function loadHouseholdProfilesFromAccount(userId?: string | null): Promise<DashboardProfile[]> {
+  if (!userId) return listHouseholdProfiles();
+
+  try {
+    const remoteProfiles = await loadRemoteProfiles(userId);
+    if (remoteProfiles) {
+      return toSortedDashboardProfiles(Object.values(remoteProfiles), { includeChildren: true });
+    }
+  } catch (error) {
+    console.error('Failed to load shared household profiles:', error);
+  }
+
+  return listHouseholdProfiles(userId);
 }
 
 export function addHouseholdProfile(name: string, memberType: HouseholdMemberType = 'adult'): DashboardProfile {
@@ -1222,13 +1227,14 @@ function buildMealIdentity(log: Pick<MealLog, 'person' | 'date' | 'mealType' | '
   return `${log.person}::${log.date}::${log.mealType || 'uncategorized'}::${normalizeMealLookup(log.recipeName)}`;
 }
 
-export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey()): MealLog[] {
-  const state = readState();
+export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey(), userId?: string | null): MealLog[] {
+  const scopedUserId = userId ?? currentStorageScopeUserId;
+  const state = readState(scopedUserId);
   const actualLogs = state.mealLogs
     .map(fromStoredMealLog)
     .filter((log) => log.person === personId && log.date === date);
   const existingKeys = new Set(actualLogs.map((log) => buildMealIdentity(log)));
-  const supplementalPlannerLogs = getPlannedFoodEntriesForDate(date, currentStorageScopeUserId)
+  const supplementalPlannerLogs = getPlannedFoodEntriesForDate(date, scopedUserId)
     .filter((entry) => entry.personId === personId && entry.mealType !== 'dinner')
     .map<MealLog>((entry) => ({
       id: `planner-log:${entry.id}`,
@@ -1254,10 +1260,11 @@ export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey()):
   );
 }
 
-export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
-  const state = readState();
+export function getDailyScore(personId: AdultId, date = dayKey(), userId?: string | null): DailyScore {
+  const scopedUserId = userId ?? currentStorageScopeUserId;
+  const state = readState(scopedUserId);
   const profile = ensureProfile(state, personId);
-  const logs = getEffectiveMealLogsForDate(personId, date);
+  const logs = getEffectiveMealLogsForDate(personId, date, scopedUserId);
   const totals = sumMacros(logs);
   const trackers = trackerForDate(state, date, personId);
   const plan = profile.macroPlan;
@@ -1307,30 +1314,30 @@ export function getDailyScore(personId: AdultId, date = dayKey()): DailyScore {
   };
 }
 
-export function isDailyLogFullyLogged(personId: AdultId, date = dayKey()): boolean {
-  const score = getDailyScore(personId, date);
-  const profile = getProfiles()[personId];
+export function isDailyLogFullyLogged(personId: AdultId, date = dayKey(), userId?: string | null): boolean {
+  const score = getDailyScore(personId, date, userId);
+  const profile = getProfiles(userId)[personId];
   const calorieTarget = profile?.macroPlan.calories || 0;
   return score.mealsLogged >= 3 || (calorieTarget > 0 && score.calories >= calorieTarget * 0.8);
 }
 
-export function getCurrentStreak(personId: AdultId, date = new Date()): number {
+export function getCurrentStreak(personId: AdultId, date = new Date(), userId?: string | null): number {
   let streak = 0;
   for (let i = 0; i < 60; i += 1) {
     const d = format(subDays(date, i), 'yyyy-MM-dd');
-    const score = getDailyScore(personId, d);
+    const score = getDailyScore(personId, d, userId);
     if (!score.goalHit) break;
     streak += 1;
   }
   return streak;
 }
 
-export function getWeekPoints(personId: AdultId, date = new Date()): number {
+export function getWeekPoints(personId: AdultId, date = new Date(), userId?: string | null): number {
   const weekStart = startOfWeek(date, { weekStartsOn: 1 });
   let points = 0;
   for (let i = 0; i < 7; i += 1) {
     const d = format(addDays(weekStart, i), 'yyyy-MM-dd');
-    points += getDailyScore(personId, d).points;
+    points += getDailyScore(personId, d, userId).points;
   }
   return points;
 }
@@ -1480,11 +1487,11 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
 }
 
 export function getFamilyLeaderboard(date = new Date(), userId?: string | null): LeaderboardEntry[] {
-  const profiles = listDashboardProfiles();
+  const profiles = listDashboardProfiles(userId);
   const adults: LeaderboardEntry[] = profiles.map(({ id, name }) => {
-    const today = getDailyScore(id, format(date, 'yyyy-MM-dd'));
-    const streak = getCurrentStreak(id, date);
-    const weekPoints = getWeekPoints(id, date);
+    const today = getDailyScore(id, format(date, 'yyyy-MM-dd'), userId);
+    const streak = getCurrentStreak(id, date, userId);
+    const weekPoints = getWeekPoints(id, date, userId);
     const headline =
       today.goalHit && today.waterHit
         ? 'Goals hit today'

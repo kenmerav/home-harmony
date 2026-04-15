@@ -405,9 +405,11 @@ function parseCalendarSetupMode(value: string | null): CalendarSetupMode | null 
 }
 
 export default function CalendarPage() {
-  const { user } = useAuth();
+  const { user, sharedHouseholdOwnerId } = useAuth();
   const { toast } = useToast();
-  const { filters, setFilters, filterPresets, setFilterPresets } = useAccountCalendarPreferences(user?.id);
+  const { filters, setFilters, filterPresets, setFilterPresets } = useAccountCalendarPreferences(
+    sharedHouseholdOwnerId || user?.id,
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());

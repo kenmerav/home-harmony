@@ -230,7 +230,7 @@ function isCalendarModule(value: string): value is CalendarEventModule {
 }
 
 export default function CalendarPlannerPage() {
-  const { user } = useAuth();
+  const { user, sharedHouseholdOwnerId } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const {
@@ -240,7 +240,7 @@ export default function CalendarPlannerPage() {
     setFilterPresets,
     moduleFilterSettings,
     setModuleFilterSettings,
-  } = useAccountCalendarPreferences(user?.id);
+  } = useAccountCalendarPreferences(sharedHouseholdOwnerId || user?.id);
   const [mode, setMode] = useState<PlannerMode>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
