@@ -55,3 +55,11 @@ export async function acceptHouseholdInvite(token: string) {
   if (error) throw new Error(error.message);
   return data as string;
 }
+
+export async function revokeHouseholdInvite(inviteId: string) {
+  const { data, error } = await supabase.rpc('revoke_household_invite', {
+    invite_id: inviteId,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}

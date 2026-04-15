@@ -21,6 +21,7 @@ import {
   createOrGetHousehold,
   getHouseholdDashboard,
   inviteHouseholdMember,
+  revokeHouseholdInvite,
   type HouseholdDashboard,
 } from '@/lib/api/family';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,6 +57,7 @@ export default function FamilyPage() {
   const [inviteRole, setInviteRole] = useState<'spouse' | 'kid'>('spouse');
   const [submittingInvite, setSubmittingInvite] = useState(false);
   const [acceptingInvite, setAcceptingInvite] = useState(false);
+  const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -204,6 +206,20 @@ export default function FamilyPage() {
       setMessage(error instanceof Error ? error.message : 'Unable to accept invite.');
     } finally {
       setAcceptingInvite(false);
+    }
+  };
+
+  const onRevokeInvite = async (inviteId: string, inviteEmail: string) => {
+    setRevokingInviteId(inviteId);
+    setMessage(null);
+    try {
+      await revokeHouseholdInvite(inviteId);
+      await loadDashboard();
+      setMessage(`Pending invite removed for ${inviteEmail}.`);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : 'Unable to remove invite.');
+    } finally {
+      setRevokingInviteId(null);
     }
   };
 
@@ -438,11 +454,21 @@ export default function FamilyPage() {
                   <h2 className="font-semibold">Pending invites</h2>
                   <div className="mt-3 space-y-2">
                     {dashboard.invites.map((invite) => (
-                      <div key={invite.id} className="rounded-md border border-border p-3">
-                        <p className="text-sm font-medium">{invite.email}</p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {invite.role} • expires {new Date(invite.expires_at).toLocaleDateString()}
-                        </p>
+                      <div key={invite.id} className="rounded-md border border-border p-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{invite.email}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {invite.role} • expires {new Date(invite.expires_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={revokingInviteId === invite.id}
+                          onClick={() => void onRevokeInvite(invite.id, invite.email)}
+                        >
+                          {revokingInviteId === invite.id ? 'Removing...' : 'Delete'}
+                        </Button>
                       </div>
                     ))}
                     {dashboard.invites.length === 0 && (
