@@ -97,6 +97,8 @@ const GROCERY_STORE_OPTIONS = [
   "Fry's",
   'Safeway',
   'Whole Foods',
+  'Sprouts',
+  "Trader Joe's",
   'Kroger',
   'Target',
   'Walmart',
@@ -108,6 +110,8 @@ const ONBOARDING_STORE_TO_PREF_ID: Record<(typeof GROCERY_STORE_OPTIONS)[number]
   "Fry's": 'frys',
   Safeway: 'safeway',
   'Whole Foods': 'whole-foods',
+  Sprouts: 'sprouts',
+  "Trader Joe's": 'trader-joes',
   Kroger: 'kroger',
   Target: 'target',
   Walmart: 'walmart',
@@ -115,7 +119,16 @@ const ONBOARDING_STORE_TO_PREF_ID: Record<(typeof GROCERY_STORE_OPTIONS)[number]
   Instacart: 'instacart',
 };
 
-const WEEKLY_AD_ALLOWED_STORE_IDS = new Set(['frys', 'safeway', 'whole-foods', 'kroger', 'target', 'walmart', 'aldi']);
+const WEEKLY_AD_ALLOWED_STORE_IDS = new Set([
+  'frys',
+  'safeway',
+  'whole-foods',
+  'sprouts',
+  'kroger',
+  'target',
+  'walmart',
+  'aldi',
+]);
 
 const GROCERY_MODE_OPTIONS = ['In-store', 'Pickup', 'Delivery', 'Mix'] as const;
 

@@ -15,6 +15,8 @@ export const GROCERY_STORES: GroceryStoreOption[] = [
   { id: 'kroger', label: 'Kroger', searchUrl: 'https://www.kroger.com/search?query=' },
   { id: 'costco', label: 'Costco', searchUrl: 'https://www.costco.com/CatalogSearch?keyword=' },
   { id: 'whole-foods', label: 'Whole Foods', searchUrl: 'https://www.amazon.com/s?k=' },
+  { id: 'sprouts', label: 'Sprouts', searchUrl: 'https://shop.sprouts.com/search?search_term=' },
+  { id: 'trader-joes', label: "Trader Joe's", searchUrl: 'https://www.traderjoes.com/home/search?q=' },
   { id: 'instacart', label: 'Instacart', searchUrl: 'https://www.instacart.com/store/search_v3/' },
   { id: 'aldi', label: 'ALDI', searchUrl: 'https://new.aldi.us/results?q=' },
 ];
@@ -29,6 +31,7 @@ export const WEEKLY_AD_STORES: WeeklyAdStoreOption[] = [
   { id: 'safeway', label: 'Safeway' },
   { id: 'whole-foods', label: 'Whole Foods' },
   { id: 'kroger', label: 'Kroger' },
+  { id: 'sprouts', label: 'Sprouts' },
   { id: 'target', label: 'Target' },
   { id: 'walmart', label: 'Walmart' },
   { id: 'aldi', label: 'ALDI' },
@@ -262,6 +265,8 @@ export function buildWeeklyAdUrl(storeId: string, zipCode: string): string {
       return zip
         ? `https://www.kroger.com/savings/weeklyad?zipCode=${encodedZip}`
         : 'https://www.kroger.com/savings/weeklyad';
+    case 'sprouts':
+      return 'https://www.sprouts.com/weekly-ad/';
     case 'target':
       return zip
         ? `https://www.target.com/c/weekly-ad/-/N-4x0oc?zipcode=${encodedZip}`
