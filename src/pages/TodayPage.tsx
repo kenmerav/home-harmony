@@ -1038,7 +1038,7 @@ export default function TodayPage() {
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)]">
           <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={cn('grid grid-cols-1 gap-4', todaysScores.length > 1 && 'md:grid-cols-2')}>
                 {todaysScores.map((entry) => (
                   <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
                     <div className="flex items-center justify-between">
@@ -1082,7 +1082,7 @@ export default function TodayPage() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className={cn('grid grid-cols-1 gap-4', todaysScores.length > 1 && 'sm:grid-cols-2')}>
                 {todaysScores.map((entry) => {
                   const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
                   return (
