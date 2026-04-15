@@ -30,6 +30,7 @@ import { loadTasks, saveTasks, taskOccursOnDate, taskFrequencyLabel } from '@/li
 import { useAuth } from '@/contexts/AuthContext';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 import { listDashboardProfiles } from '@/lib/macroGame';
+import { getHouseholdDashboard } from '@/lib/api/family';
 
 const statusOrder: TaskStatus[] = ['in_progress', 'not_started', 'done'];
 
@@ -76,7 +77,7 @@ const DEFAULT_TASK_DRAFT: TaskDraft = {
 };
 
 export default function TasksPage() {
-  const { user } = useAuth();
+  const { user, profile, sharedHouseholdOwnerId } = useAuth();
   const [tasks, setTasks] = useState<HouseTask[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [view, setView] = useState<'manager' | 'owner'>('manager');
@@ -86,6 +87,7 @@ export default function TasksPage() {
   const [newTask, setNewTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
   const [editTask, setEditTask] = useState<TaskDraft>(DEFAULT_TASK_DRAFT);
   const [adultDashboards, setAdultDashboards] = useState(() => listDashboardProfiles());
+  const [memberNameByUserId, setMemberNameByUserId] = useState<Map<string, string>>(new Map());
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const { toast } = useToast();
@@ -112,6 +114,53 @@ export default function TasksPage() {
   }, []);
 
   useEffect(() => {
+    if (!user?.id) {
+      setMemberNameByUserId(new Map());
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadMemberNames = async () => {
+      try {
+        const household = await getHouseholdDashboard();
+        if (cancelled) return;
+
+        const nextMap = new Map<string, string>();
+        (household.members || [])
+          .filter((member) => member.status === 'active')
+          .forEach((member) => {
+            const fullName = member.full_name?.trim();
+            if (member.user_id && fullName) {
+              nextMap.set(member.user_id, fullName);
+            }
+          });
+
+        const ownFullName = profile?.fullName?.trim();
+        if (ownFullName) {
+          nextMap.set(user.id, ownFullName);
+        }
+
+        setMemberNameByUserId(nextMap);
+      } catch (error) {
+        if (cancelled) return;
+        const fallbackMap = new Map<string, string>();
+        const ownFullName = profile?.fullName?.trim();
+        if (ownFullName) {
+          fallbackMap.set(user.id, ownFullName);
+        }
+        setMemberNameByUserId(fallbackMap);
+        console.error('Failed to load household member names for tasks:', error);
+      }
+    };
+
+    void loadMemberNames();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.fullName, user?.id]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const refreshTasks = () => {
       setTasks((current) => {
@@ -128,8 +177,40 @@ export default function TasksPage() {
     [adultDashboards],
   );
 
-  const taskAssigneeLabel = (task: HouseTask) =>
-    task.assignedToId ? dashboardNameById.get(task.assignedToId) || task.assignedToName : task.assignedToName;
+  const resolveAssigneeLabel = (assignedToId?: string, assignedToName?: string) => {
+    const normalizedId = assignedToId?.trim();
+    const cleanedFallback = assignedToName?.trim();
+
+    if (!normalizedId) {
+      return cleanedFallback || undefined;
+    }
+
+    if (normalizedId === 'me' || (user?.id && normalizedId === user.id)) {
+      return 'Me';
+    }
+
+    const memberName = memberNameByUserId.get(normalizedId);
+    if (memberName) {
+      return memberName;
+    }
+
+    const dashboardName = dashboardNameById.get(normalizedId);
+    if (dashboardName && dashboardName.trim().toLowerCase() !== 'me') {
+      return dashboardName;
+    }
+
+    if (cleanedFallback && cleanedFallback.toLowerCase() !== 'me') {
+      return cleanedFallback;
+    }
+
+    if (sharedHouseholdOwnerId && normalizedId === sharedHouseholdOwnerId && normalizedId !== user?.id) {
+      return memberNameByUserId.get(sharedHouseholdOwnerId) || 'Owner';
+    }
+
+    return cleanedFallback || undefined;
+  };
+
+  const taskAssigneeLabel = (task: HouseTask) => resolveAssigneeLabel(task.assignedToId, task.assignedToName);
 
   const cycleStatus = (taskId: string) => {
     setTasks(prev => prev.map(task => {
@@ -160,7 +241,16 @@ export default function TasksPage() {
   const taskFromDraft = (draft: TaskDraft, taskId?: string): HouseTask => {
     const dueDate = draft.dueDate.trim();
     const assignedToId = draft.assignedToId !== 'unassigned' ? draft.assignedToId : undefined;
-    const assignedToName = assignedToId ? dashboardNameById.get(assignedToId) : undefined;
+    const assignedToName = assignedToId
+      ? (() => {
+          const resolved = resolveAssigneeLabel(assignedToId);
+          if (resolved && resolved !== 'Me') return resolved;
+          if (assignedToId === 'me' || assignedToId === user?.id) {
+            return profile?.fullName?.trim() || memberNameByUserId.get(user?.id || '') || resolved || 'Me';
+          }
+          return dashboardNameById.get(assignedToId) || memberNameByUserId.get(assignedToId) || resolved;
+        })()
+      : undefined;
     return {
       id: taskId || `task-${Date.now()}`,
       title: draft.title.trim(),
