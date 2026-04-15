@@ -19,10 +19,14 @@ function lazyWithReload<T extends { default: React.ComponentType<any> }>(
     try {
       return await factory();
     } catch (error) {
-      const reloadKey = "homehub:lazy-reload-attempted";
-      if (typeof window !== "undefined" && window.sessionStorage.getItem(reloadKey) !== "1") {
-        window.sessionStorage.setItem(reloadKey, "1");
-        window.location.reload();
+      const reloadKey = "homehub:lazy-reload-target";
+      if (typeof window !== "undefined") {
+        const currentTarget = `${window.location.pathname}${window.location.search}`;
+        const attemptedTarget = window.sessionStorage.getItem(reloadKey);
+        if (attemptedTarget !== currentTarget) {
+          window.sessionStorage.setItem(reloadKey, currentTarget);
+          window.location.reload();
+        }
       }
       throw error;
     }
@@ -186,7 +190,7 @@ function LazyRouteRecoveryReset() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.sessionStorage.removeItem("homehub:lazy-reload-attempted");
+    window.sessionStorage.removeItem("homehub:lazy-reload-target");
   }, [location.pathname]);
 
   return null;
