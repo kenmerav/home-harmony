@@ -644,11 +644,23 @@ export default function TodayPage() {
 
   const candidateAlreadyLogged = (candidate: LogMealCandidate): boolean => {
     const targetPersonId = candidate.personId || 'me';
-    const candidateLogBuckets = [todayLogsByPerson[targetPersonId] || []];
-    if (targetPersonId !== 'me') {
-      candidateLogBuckets.push(todayLogsByPerson.me || []);
+    const equivalentPersonIds = new Set<string>([targetPersonId]);
+
+    if (
+      targetPersonId === 'me' ||
+      candidate.personName?.toLowerCase() === 'me' ||
+      targetPersonId === user?.id
+    ) {
+      equivalentPersonIds.add('me');
+      if (user?.id) equivalentPersonIds.add(user.id);
+      dashboards
+        .filter((dashboard) => dashboard.name.trim().toLowerCase() === 'me')
+        .forEach((dashboard) => equivalentPersonIds.add(dashboard.id));
+    } else {
+      equivalentPersonIds.add('me');
     }
-    const logs = candidateLogBuckets.flat();
+
+    const logs = Array.from(equivalentPersonIds).flatMap((personId) => todayLogsByPerson[personId] || []);
     const candidateMealType =
       logMealCategory === 'snacks'
         ? 'snack'
