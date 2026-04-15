@@ -187,8 +187,9 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   const weekPoints = getWeekPoints(personId, currentDate);
   const targetCalories = macroPlan.calories || 2000;
   const dashboardDinnerServings = getDinnerServingsForProfileDate(personId, todayKey, user?.id);
-  const plannedDinnerEntry =
-    getPlannedFoodEntriesForDate(todayKey, user?.id).find((entry) => entry.mealType === 'dinner') || null;
+  const plannedEntriesToday = getPlannedFoodEntriesForDate(todayKey, user?.id).filter(
+    (entry) => !entry.personId || entry.personId === 'me' || entry.personId === user?.id || entry.mealType === 'dinner',
+  );
   const liveTodaysMeal = liveMeals.find(
     (meal) =>
       meal.week_of === currentWeekOf &&
@@ -196,38 +197,57 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
       !meal.is_skipped &&
       !!meal.recipes,
   );
-  const tonightDinner: DinnerCandidate | null = (() => {
-    if (plannedDinnerEntry) {
-      const servings = Math.max(0.1, plannedDinnerEntry.servings || 1);
-      return {
-        label: plannedDinnerEntry.name,
-        recipeId: plannedDinnerEntry.sourceRecipeId || undefined,
-        defaultServings: servings,
-        macros: {
-          calories: Math.round(plannedDinnerEntry.calories / servings),
-          protein_g: Math.round(plannedDinnerEntry.protein_g / servings),
-          carbs_g: Math.round(plannedDinnerEntry.carbs_g / servings),
-          fat_g: Math.round(plannedDinnerEntry.fat_g / servings),
-        },
-      };
-    }
-
-    if (liveTodaysMeal?.recipes) {
-      return {
-        label: liveTodaysMeal.recipes.name || "Tonight's dinner",
+  const fallbackDinner = liveTodaysMeal
+    ? {
         recipeId: liveTodaysMeal.recipe_id,
-        defaultServings: 1,
-        macros: {
-          calories: liveTodaysMeal.recipes.calories || 0,
-          protein_g: liveTodaysMeal.recipes.protein_g || 0,
-          carbs_g: liveTodaysMeal.recipes.carbs_g || 0,
-          fat_g: liveTodaysMeal.recipes.fat_g || 0,
-          fiber_g: liveTodaysMeal.recipes.fiber_g || undefined,
+        recipe: {
+          name: liveTodaysMeal.recipes?.name || "Tonight's dinner",
+          servings: liveTodaysMeal.recipes?.servings || 1,
+          macrosPerServing: {
+            calories: liveTodaysMeal.recipes?.calories || 0,
+            protein_g: liveTodaysMeal.recipes?.protein_g || 0,
+            carbs_g: liveTodaysMeal.recipes?.carbs_g || 0,
+            fat_g: liveTodaysMeal.recipes?.fat_g || 0,
+            fiber_g: liveTodaysMeal.recipes?.fiber_g || undefined,
+          },
         },
-      };
+      }
+    : null;
+  const tonightDinner: DinnerCandidate | null = (() => {
+    const dinnerCandidates = plannedEntriesToday
+      .filter((entry) => entry.mealType === 'dinner')
+      .map((entry) => {
+        const servings = Math.max(0.1, entry.servings || 1);
+        return {
+          label: entry.name,
+          recipeId: entry.sourceRecipeId || undefined,
+          defaultServings: servings,
+          macros: {
+            calories: Math.round(entry.calories / servings),
+            protein_g: Math.round(entry.protein_g / servings),
+            carbs_g: Math.round(entry.carbs_g / servings),
+            fat_g: Math.round(entry.fat_g / servings),
+          },
+        } satisfies DinnerCandidate;
+      });
+
+    const hasMatchingFallback = fallbackDinner
+      ? dinnerCandidates.some((candidate) => candidate.recipeId && candidate.recipeId === fallbackDinner.recipeId)
+      : false;
+
+    if (fallbackDinner && !hasMatchingFallback) {
+      dinnerCandidates.unshift({
+        label: fallbackDinner.recipe.name,
+        recipeId: fallbackDinner.recipeId,
+        defaultServings: 1,
+        macros: fallbackDinner.recipe.macrosPerServing,
+      });
+    } else if (!fallbackDinner) {
+      const mockDinner = createMockDinnerCandidate(currentDay);
+      if (mockDinner) dinnerCandidates.unshift(mockDinner);
     }
 
-    return createMockDinnerCandidate(currentDay);
+    return dinnerCandidates[0] || null;
   })();
 
   const handleQuickAddDinner = () => {
