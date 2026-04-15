@@ -867,7 +867,7 @@ export default function TodayPage() {
             title="Your Focus This Week"
             subtitle={`Home Harmony is currently prioritizing ${focusPrompt.focusLabel.toLowerCase()} for your setup.`}
             action={
-              <Link to={focusPrompt.focusRoute}>
+              <Link to={focusPrompt.focusRoute} reloadDocument>
                 <Button size="sm" variant="outline">Open {focusPrompt.focusLabel}</Button>
               </Link>
             }
@@ -884,7 +884,7 @@ export default function TodayPage() {
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Next step {index + 1}</p>
                     <p className="mt-1 font-medium">{step.title}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{step.detail}</p>
-                    <Link to={step.href} className="mt-3 inline-block">
+                    <Link to={step.href} reloadDocument className="mt-3 inline-block">
                       <Button size="sm" variant="outline">{step.cta}</Button>
                     </Link>
                   </div>
@@ -898,7 +898,7 @@ export default function TodayPage() {
           title="Daily Command Center"
           subtitle="Everything important for today, in one place"
           action={
-            <Link to="/calendar">
+            <Link to="/calendar" reloadDocument>
               <Button variant="ghost" size="sm">
                 Open Planner
               </Button>
@@ -959,25 +959,25 @@ export default function TodayPage() {
             </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link to="/calendar">
+            <Link to="/calendar" reloadDocument>
               <Button size="sm" variant="outline">
                 <CalendarDays className="w-4 h-4 mr-1" />
                 Add event
               </Button>
             </Link>
-            <Link to="/meals">
+            <Link to="/meals" reloadDocument>
               <Button size="sm" variant="outline">
                 <UtensilsCrossed className="w-4 h-4 mr-1" />
                 Plan meals
               </Button>
             </Link>
-            <Link to="/grocery">
+            <Link to="/grocery" reloadDocument>
               <Button size="sm" variant="outline">
                 <ShoppingCart className="w-4 h-4 mr-1" />
                 Open grocery
               </Button>
             </Link>
-            <Link to="/tasks">
+            <Link to="/tasks" reloadDocument>
               <Button size="sm" variant="outline">
                 <ClipboardList className="w-4 h-4 mr-1" />
                 Manage tasks
@@ -990,7 +990,7 @@ export default function TodayPage() {
           title="Today's Schedule"
           subtitle="Meals, chores, tasks, workouts, and reminders in one timeline"
           action={
-            <Link to="/calendar">
+            <Link to="/calendar" reloadDocument>
               <Button variant="ghost" size="sm">
                 Full Calendar
               </Button>
@@ -1122,7 +1122,7 @@ export default function TodayPage() {
             title="Log Today's Meals"
             subtitle="Choose a meal slot and log what was planned"
             action={
-              <Link to="/meals">
+              <Link to="/meals" reloadDocument>
                 <Button variant="ghost" size="sm">
                   View Week
                 </Button>
@@ -1270,7 +1270,7 @@ export default function TodayPage() {
               <div className="text-center py-6 text-muted-foreground">
                 <SkipForward className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p>No planned {logMealCategory === 'drinks' ? 'drinks' : logMealCategory} for today</p>
-                <Link to="/meals" className="inline-flex mt-3">
+                <Link to="/meals" reloadDocument className="inline-flex mt-3">
                   <Button size="sm" variant="outline">Add to Meal Plan</Button>
                 </Link>
               </div>
@@ -1287,7 +1287,7 @@ export default function TodayPage() {
               <Button size="sm" variant="outline" onClick={() => setPrizeDialogOpen(true)}>
                 Set Prize
               </Button>
-              <Link to="/family">
+              <Link to="/family" reloadDocument>
                 <Button size="sm" variant="ghost">Family Hub</Button>
               </Link>
             </div>
@@ -1320,12 +1320,12 @@ export default function TodayPage() {
           subtitle="What needs attention today"
           action={
             <div className="flex items-center gap-2">
-              <Link to="/tasks">
+              <Link to="/tasks" reloadDocument>
                 <Button variant="ghost" size="sm">
                   Tasks
                 </Button>
               </Link>
-              <Link to="/chores">
+              <Link to="/chores" reloadDocument>
                 <Button variant="ghost" size="sm">
                   Chores
                 </Button>

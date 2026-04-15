@@ -170,6 +170,14 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
     setMemberDialogOpen(true);
   };
 
+  const navigateWithTodayFallback = (target: string) => {
+    if (typeof window !== 'undefined' && location.pathname === '/app' && target !== '/app') {
+      window.location.assign(target);
+      return;
+    }
+    navigate(target);
+  };
+
   const handleRenameDashboard = (dashboardId: string, currentName: string) => {
     const raw = window.prompt('Rename dashboard', currentName);
     if (!raw || !raw.trim()) return;
@@ -178,7 +186,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
   };
 
   const handleOpenDashboard = (dashboardId: string) => {
-    navigate(`/dashboard/${dashboardId}`);
+    navigateWithTodayFallback(`/dashboard/${dashboardId}`);
     setMobileDashboardsOpen(false);
   };
 
@@ -191,7 +199,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
 
   const openFamilySetupPath = (path: string) => {
     closeFamilySetup();
-    navigate(path);
+    navigateWithTodayFallback(path);
   };
 
   const resetFeedbackForm = () => {
@@ -312,6 +320,12 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={(event) => {
+                  if (typeof window !== 'undefined' && location.pathname === '/app' && item.to !== '/app') {
+                    event.preventDefault();
+                    window.location.assign(item.to);
+                  }
+                }}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium transition-gentle",
                   isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
@@ -351,6 +365,12 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               <div key={dashboard.id} className="group flex items-center gap-1">
                 <NavLink
                   to={to}
+                  onClick={(event) => {
+                    if (typeof window !== 'undefined' && location.pathname === '/app' && to !== '/app') {
+                      event.preventDefault();
+                      window.location.assign(to);
+                    }
+                  }}
                   className={cn(
                     "flex flex-1 items-center rounded-lg text-sm font-medium transition-gentle",
                     isSidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
@@ -390,6 +410,12 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={(event) => {
+                  if (typeof window !== 'undefined' && location.pathname === '/app' && item.to !== '/app') {
+                    event.preventDefault();
+                    window.location.assign(item.to);
+                  }
+                }}
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 transition-gentle",
                   isActive 
@@ -430,7 +456,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
                   key={`mobile-more-${item.to}`}
                   type="button"
                   onClick={() => {
-                    navigate(item.to);
+                    navigateWithTodayFallback(item.to);
                     setMobileMoreOpen(false);
                   }}
                   className={cn(
