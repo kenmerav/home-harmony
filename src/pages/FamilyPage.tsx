@@ -353,26 +353,16 @@ export default function FamilyPage() {
               </div>
               <div className="mt-3 space-y-2">
                 {localProfiles.map((member) => {
-                  const canChangeType = member.id !== 'me' && member.id !== 'wife';
+                  const canChangeType = member.id !== 'me';
                   const canDelete = member.id !== 'me';
-                  const isBuiltInWifeProfile = member.id === 'wife';
                   return (
                     <div key={member.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium">{member.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {member.memberType === 'adult' ? 'Adult dashboard' : 'Kid chores member'}
-                          {member.id === 'me'
-                            ? ' • Primary profile'
-                            : isBuiltInWifeProfile
-                              ? ' • Built-in spouse profile'
-                              : ''}
+                          {member.id === 'me' ? ' • Primary profile' : ''}
                         </p>
-                        {isBuiltInWifeProfile && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Delete this if you want your wife to join through a real email invite instead.
-                          </p>
-                        )}
                       </div>
                       {canDelete ? (
                         <div className="flex flex-wrap justify-end gap-2">

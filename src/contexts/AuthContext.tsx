@@ -11,6 +11,7 @@ import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
 import {
   hydrateMacroGameActivityFromAccount,
   hydrateMacroGameProfilesFromAccount,
+  purgeLegacyWifeDashboardFromAccount,
   setHideBuiltInWifeDashboard,
   setMacroGameStorageScope,
 } from '@/lib/macroGame';
@@ -279,18 +280,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
 
         const activeMembers = (household.members || []).filter((member) => member.status === 'active');
-        const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
         const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
-        const hasOtherActiveSpouse = activeMembers.some(
-          (member) => member.role === 'spouse' && member.user_id !== user.id,
-        );
-        const shouldHide = currentMember?.role === 'spouse' || hasOtherActiveSpouse;
-        setHideBuiltInWifeDashboard(shouldHide);
-        setSharedHouseholdOwnerId(ownerMember?.user_id || user.id);
+        const ownerScopeId = ownerMember?.user_id || user.id;
+        setHideBuiltInWifeDashboard(true);
+        setSharedHouseholdOwnerId(ownerScopeId);
+        void purgeLegacyWifeDashboardFromAccount(ownerScopeId).catch((error) => {
+          console.error('Failed removing legacy wife dashboard:', error);
+        });
       } catch {
         if (!cancelled) {
-          setHideBuiltInWifeDashboard(false);
+          setHideBuiltInWifeDashboard(true);
           setSharedHouseholdOwnerId(user.id);
+          void purgeLegacyWifeDashboardFromAccount(user.id).catch((error) => {
+            console.error('Failed removing legacy wife dashboard:', error);
+          });
         }
       }
     };

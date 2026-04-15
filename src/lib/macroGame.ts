@@ -322,20 +322,12 @@ function createDashboardId(name: string): string {
 
 function initialState(): StoredState {
   const meProfile = mockProfiles.find((p) => p.id === 'me');
-  const wifeProfile = mockProfiles.find((p) => p.id === 'wife');
   const mePlan = defaultPlan('me');
-  const wifePlan = defaultPlan('wife');
   if (meProfile?.dailyTargets) {
     mePlan.calories = meProfile.dailyTargets.calories;
     mePlan.protein_g = meProfile.dailyTargets.protein_g;
     mePlan.carbs_g = meProfile.dailyTargets.carbs_g;
     mePlan.fat_g = meProfile.dailyTargets.fat_g;
-  }
-  if (wifeProfile?.dailyTargets) {
-    wifePlan.calories = wifeProfile.dailyTargets.calories;
-    wifePlan.protein_g = wifeProfile.dailyTargets.protein_g;
-    wifePlan.carbs_g = wifeProfile.dailyTargets.carbs_g;
-    wifePlan.fat_g = wifeProfile.dailyTargets.fat_g;
   }
 
   return {
@@ -346,14 +338,6 @@ function initialState(): StoredState {
         name: meProfile?.name || 'Me',
         memberType: 'adult',
         macroPlan: mePlan,
-        femaleHealth: defaultFemaleHealthSettings(),
-        createdAt: new Date().toISOString(),
-      },
-      wife: {
-        id: 'wife',
-        name: wifeProfile?.name || 'Wife',
-        memberType: 'adult',
-        macroPlan: wifePlan,
         femaleHealth: defaultFemaleHealthSettings(),
         createdAt: new Date().toISOString(),
       },
@@ -406,7 +390,7 @@ function normalizeProfiles(
     };
   });
 
-  ['me', 'wife'].forEach((id) => {
+  ['me'].forEach((id) => {
     if (!mergedProfiles[id]) {
       mergedProfiles[id] = seedProfiles[id];
     }
@@ -1042,7 +1026,7 @@ export function renameDashboardProfile(personId: AdultId, name: string): Dashboa
 export function setHouseholdProfileType(personId: AdultId, memberType: HouseholdMemberType): DashboardProfile {
   const state = readState();
   const profile = ensureProfile(state, personId);
-  profile.memberType = personId === 'me' || personId === 'wife' ? 'adult' : memberType;
+  profile.memberType = personId === 'me' ? 'adult' : memberType;
   state.profiles[personId] = profile;
   writeState(state);
   return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
@@ -1071,6 +1055,47 @@ export function removeHouseholdProfile(personId: AdultId): DashboardProfile | nu
 
   writeState(state);
   return { id: profile.id, name: profile.name, memberType: profile.memberType, createdAt: profile.createdAt };
+}
+
+export async function purgeLegacyWifeDashboardFromAccount(userId?: string | null): Promise<boolean> {
+  if (!userId) return false;
+
+  const state = readState(userId);
+  const remoteProfiles = await loadRemoteProfiles(userId);
+  const remoteActivity = await loadRemoteActivity(userId);
+  const mergedProfiles = remoteProfiles ? mergeProfilesPreferRemote(state.profiles, remoteProfiles) : state.profiles;
+  const mergedActivity = remoteActivity ? mergeActivityPreferRemote(state, remoteActivity) : state;
+
+  if (!mergedProfiles.wife) return false;
+
+  const nextState: StoredState = {
+    ...state,
+    profiles: { ...mergedProfiles },
+    mealLogs: mergedActivity.mealLogs.filter((log) => log.person !== 'wife'),
+    trackers: Object.entries(mergedActivity.trackers).reduce<Record<string, Partial<Record<string, DayTracker>>>>((acc, [date, trackers]) => {
+      if (!trackers || typeof trackers !== 'object') return acc;
+      const nextTrackers = { ...trackers };
+      delete nextTrackers.wife;
+      if (Object.keys(nextTrackers).length > 0) {
+        acc[date] = nextTrackers;
+      }
+      return acc;
+    }, {}),
+    todos: Object.entries(mergedActivity.todos).reduce<Record<string, DashboardTodoItem[]>>((acc, [personId, todos]) => {
+      if (personId !== 'wife') {
+        acc[personId] = todos;
+      }
+      return acc;
+    }, {}),
+  };
+
+  delete nextState.profiles.wife;
+
+  writeState(nextState, { userId, skipRemotePersist: true });
+  await persistProfilesToAccount(userId, nextState.profiles);
+  await persistActivityToAccount(userId, nextState);
+  dispatchMacroStateUpdated();
+  return true;
 }
 
 function ensureProfile(state: StoredState, personId: AdultId): PersonGameProfile {

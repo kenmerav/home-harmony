@@ -249,10 +249,7 @@ export default function SettingsPage() {
     loadDepartureAddressProfile(user?.id),
   );
   const [accountSaving, setAccountSaving] = useState(false);
-  const [bodyUnits, setBodyUnits] = useState<Record<'me' | 'wife', BodyUnitSystem>>({
-    me: 'imperial',
-    wife: 'imperial',
-  });
+  const [bodyUnits, setBodyUnits] = useState<Record<string, BodyUnitSystem>>({});
   const [loading, setLoading] = useState(true);
   const [smsPrefs, setSmsPrefs] = useState<SmsPreferences>(() =>
     defaultSmsPreferences(
@@ -303,10 +300,13 @@ export default function SettingsPage() {
         setAnswers((prev) => ({ ...prev, ...(stored.onboarding as Partial<OnboardingAnswers>) }));
       }
       const profiles = getProfiles();
-      setBodyUnits({
-        me: profiles.me.macroPlan.bodyUnitSystem || 'imperial',
-        wife: profiles.wife.macroPlan.bodyUnitSystem || 'imperial',
-      });
+      const nextBodyUnits = Object.values(profiles)
+        .filter((dashboardProfile) => dashboardProfile.memberType === 'adult')
+        .reduce<Record<string, BodyUnitSystem>>((acc, dashboardProfile) => {
+          acc[dashboardProfile.id] = dashboardProfile.macroPlan.bodyUnitSystem || 'imperial';
+          return acc;
+        }, {});
+      setBodyUnits(nextBodyUnits);
       if (canUseRemoteSms) {
         try {
           await refreshSmsPrefs();
@@ -572,8 +572,9 @@ export default function SettingsPage() {
         );
         setSavedDepartureProfile(savedProfile);
       }
-      updateMacroPlan('me', { bodyUnitSystem: bodyUnits.me });
-      updateMacroPlan('wife', { bodyUnitSystem: bodyUnits.wife });
+      Object.entries(bodyUnits).forEach(([personId, unitSystem]) => {
+        updateMacroPlan(personId, { bodyUnitSystem: unitSystem });
+      });
       toast({ title: 'Settings saved', description: 'Onboarding preferences were updated.' });
     } catch (error: unknown) {
       toast({
@@ -1154,32 +1155,25 @@ export default function SettingsPage() {
 
         <SectionCard title="Body units for macro calculator">
           <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <p className="text-sm font-medium mb-2">Me</p>
-              <OptionList
-                options={['Imperial (ft/in, lb)', 'Metric (cm, kg)']}
-                selected={[bodyUnits.me === 'imperial' ? 'Imperial (ft/in, lb)' : 'Metric (cm, kg)']}
-                onToggle={(value) =>
-                  setBodyUnits((prev) => ({
-                    ...prev,
-                    me: value.startsWith('Imperial') ? 'imperial' : 'metric',
-                  }))
-                }
-              />
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-2">Wife</p>
-              <OptionList
-                options={['Imperial (ft/in, lb)', 'Metric (cm, kg)']}
-                selected={[bodyUnits.wife === 'imperial' ? 'Imperial (ft/in, lb)' : 'Metric (cm, kg)']}
-                onToggle={(value) =>
-                  setBodyUnits((prev) => ({
-                    ...prev,
-                    wife: value.startsWith('Imperial') ? 'imperial' : 'metric',
-                  }))
-                }
-              />
-            </div>
+            {adultMacroProfiles.map((macroProfile) => (
+              <div key={macroProfile.id}>
+                <p className="text-sm font-medium mb-2">{macroProfile.name}</p>
+                <OptionList
+                  options={['Imperial (ft/in, lb)', 'Metric (cm, kg)']}
+                  selected={[
+                    (bodyUnits[macroProfile.id] || 'imperial') === 'imperial'
+                      ? 'Imperial (ft/in, lb)'
+                      : 'Metric (cm, kg)',
+                  ]}
+                  onToggle={(value) =>
+                    setBodyUnits((prev) => ({
+                      ...prev,
+                      [macroProfile.id]: value.startsWith('Imperial') ? 'imperial' : 'metric',
+                    }))
+                  }
+                />
+              </div>
+            ))}
           </div>
         </SectionCard>
 
