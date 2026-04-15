@@ -25,6 +25,32 @@ export interface HouseholdDashboard {
   invites: HouseholdInvite[];
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForOwnProfileReady(maxAttempts = 8): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = user?.id;
+  if (!userId) return;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (!error && data?.id === userId) {
+      return;
+    }
+
+    await delay(350 * (attempt + 1));
+  }
+}
+
 export async function createOrGetHousehold(householdName?: string) {
   const { data, error } = await supabase.rpc('create_or_get_household', {
     household_name: householdName || null,
@@ -49,9 +75,23 @@ export async function inviteHouseholdMember(email: string, role: 'spouse' | 'kid
 }
 
 export async function acceptHouseholdInvite(token: string) {
-  const { data, error } = await supabase.rpc('accept_household_invite', {
-    invite_token: token,
-  });
+  await waitForOwnProfileReady();
+
+  const attemptAccept = async () =>
+    supabase.rpc('accept_household_invite', {
+      invite_token: token,
+    });
+
+  let { data, error } = await attemptAccept();
+  if (
+    error &&
+    /household_members_user_id_fkey|violates foreign key constraint/i.test(error.message || '')
+  ) {
+    await delay(1200);
+    await waitForOwnProfileReady(4);
+    ({ data, error } = await attemptAccept());
+  }
+
   if (error) throw new Error(error.message);
   return data as string;
 }
