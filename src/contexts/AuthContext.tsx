@@ -8,10 +8,16 @@ import { claimReferral } from '@/lib/api/referrals';
 import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
-import { hydrateMacroGameActivityFromAccount, hydrateMacroGameProfilesFromAccount, setMacroGameStorageScope } from '@/lib/macroGame';
+import {
+  hydrateMacroGameActivityFromAccount,
+  hydrateMacroGameProfilesFromAccount,
+  setHideBuiltInWifeDashboard,
+  setMacroGameStorageScope,
+} from '@/lib/macroGame';
 import { hydrateMealBudgetPlannerFromAccount, setMealBudgetPlannerStorageScope } from '@/lib/mealBudgetPlanner';
 import { hydrateTasksFromAccount, setTaskStorageScope } from '@/lib/taskStore';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
+import { getHouseholdDashboard } from '@/lib/api/family';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -221,6 +227,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
     setMealBudgetPlannerStorageScope(!isDemoUser ? user?.id : null);
     setTaskStorageScope(!isDemoUser ? user?.id : null);
+    setHideBuiltInWifeDashboard(false);
+  }, [isDemoUser, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || isDemoUser) {
+      setHideBuiltInWifeDashboard(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncHouseholdDashboardMode = async () => {
+      try {
+        const household = await getHouseholdDashboard();
+        if (cancelled) return;
+
+        const activeMembers = (household.members || []).filter((member) => member.status === 'active');
+        const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
+        const hasOtherActiveSpouse = activeMembers.some(
+          (member) => member.role === 'spouse' && member.user_id !== user.id,
+        );
+        const shouldHide = currentMember?.role === 'spouse' || hasOtherActiveSpouse;
+        setHideBuiltInWifeDashboard(shouldHide);
+      } catch {
+        if (!cancelled) {
+          setHideBuiltInWifeDashboard(false);
+        }
+      }
+    };
+
+    void syncHouseholdDashboardMode();
+    return () => {
+      cancelled = true;
+    };
   }, [isDemoUser, user?.id]);
 
   useEffect(() => {

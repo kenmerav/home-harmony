@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
-import { createOrGetHousehold } from '@/lib/api/family';
+import { createOrGetHousehold, getHouseholdDashboard } from '@/lib/api/family';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import {
   enqueueCookbookImportFromPdf,
@@ -24,7 +24,7 @@ import {
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
 import { getWeeklyAdZip, setPreferredGroceryStoreId, setWeeklyAdPrefs } from '@/lib/groceryPrefs';
-import { getProfiles, updateFemaleHealthSettings, updateMacroPlan } from '@/lib/macroGame';
+import { getProfiles, updateFemaleHealthSettings, updateMacroPlan, type AdultId } from '@/lib/macroGame';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -830,6 +830,21 @@ function buildSteps(answers: OnboardingAnswers, needsAccountStep: boolean): Step
   return steps;
 }
 
+function buildPersonalMemberSteps(needsAccountStep: boolean): StepId[] {
+  const steps: StepId[] = [
+    'welcome',
+    'healthTracking',
+    'femaleWellness',
+    'goalTracking',
+    'scheduleText',
+    'appointmentReminders',
+    'calendarSystem',
+    'paywallPrep',
+  ];
+  if (needsAccountStep) steps.push('account');
+  return steps;
+}
+
 function isStepComplete(step: StepId, answers: OnboardingAnswers, account: AccountDraft): boolean {
   switch (step) {
     case 'welcome':
@@ -931,6 +946,8 @@ export default function OnboardingPage() {
   const [account, setAccount] = useState<AccountDraft>(DEFAULT_ACCOUNT);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [householdRole, setHouseholdRole] = useState<'owner' | 'spouse' | 'kid' | null>(null);
+  const [householdRoleLoading, setHouseholdRoleLoading] = useState(Boolean(user));
   const recipePdfInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -1006,7 +1023,47 @@ export default function OnboardingPage() {
     hydratedForActor.current = actorKey;
   }, [actorKey, user?.email, user?.id]);
 
-  const steps = useMemo(() => buildSteps(answers, needsAccountStep), [answers, needsAccountStep]);
+  useEffect(() => {
+    if (!user?.id) {
+      setHouseholdRole(null);
+      setHouseholdRoleLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setHouseholdRoleLoading(true);
+
+    const loadHouseholdRole = async () => {
+      try {
+        const dashboard = await getHouseholdDashboard();
+        if (cancelled) return;
+        const currentMember = (dashboard.members || []).find(
+          (member) => member.user_id === user.id && member.status === 'active',
+        );
+        const nextRole =
+          currentMember?.role === 'owner' || currentMember?.role === 'spouse' || currentMember?.role === 'kid'
+            ? currentMember.role
+            : null;
+        setHouseholdRole(nextRole);
+      } catch {
+        if (!cancelled) setHouseholdRole(null);
+      } finally {
+        if (!cancelled) setHouseholdRoleLoading(false);
+      }
+    };
+
+    void loadHouseholdRole();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const personalOnlyOnboarding = householdRole === 'spouse';
+
+  const steps = useMemo(
+    () => (personalOnlyOnboarding ? buildPersonalMemberSteps(needsAccountStep) : buildSteps(answers, needsAccountStep)),
+    [answers, needsAccountStep, personalOnlyOnboarding],
+  );
   const stepIndex = Math.max(0, steps.indexOf(currentStepId));
   const progress = (stepIndex + 1) / steps.length;
 
@@ -1067,10 +1124,47 @@ export default function OnboardingPage() {
 
   const personalizedPlan = useMemo<PersonalizedPlan>(
     () => {
-      const focus = getLaunchFocus(answers);
       const waterTargetOz = mapWaterTargetToOz(answers.waterTarget);
       const alcoholLimitDrinks = mapAlcoholTargetToLimit(answers.alcoholTarget);
       const sleepTargetHours = mapSleepDurationToHours(answers.sleepDurationTarget);
+
+      if (personalOnlyOnboarding) {
+        return {
+          enabledModules: ['meals', 'groceries', 'tasks', 'workouts'],
+          suggestedLists: ['Your macro dashboard', 'Your reminders', 'Your calendar preferences'],
+          weeklyPreview: {
+            dinners: [],
+            groceryPreview: [],
+          },
+          focusRoute: '/dashboard/me',
+          focusLabel: 'Your dashboard',
+          launchChecklist: [
+            {
+              label: 'Open your dashboard',
+              href: '/dashboard/me',
+            },
+            {
+              label: 'Check your reminders',
+              href: '/settings',
+            },
+            {
+              label: 'View the family hub',
+              href: '/family',
+            },
+          ],
+          wellnessTargets: {
+            waterTargetOz,
+            stepGoal: answers.stepTarget === 'No target right now' ? null : answers.stepTarget,
+            alcoholLimitDrinks,
+            wakeUpTime: answers.wakeUpTime || null,
+            sleepTargetHours,
+          },
+          summary:
+            'Your household is already set up. We are just finishing your personal dashboard, reminders, and health goals so you can jump in quickly.',
+        };
+      }
+
+      const focus = getLaunchFocus(answers);
       return {
         enabledModules: [
           'meals',
@@ -1107,7 +1201,7 @@ export default function OnboardingPage() {
         summary: `Built for ${householdSummary(answers)} with a first focus on ${focus.label.toLowerCase()}, ${answers.mealStylePreferences.join(', ').toLowerCase()} meals, and ${answers.dietPreferences.join(', ').toLowerCase()} preferences.`,
       };
     },
-    [answers, groceryPreview, previewWeek],
+    [answers, groceryPreview, personalOnlyOnboarding, previewWeek],
   );
 
   const painAhaCopy = useMemo(() => {
@@ -1198,6 +1292,9 @@ export default function OnboardingPage() {
     setSubmitError(null);
 
     try {
+      let importedLinkRecipeCount = 0;
+      let failedLinkImports = 0;
+      let pdfImportQueued = false;
       const normalizedKidProfiles = parseKidProfiles(normalizeKidProfiles(answers.kidProfiles, answers.kidsCount));
       const resolvedKidAgeRanges = Array.from(new Set(normalizedKidProfiles.map((kid) => kid.ageRange)));
       const resolvedAnswers: OnboardingAnswers = {
@@ -1211,118 +1308,122 @@ export default function OnboardingPage() {
       const householdName = profile?.householdName?.trim() || account.householdName.trim() || `${familySize} Person Home`;
       const normalizedPhone = normalizePhone(resolvedAnswers.phoneNumber);
 
-      await updateProfile({
-        full_name: fullName,
-        household_name: householdName,
-        family_size: familySize,
-        goals: buildGoalsText(resolvedAnswers),
-        dietary_preferences: dietaryPreferences,
-        phone: normalizedPhone || null,
-      });
+      if (personalOnlyOnboarding) {
+        await updateProfile({
+          full_name: fullName,
+          phone: normalizedPhone || null,
+        });
+      } else {
+        await updateProfile({
+          full_name: fullName,
+          household_name: householdName,
+          family_size: familySize,
+          goals: buildGoalsText(resolvedAnswers),
+          dietary_preferences: dietaryPreferences,
+          phone: normalizedPhone || null,
+        });
 
-      try {
-        await createOrGetHousehold(householdName || undefined);
-      } catch (householdError) {
-        console.error('Household setup failed during onboarding:', householdError);
-      }
-
-      try {
-        seedChoresForKidsIfEmpty(
-          normalizedKidProfiles.map((kid) => ({ name: kid.name, age: kid.age })),
-          user.id,
-        );
-      } catch (choreSeedError) {
-        console.error('Failed to seed kid chores from onboarding:', choreSeedError);
-      }
-
-      try {
-        await seedStarterRecipesIfEmpty(
-          {
-            dietPreferences: resolvedAnswers.dietPreferences,
-            mealStylePreferences: resolvedAnswers.mealStylePreferences,
-            foodRestrictions: resolvedAnswers.foodRestrictions,
-            avoidFoods: parseListText(resolvedAnswers.avoidFoods),
-            weeklyRhythm: resolvedAnswers.weeklyRhythm,
-            kidsCount: resolvedAnswers.kidsCount,
-          },
-          18,
-        );
-      } catch (seedError) {
-        console.error('Starter recipe seeding failed:', seedError);
-      }
-
-      let importedLinkRecipeCount = 0;
-      let failedLinkImports = 0;
-      const recipeLinks = parseRecipeLinks(resolvedAnswers.recipeLinks);
-      if (recipeLinks.length > 0) {
         try {
-          const extractedFromLinks: ExtractedRecipe[] = [];
-          for (const link of recipeLinks) {
-            const linkResult = await parseRecipesFromUrl(link);
-            if (!linkResult.success || !Array.isArray(linkResult.recipes) || linkResult.recipes.length === 0) {
-              failedLinkImports += 1;
-              continue;
-            }
-            extractedFromLinks.push(...linkResult.recipes);
-          }
-
-          const dedupedFromLinks = dedupeExtractedRecipes(extractedFromLinks);
-          if (dedupedFromLinks.length > 0) {
-            const saved = await saveRecipes(dedupedFromLinks);
-            importedLinkRecipeCount = saved.length;
-          }
-        } catch (linkImportError) {
-          console.error('Onboarding recipe link import failed:', linkImportError);
-          failedLinkImports = Math.max(failedLinkImports, recipeLinks.length);
+          await createOrGetHousehold(householdName || undefined);
+        } catch (householdError) {
+          console.error('Household setup failed during onboarding:', householdError);
         }
-      }
 
-      let pdfImportQueued = false;
-      if (recipePdfFile) {
         try {
-          const queueResult = await enqueueCookbookImportFromPdf(recipePdfFile);
-          if (queueResult.success) {
-            pdfImportQueued = true;
-          } else {
-            console.error('Onboarding PDF import queue failed:', queueResult.error);
+          seedChoresForKidsIfEmpty(
+            normalizedKidProfiles.map((kid) => ({ name: kid.name, age: kid.age })),
+            user.id,
+          );
+        } catch (choreSeedError) {
+          console.error('Failed to seed kid chores from onboarding:', choreSeedError);
+        }
+
+        try {
+          await seedStarterRecipesIfEmpty(
+            {
+              dietPreferences: resolvedAnswers.dietPreferences,
+              mealStylePreferences: resolvedAnswers.mealStylePreferences,
+              foodRestrictions: resolvedAnswers.foodRestrictions,
+              avoidFoods: parseListText(resolvedAnswers.avoidFoods),
+              weeklyRhythm: resolvedAnswers.weeklyRhythm,
+              kidsCount: resolvedAnswers.kidsCount,
+            },
+            18,
+          );
+        } catch (seedError) {
+          console.error('Starter recipe seeding failed:', seedError);
+        }
+
+        const recipeLinks = parseRecipeLinks(resolvedAnswers.recipeLinks);
+        if (recipeLinks.length > 0) {
+          try {
+            const extractedFromLinks: ExtractedRecipe[] = [];
+            for (const link of recipeLinks) {
+              const linkResult = await parseRecipesFromUrl(link);
+              if (!linkResult.success || !Array.isArray(linkResult.recipes) || linkResult.recipes.length === 0) {
+                failedLinkImports += 1;
+                continue;
+              }
+              extractedFromLinks.push(...linkResult.recipes);
+            }
+
+            const dedupedFromLinks = dedupeExtractedRecipes(extractedFromLinks);
+            if (dedupedFromLinks.length > 0) {
+              const saved = await saveRecipes(dedupedFromLinks);
+              importedLinkRecipeCount = saved.length;
+            }
+          } catch (linkImportError) {
+            console.error('Onboarding recipe link import failed:', linkImportError);
+            failedLinkImports = Math.max(failedLinkImports, recipeLinks.length);
+          }
+        }
+
+        try {
+          if (recipePdfFile) {
+            const queueResult = await enqueueCookbookImportFromPdf(recipePdfFile);
+            if (queueResult.success) {
+              pdfImportQueued = true;
+            } else {
+              console.error('Onboarding PDF import queue failed:', queueResult.error);
+            }
           }
         } catch (pdfQueueError) {
           console.error('Onboarding PDF import queue failed:', pdfQueueError);
         }
-      }
 
-      let availableRecipes: Array<{ id: string; name: string }> = [];
-      try {
-        const dbRecipes = await fetchRecipes();
-        availableRecipes = dbRecipes.map((recipe) => ({ id: recipe.id, name: recipe.name }));
-      } catch (recipeLoadError) {
-        console.error('Could not load recipes while applying onboarding day locks:', recipeLoadError);
-      }
+        let availableRecipes: Array<{ id: string; name: string }> = [];
+        try {
+          const dbRecipes = await fetchRecipes();
+          availableRecipes = dbRecipes.map((recipe) => ({ id: recipe.id, name: recipe.name }));
+        } catch (recipeLoadError) {
+          console.error('Could not load recipes while applying onboarding day locks:', recipeLoadError);
+        }
 
-      setPlanRules({
-        preferFavorites: resolvedAnswers.planningStyle !== 'I mostly build my own plan',
-        preferKidFriendly:
-          resolvedAnswers.kidsCount > 0 || resolvedAnswers.mealStylePreferences.includes('Kid-friendly'),
-        favoritesOnly: false,
-        kidFriendlyOnly: false,
-        maxCookMinutes:
-          resolvedAnswers.mealStylePreferences.includes('Quick meals') ||
-          resolvedAnswers.mealStylePreferences.includes('Healthy and easy') ||
-          resolvedAnswers.weeklyRhythm.includes('Fast-paced work week') ||
-          resolvedAnswers.weeklyRhythm.includes('Sports-heavy week')
-            ? 30
-            : null,
-        dayLocks: buildDayLocks(resolvedAnswers, availableRecipes),
-      });
+        setPlanRules({
+          preferFavorites: resolvedAnswers.planningStyle !== 'I mostly build my own plan',
+          preferKidFriendly:
+            resolvedAnswers.kidsCount > 0 || resolvedAnswers.mealStylePreferences.includes('Kid-friendly'),
+          favoritesOnly: false,
+          kidFriendlyOnly: false,
+          maxCookMinutes:
+            resolvedAnswers.mealStylePreferences.includes('Quick meals') ||
+            resolvedAnswers.mealStylePreferences.includes('Healthy and easy') ||
+            resolvedAnswers.weeklyRhythm.includes('Fast-paced work week') ||
+            resolvedAnswers.weeklyRhythm.includes('Sports-heavy week')
+              ? 30
+              : null,
+          dayLocks: buildDayLocks(resolvedAnswers, availableRecipes),
+        });
 
-      const mappedStoreIds = resolvedAnswers.groceryStorePreferences
-        .map((store) => ONBOARDING_STORE_TO_PREF_ID[store])
-        .filter((value): value is string => Boolean(value));
-      if (mappedStoreIds.length > 0) {
-        setPreferredGroceryStoreId(mappedStoreIds[0]);
-        const weeklyAdStoreIds = mappedStoreIds.filter((storeId) => WEEKLY_AD_ALLOWED_STORE_IDS.has(storeId));
-        if (weeklyAdStoreIds.length > 0) {
-          setWeeklyAdPrefs(getWeeklyAdZip(), weeklyAdStoreIds);
+        const mappedStoreIds = resolvedAnswers.groceryStorePreferences
+          .map((store) => ONBOARDING_STORE_TO_PREF_ID[store])
+          .filter((value): value is string => Boolean(value));
+        if (mappedStoreIds.length > 0) {
+          setPreferredGroceryStoreId(mappedStoreIds[0]);
+          const weeklyAdStoreIds = mappedStoreIds.filter((storeId) => WEEKLY_AD_ALLOWED_STORE_IDS.has(storeId));
+          if (weeklyAdStoreIds.length > 0) {
+            setWeeklyAdPrefs(getWeeklyAdZip(), weeklyAdStoreIds);
+          }
         }
       }
 
@@ -1343,10 +1444,6 @@ export default function OnboardingPage() {
         }
       }
 
-      const femaleProfiles = Object.values(getProfiles()).filter(
-        (dashboardProfile) =>
-          dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
-      );
       const primaryWaterTarget = personalizedPlan.wellnessTargets.waterTargetOz;
       const primaryAlcoholLimit = personalizedPlan.wellnessTargets.alcoholLimitDrinks;
       if (primaryWaterTarget !== null || primaryAlcoholLimit !== null) {
@@ -1357,8 +1454,16 @@ export default function OnboardingPage() {
       }
       const wantsCycleTracking = resolvedAnswers.femaleWellnessFocus.includes('Cycle / period tracking');
       const wantsPregnancyTracking = resolvedAnswers.femaleWellnessFocus.includes('Pregnancy tracking');
-      femaleProfiles.forEach((dashboardProfile) => {
-        updateFemaleHealthSettings(dashboardProfile.id, {
+      const femaleProfileIds: AdultId[] = personalOnlyOnboarding
+        ? ['me']
+        : Object.values(getProfiles())
+            .filter(
+              (dashboardProfile) =>
+                dashboardProfile.memberType === 'adult' && dashboardProfile.macroPlan.questionnaire.sex === 'female',
+            )
+            .map((dashboardProfile) => dashboardProfile.id);
+      femaleProfileIds.forEach((profileId) => {
+        updateFemaleHealthSettings(profileId, {
           cycleTrackingEnabled: wantsCycleTracking,
           pregnancyTrackingEnabled: wantsPregnancyTracking,
         });
@@ -1383,9 +1488,9 @@ export default function OnboardingPage() {
           diets: resolvedAnswers.dietPreferences,
           staples: resolvedAnswers.weeklyStaples,
           kidProfiles: normalizedKidProfiles.map((kid) => `${kid.name}:${kid.age}`),
-          hasRecipeRequests: parseListText(resolvedAnswers.recipesToImplement).length > 0,
-          hasRecipeLinks: recipeLinks.length > 0,
-          hasRecipePdf: Boolean(recipePdfFile),
+          hasRecipeRequests: personalOnlyOnboarding ? false : parseListText(resolvedAnswers.recipesToImplement).length > 0,
+          hasRecipeLinks: personalOnlyOnboarding ? false : parseRecipeLinks(resolvedAnswers.recipeLinks).length > 0,
+          hasRecipePdf: personalOnlyOnboarding ? false : Boolean(recipePdfFile),
           importedLinkRecipeCount,
           failedLinkImports,
           pdfImportQueued,
@@ -1394,17 +1499,18 @@ export default function OnboardingPage() {
           morningText:
             resolvedAnswers.morningTextChoice === 'Yes, send me a daily schedule text each morning',
           calendarSystem: resolvedAnswers.calendarSystem,
+          onboardingMode: personalOnlyOnboarding ? 'personal_household_member' : 'household_owner',
         },
         `onboarding_complete:${user.id}`,
       );
 
-      if (failedLinkImports > 0) {
+      if (!personalOnlyOnboarding && failedLinkImports > 0) {
         toast({
           title: 'Some recipe links could not be imported',
           description: `${failedLinkImports} link${failedLinkImports === 1 ? '' : 's'} failed. You can retry from Recipes later.`,
         });
       }
-      if (pdfImportQueued) {
+      if (!personalOnlyOnboarding && pdfImportQueued) {
         toast({
           title: 'PDF import queued',
           description: 'Your PDF recipes are importing in the background. You can keep using the app.',
@@ -1421,7 +1527,9 @@ export default function OnboardingPage() {
         navigate(`/calendar/connect-apple?platform=${setupMode}&source=onboarding`, { replace: true });
       } else {
         const fallbackRoute = getPostAuthRoute(isSubscribed);
-        navigate(fallbackRoute === '/app' ? personalizedPlan.focusRoute : fallbackRoute, { replace: true });
+        const nextRoute =
+          personalOnlyOnboarding || fallbackRoute === '/app' ? personalizedPlan.focusRoute : fallbackRoute;
+        navigate(nextRoute, { replace: true });
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not finish onboarding. Please try again.';
@@ -1475,19 +1583,46 @@ export default function OnboardingPage() {
   let content: React.ReactNode = null;
   let footer: React.ReactNode = null;
 
+  if (user && householdRoleLoading) {
+    return (
+      <OnboardingShell progress={progress} canGoBack={false} footer={null}>
+        <QuestionScreen
+          title="Loading your setup"
+          helper="We are checking whether you are joining an existing household or setting up a new one."
+          align="center"
+        >
+          <div className="h-full grid place-items-center">
+            <div className="max-w-md rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center">
+              <Sparkles className="mx-auto mb-3 h-9 w-9 text-primary" />
+              <p className="text-sm text-muted-foreground">
+                This just helps us ask the right questions and keep your setup clean.
+              </p>
+            </div>
+          </div>
+        </QuestionScreen>
+      </OnboardingShell>
+    );
+  }
+
   switch (currentStepId) {
     case 'welcome':
       content = (
         <QuestionScreen
-          title="Build a calmer family week in a few minutes"
-          helper="We will ask a few focused questions and generate a real meal + grocery preview for your household."
+          title={personalOnlyOnboarding ? 'Join your household and set up your personal dashboard' : 'Build a calmer family week in a few minutes'}
+          helper={
+            personalOnlyOnboarding
+              ? 'Your household is already set up. We just need a few personal preferences so your dashboard, reminders, and goals feel right.'
+              : 'We will ask a few focused questions and generate a real meal + grocery preview for your household.'
+          }
           align="center"
         >
           <div className="h-full grid place-items-center">
             <div className="max-w-md rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-8 text-center">
               <HeartHandshake className="mx-auto mb-3 h-9 w-9 text-primary" />
               <p className="text-sm text-muted-foreground">
-                Home Harmony is built to reduce mental load around meals, groceries, chores, and weekly planning.
+                {personalOnlyOnboarding
+                  ? 'You are joining an existing Home Harmony household, so we will keep this focused on your personal reminders, health goals, and dashboard.'
+                  : 'Home Harmony is built to reduce mental load around meals, groceries, chores, and weekly planning.'}
               </p>
             </div>
           </div>
@@ -2314,15 +2449,23 @@ export default function OnboardingPage() {
           title={
             user
               ? BILLING_ENABLED
-                ? 'Your personalized plan is ready to unlock'
-                : 'Your Home Harmony plan is ready'
+                ? personalOnlyOnboarding
+                  ? 'Your personal setup is ready to unlock'
+                  : 'Your personalized plan is ready to unlock'
+                : personalOnlyOnboarding
+                  ? 'Your personal setup is ready'
+                  : 'Your Home Harmony plan is ready'
               : 'Your personalized plan is ready'
           }
           helper={
             user
               ? BILLING_ENABLED
-                ? 'Continue to choose your plan and keep this setup running each week.'
-                : 'Meals, groceries, routines, and reminders are now personalized for your household.'
+                ? personalOnlyOnboarding
+                  ? 'Continue to unlock your account and join the shared household with your own dashboard.'
+                  : 'Continue to choose your plan and keep this setup running each week.'
+                : personalOnlyOnboarding
+                  ? 'Your dashboard, reminders, and preferences are ready. The shared household is already waiting for you.'
+                  : 'Meals, groceries, routines, and reminders are now personalized for your household.'
               : 'Create your account to save this setup and use it in the app.'
           }
           align="center"
@@ -2333,7 +2476,9 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground">{personalizedPlan.summary}</p>
               <p className="mt-3 text-sm text-muted-foreground">
                 {user
-                  ? 'Continue to apply this plan inside the app and keep your week in sync.'
+                  ? personalOnlyOnboarding
+                    ? 'Continue to open your own dashboard and start using the shared household.'
+                    : 'Continue to apply this plan inside the app and keep your week in sync.'
                   : 'Next step: create your account so this plan is saved to your household.'}
               </p>
             </div>
@@ -2346,7 +2491,7 @@ export default function OnboardingPage() {
           primaryLabel={BILLING_ENABLED ? 'Continue to plans' : 'Apply my plan'}
           onPrimary={completeOnboarding}
           secondaryLabel="Edit answers"
-          onSecondary={() => setCurrentStepId('painPoint')}
+          onSecondary={() => setCurrentStepId(personalOnlyOnboarding ? 'welcome' : 'painPoint')}
           loading={submitting}
         />
       ) : (

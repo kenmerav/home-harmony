@@ -36,6 +36,7 @@ let lastPersistedActivitySnapshot: string | null = null;
 let activityPersistTimer: number | null = null;
 let profileHydrationToken = 0;
 let activityHydrationToken = 0;
+let hideBuiltInWifeDashboard = false;
 
 interface StoredMealLog extends Omit<MealLog, 'createdAt'> {
   createdAt: string;
@@ -947,7 +948,9 @@ export function getProfiles(): Record<AdultId, PersonGameProfile> {
 }
 
 export function listDashboardProfiles(): DashboardProfile[] {
-  const profiles = Object.values(getProfiles()).filter((profile) => profile.memberType === 'adult');
+  const profiles = Object.values(getProfiles()).filter(
+    (profile) => profile.memberType === 'adult' && !(hideBuiltInWifeDashboard && profile.id === 'wife'),
+  );
   return profiles
     .slice()
     .sort((a, b) => {
@@ -965,8 +968,16 @@ export function listDashboardProfiles(): DashboardProfile[] {
     }));
 }
 
+export function setHideBuiltInWifeDashboard(hide: boolean) {
+  if (hideBuiltInWifeDashboard === hide) return;
+  hideBuiltInWifeDashboard = hide;
+  dispatchMacroStateUpdated();
+}
+
 export function listHouseholdProfiles(): DashboardProfile[] {
-  const profiles = Object.values(getProfiles());
+  const profiles = Object.values(getProfiles()).filter(
+    (profile) => !(hideBuiltInWifeDashboard && profile.id === 'wife'),
+  );
   return profiles
     .slice()
     .sort((a, b) => {
