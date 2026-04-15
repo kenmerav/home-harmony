@@ -1033,7 +1033,7 @@ export function setHouseholdProfileType(personId: AdultId, memberType: Household
 }
 
 export function removeHouseholdProfile(personId: AdultId): DashboardProfile | null {
-  if (personId === 'me' || personId === 'wife') return null;
+  if (personId === 'me') return null;
 
   const state = readState();
   const profile = state.profiles[personId];

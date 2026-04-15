@@ -283,29 +283,42 @@ export default function FamilyPage() {
               <div className="mt-3 space-y-2">
                 {localProfiles.map((member) => {
                   const canChangeType = member.id !== 'me' && member.id !== 'wife';
+                  const canDelete = member.id !== 'me';
+                  const isBuiltInWifeProfile = member.id === 'wife';
                   return (
                     <div key={member.id} className="rounded-md border border-border px-3 py-2 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium">{member.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {member.memberType === 'adult' ? 'Adult dashboard' : 'Kid chores member'}
-                          {canChangeType ? '' : ' • Primary profile'}
+                          {member.id === 'me'
+                            ? ' • Primary profile'
+                            : isBuiltInWifeProfile
+                              ? ' • Built-in spouse profile'
+                              : ''}
                         </p>
+                        {isBuiltInWifeProfile && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Delete this if you want your wife to join through a real email invite instead.
+                          </p>
+                        )}
                       </div>
-                      {canChangeType ? (
+                      {canDelete ? (
                         <div className="flex flex-wrap justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              updateLocalMemberType(
-                                member.id,
-                                member.memberType === 'adult' ? 'child' : 'adult',
-                              )
-                            }
-                          >
-                            {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
-                          </Button>
+                          {canChangeType && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                updateLocalMemberType(
+                                  member.id,
+                                  member.memberType === 'adult' ? 'child' : 'adult',
+                                )
+                              }
+                            >
+                              {member.memberType === 'adult' ? 'Move to Kids' : 'Move to Adults'}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="destructive"
@@ -504,6 +517,8 @@ export default function FamilyPage() {
               {pendingDeleteMember
                 ? pendingDeleteMember.memberType === 'child'
                   ? `${pendingDeleteMember.name} will be removed from chores, the kid leaderboard, and local family setup.`
+                  : pendingDeleteMember.id === 'wife'
+                    ? `${pendingDeleteMember.name} will be removed from local dashboards and nutrition tracking so you can replace this profile with a real invited spouse account.`
                   : `${pendingDeleteMember.name} will be removed from dashboards, nutrition tracking, and local family setup.`
                 : 'This will remove the selected family member from local family setup.'}
             </AlertDialogDescription>
