@@ -27,6 +27,11 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncDerivedCalendarSnapshot } from '@/lib/calendarFeed';
 import {
+  listHouseholdProfiles,
+  loadHouseholdProfilesFromAccount,
+  type DashboardProfile,
+} from '@/lib/macroGame';
+import {
   choresStateStorageKey,
   hydrateChoresStateFromAccount,
   persistChoresStateToAccount,
@@ -469,6 +474,8 @@ export default function ChoresPage() {
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
   const [addChildOpen, setAddChildOpen] = useState(false);
   const [newChildName, setNewChildName] = useState('');
+  const [selectedFamilyChildId, setSelectedFamilyChildId] = useState('');
+  const [familyChildren, setFamilyChildren] = useState<DashboardProfile[]>([]);
   const [addChoreOpen, setAddChoreOpen] = useState(false);
   const [choreChildId, setChoreChildId] = useState<string | null>(null);
   const [newChoreName, setNewChoreName] = useState('');
@@ -518,6 +525,34 @@ export default function ChoresPage() {
 
   const children = state.children;
   const availableExtraChores = state.availableExtraChores;
+  const eligibleFamilyChildren = useMemo(
+    () => familyChildren.filter((child) => !children.some((existing) => existing.id === child.id)),
+    [children, familyChildren],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFamilyChildren = async () => {
+      const fallback = listHouseholdProfiles(activeScopeId).filter((profile) => profile.memberType === 'child');
+      setFamilyChildren(fallback);
+
+      if (!activeScopeId) return;
+      try {
+        const remote = await loadHouseholdProfilesFromAccount(activeScopeId);
+        if (cancelled) return;
+        setFamilyChildren(remote.filter((profile) => profile.memberType === 'child'));
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load family kids for chores:', error);
+      }
+    };
+
+    void loadFamilyChildren();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeScopeId]);
 
   useEffect(() => {
     if (householdScopeLoading) return;
@@ -755,11 +790,13 @@ export default function ChoresPage() {
   };
 
   const addChild = () => {
-    if (!newChildName.trim()) return;
+    const selectedFamilyChild = eligibleFamilyChildren.find((child) => child.id === selectedFamilyChildId) || null;
+    const manualName = newChildName.trim();
+    if (!selectedFamilyChild && !manualName) return;
 
     const child: ChildEconomy = {
-      id: `child-${Date.now()}`,
-      name: newChildName.trim(),
+      id: selectedFamilyChild?.id || `child-${Date.now()}`,
+      name: selectedFamilyChild?.name || manualName,
       dailyChores: [],
       weeklyChores: [],
       skillItems: [],
@@ -773,6 +810,7 @@ export default function ChoresPage() {
     };
     setState((prev) => ({ ...prev, children: [...prev.children, child] }));
     setNewChildName('');
+    setSelectedFamilyChildId('');
     setAddChildOpen(false);
     toast({ title: 'Child added', description: `${child.name} was added.` });
   };
@@ -1702,7 +1740,15 @@ export default function ChoresPage() {
         })}
       </div>
 
-      <Button variant="outline" className="w-full mt-6" onClick={() => setAddChildOpen(true)}>
+      <Button
+        variant="outline"
+        className="w-full mt-6"
+        onClick={() => {
+          setNewChildName('');
+          setSelectedFamilyChildId('');
+          setAddChildOpen(true);
+        }}
+      >
         <Plus className="w-4 h-4 mr-2" />
         Add Child
       </Button>
@@ -1711,20 +1757,38 @@ export default function ChoresPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-display">Add Child</DialogTitle>
-            <DialogDescription>Add a child for chores, rewards, and piggy bank tracking.</DialogDescription>
+            <DialogDescription>Add a child from your Family setup for chores, rewards, and piggy bank tracking.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <Input
-              placeholder="Child's name"
-              value={newChildName}
-              onChange={(e) => setNewChildName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addChild()}
-            />
+            {eligibleFamilyChildren.length > 0 ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Choose a child from Family</label>
+                <Select value={selectedFamilyChildId} onValueChange={setSelectedFamilyChildId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select child" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eligibleFamilyChildren.map((child) => (
+                      <SelectItem key={child.id} value={child.id}>
+                        {child.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <Input
+                placeholder="Child's name"
+                value={newChildName}
+                onChange={(e) => setNewChildName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addChild()}
+              />
+            )}
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddChildOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={addChild} disabled={!newChildName.trim()}>
+              <Button onClick={addChild} disabled={eligibleFamilyChildren.length > 0 ? !selectedFamilyChildId : !newChildName.trim()}>
                 Add Child
               </Button>
             </div>
