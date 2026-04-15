@@ -167,7 +167,9 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   }
   const todos = getDashboardTodos(personId);
   const todaysActualLogs = getActualMealLogsForDate(personId, todayKey, user?.id);
-  const isFemaleDashboard = profile.macroPlan.questionnaire.sex === 'female';
+  const questionnaire = profile.macroPlan.questionnaire;
+  const goalLabel = questionnaire?.goal ? questionnaire.goal.replace('_', ' ') : 'maintain';
+  const isFemaleDashboard = questionnaire?.sex === 'female';
   const todayScore = getDailyScore(personId, todayKey);
   const currentStreak = getCurrentStreak(personId, currentDate);
   const weekPoints = getWeekPoints(personId, currentDate);
@@ -920,7 +922,7 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
               {currentStreak} day streak
             </span>
             <span className="rounded-full border border-border px-3 py-1">
-              Goal: {profile.macroPlan.questionnaire.goal.replace('_', ' ')}
+              Goal: {goalLabel}
             </span>
           </div>
         </SectionCard>
