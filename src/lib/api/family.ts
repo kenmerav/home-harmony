@@ -116,3 +116,11 @@ export async function revokeHouseholdInvite(inviteId: string) {
   if (error) throw new Error(error.message);
   return data as string;
 }
+
+export async function removeHouseholdMember(targetUserId: string) {
+  const { data, error } = await supabase.rpc('remove_household_member', {
+    target_user_id: targetUserId,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}

@@ -83,3 +83,13 @@ export async function upsertFamilyMemberShadow(
   ]);
   await updateProfileSettingsValue(scopedUserId, FAMILY_MEMBER_SHADOW_SETTINGS_PATH, next);
 }
+
+export async function removeFamilyMemberShadow(
+  scopedUserId: string | null | undefined,
+  targetUserId: string | null | undefined,
+): Promise<void> {
+  if (!scopedUserId || !targetUserId) return;
+  const current = await loadFamilyMemberShadowsFromAccount(scopedUserId);
+  const next = current.filter((entry) => entry.userId !== targetUserId);
+  await updateProfileSettingsValue(scopedUserId, FAMILY_MEMBER_SHADOW_SETTINGS_PATH, next);
+}

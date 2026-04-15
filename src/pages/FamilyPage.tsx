@@ -21,6 +21,7 @@ import {
   createOrGetHousehold,
   getHouseholdDashboard,
   inviteHouseholdMember,
+  removeHouseholdMember,
   revokeHouseholdInvite,
   type HouseholdDashboard,
 } from '@/lib/api/family';
@@ -37,7 +38,11 @@ import {
 import { removeChildFromChores, upsertChildInChores } from '@/lib/choresSetup';
 import { sendFamilyInviteEmail } from '@/lib/api/emails';
 import { useToast } from '@/hooks/use-toast';
-import { loadFamilyMemberShadowsFromAccount, type SharedFamilyMemberShadow } from '@/lib/familyMemberShadow';
+import {
+  loadFamilyMemberShadowsFromAccount,
+  removeFamilyMemberShadow,
+  type SharedFamilyMemberShadow,
+} from '@/lib/familyMemberShadow';
 
 const EMPTY_DASHBOARD: HouseholdDashboard = {
   household: null,
@@ -78,6 +83,7 @@ export default function FamilyPage() {
   const [sharedMemberShadows, setSharedMemberShadows] = useState<SharedFamilyMemberShadow[]>([]);
   const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
   const [pendingDeleteMember, setPendingDeleteMember] = useState<DashboardProfile | null>(null);
+  const [pendingRemoveHouseholdMember, setPendingRemoveHouseholdMember] = useState<HouseholdDashboard['members'][number] | null>(null);
   const [editingLeaderboardAdultId, setEditingLeaderboardAdultId] = useState<string | null>(null);
   const inviteSectionRef = useRef<HTMLElement | null>(null);
   const inviteEmailInputRef = useRef<HTMLInputElement | null>(null);
@@ -204,6 +210,11 @@ export default function FamilyPage() {
     [user?.id, visibleHouseholdMembers],
   );
   const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+  const canRemoveRealHouseholdMember = useCallback(
+    (member: HouseholdDashboard['members'][number]) =>
+      member.status === 'active' && member.role !== 'owner' && member.user_id !== user?.id,
+    [user?.id],
+  );
 
   const updateLocalMemberType = (memberId: string, nextType: 'adult' | 'child') => {
     const updated = setHouseholdProfileType(memberId, nextType);
@@ -349,6 +360,22 @@ export default function FamilyPage() {
       setMessage(error instanceof Error ? error.message : 'Unable to remove invite.');
     } finally {
       setRevokingInviteId(null);
+    }
+  };
+
+  const onRemoveHouseholdMember = async () => {
+    if (!pendingRemoveHouseholdMember) return;
+    const member = pendingRemoveHouseholdMember;
+    setPendingRemoveHouseholdMember(null);
+    setMessage(null);
+    try {
+      await removeHouseholdMember(member.user_id);
+      await removeFamilyMemberShadow(householdProfilesScopeId, member.user_id);
+      await loadDashboard();
+      setRefreshTick((prev) => prev + 1);
+      setMessage(`${member.full_name || member.email || 'Household member'} was removed from the family.`);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : 'Unable to remove household member.');
     }
   };
 
@@ -583,15 +610,27 @@ export default function FamilyPage() {
                   <h2 className="font-semibold">Members</h2>
                   <div className="mt-3 space-y-2">
                     {visibleHouseholdMembers.map((member) => (
-                      <div key={member.id} className="rounded-md border border-border p-3">
-                        <p className="text-sm font-medium">{member.full_name || member.email || 'Unknown member'}</p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {member.role} • {member.status}
-                        </p>
-                        {member.email ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{member.email}</p>
+                      <div key={member.id} className="rounded-md border border-border p-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{member.full_name || member.email || 'Unknown member'}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {member.role} • {member.status}
+                          </p>
+                          {member.email ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{member.email}</p>
+                          ) : null}
+                          <p className="mt-1 text-xs text-muted-foreground">{householdRoleSummary(member)}</p>
+                        </div>
+                        {canRemoveRealHouseholdMember(member) ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setPendingRemoveHouseholdMember(member)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
+                          </Button>
                         ) : null}
-                        <p className="mt-1 text-xs text-muted-foreground">{householdRoleSummary(member)}</p>
                       </div>
                     ))}
                     {visibleHouseholdMembers.length === 0 && (
@@ -667,6 +706,27 @@ export default function FamilyPage() {
               onClick={deleteLocalMember}
             >
               Delete member
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={Boolean(pendingRemoveHouseholdMember)}
+        onOpenChange={(open) => !open && setPendingRemoveHouseholdMember(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove joined household member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRemoveHouseholdMember
+                ? `${pendingRemoveHouseholdMember.full_name || pendingRemoveHouseholdMember.email || 'This member'} will be removed from the household so you can rerun the invite flow cleanly.`
+                : 'This will remove the selected joined household member.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void onRemoveHouseholdMember()}>
+              Remove member
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
