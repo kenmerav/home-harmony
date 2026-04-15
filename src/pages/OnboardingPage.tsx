@@ -1569,7 +1569,6 @@ export default function OnboardingPage() {
       await updateProfile({
         onboarding_completed_at: payload.completedAt,
       });
-      clearPendingInviteOnboarding();
 
       await trackGrowthEventSafe(
         'onboarding_complete',

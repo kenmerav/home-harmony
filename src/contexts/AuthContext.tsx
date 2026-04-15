@@ -24,6 +24,7 @@ import { hydrateMealPrefsFromAccount } from '@/lib/mealPrefs';
 import { hydrateGroceryPrefsFromAccount } from '@/lib/groceryPrefs';
 import { hydrateChoresStateFromAccount } from '@/lib/choresStateStore';
 import { upsertFamilyMemberShadow } from '@/lib/familyMemberShadow';
+import { clearPendingInviteOnboarding, loadPendingInviteOnboarding } from '@/lib/onboardingStore';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -255,6 +256,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSubscription();
     refreshProfile();
   }, [refreshProfile, refreshSubscription, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || loading || profileLoading || householdScopeLoading) return;
+
+    const pendingInvite = loadPendingInviteOnboarding();
+    if (!pendingInvite?.token) return;
+
+    const billingStatus = String(subscription?.status || '').toLowerCase();
+    const hasDirectAccess =
+      isBillingExemptEmail(user.email) ||
+      billingStatus === 'active' ||
+      billingStatus === 'trialing' ||
+      Boolean(sharedHouseholdOwnerId && sharedHouseholdOwnerId !== user.id);
+
+    if (profile?.onboardingCompletedAt && hasDirectAccess) {
+      clearPendingInviteOnboarding();
+    }
+  }, [
+    householdScopeLoading,
+    loading,
+    profile?.onboardingCompletedAt,
+    profileLoading,
+    sharedHouseholdOwnerId,
+    subscription?.status,
+    user?.email,
+    user?.id,
+  ]);
 
   useEffect(() => {
     setMacroGameStorageScope(!isDemoUser ? user?.id : null);
