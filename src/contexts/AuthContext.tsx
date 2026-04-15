@@ -50,6 +50,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   loading: boolean;
   sharedHouseholdOwnerId: string | null;
+  householdScopeLoading: boolean;
   profile: ProfileInfo | null;
   profileLoading: boolean;
   isProfileComplete: boolean;
@@ -96,6 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
   const [sharedHouseholdOwnerId, setSharedHouseholdOwnerId] = useState<string | null>(null);
+  const [householdScopeLoading, setHouseholdScopeLoading] = useState(false);
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
@@ -269,12 +271,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user?.id || isDemoUser) {
       setHideBuiltInWifeDashboard(false);
       setSharedHouseholdOwnerId(null);
+      setHouseholdScopeLoading(false);
       return;
     }
 
     let cancelled = false;
 
     const syncHouseholdDashboardMode = async () => {
+      if (!cancelled) setHouseholdScopeLoading(true);
       try {
         const household = await getHouseholdDashboard();
         if (cancelled) return;
@@ -295,6 +299,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error('Failed removing legacy wife dashboard:', error);
           });
         }
+      } finally {
+        if (!cancelled) setHouseholdScopeLoading(false);
       }
     };
 
@@ -394,7 +400,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isProfileComplete = Boolean(profile?.onboardingCompletedAt || profileFieldComplete);
     const status = subscription?.status || 'inactive';
     const isBillingExempt = !isDemoUser && isBillingExemptEmail(user?.email);
-    const isSubscribed = !BILLING_ENABLED || isBillingExempt || status === 'active' || status === 'trialing';
+    const isHouseholdCovered = !isDemoUser && Boolean(user?.id && sharedHouseholdOwnerId && sharedHouseholdOwnerId !== user.id);
+    const isSubscribed =
+      !BILLING_ENABLED || isBillingExempt || isHouseholdCovered || status === 'active' || status === 'trialing';
     const userEmail = user?.email?.trim().toLowerCase() || '';
     const isAdmin = !isDemoUser && userEmail === ADMIN_EMAIL;
 
@@ -404,6 +412,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin,
       loading,
       sharedHouseholdOwnerId,
+      householdScopeLoading,
       profile,
       profileLoading,
       isProfileComplete,
@@ -519,6 +528,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshProfile,
     refreshSubscription,
     sharedHouseholdOwnerId,
+    householdScopeLoading,
     subscription,
     subscriptionLoading,
     user,
