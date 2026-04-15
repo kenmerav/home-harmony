@@ -644,7 +644,11 @@ export default function TodayPage() {
 
   const candidateAlreadyLogged = (candidate: LogMealCandidate): boolean => {
     const targetPersonId = candidate.personId || 'me';
-    const logs = todayLogsByPerson[targetPersonId] || [];
+    const candidateLogBuckets = [todayLogsByPerson[targetPersonId] || []];
+    if (targetPersonId !== 'me') {
+      candidateLogBuckets.push(todayLogsByPerson.me || []);
+    }
+    const logs = candidateLogBuckets.flat();
     const candidateMealType =
       logMealCategory === 'snacks'
         ? 'snack'
