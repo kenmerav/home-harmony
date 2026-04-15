@@ -7,6 +7,12 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function hasMeaningfulChoresState(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.children) || Array.isArray(record.availableExtraChores);
+}
+
 export function choresStateStorageKey(userId?: string | null): string {
   return `${CHORES_STATE_KEY_PREFIX}:${resolveSharedScopeUserId(userId) || 'anon'}`;
 }
@@ -36,11 +42,21 @@ export async function hydrateChoresStateFromAccount(userId?: string | null): Pro
 
   const document = await loadProfileSettingsDocument(scopedUserId);
   const stored = document?.shared_preferences;
-  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return;
-  const chores = (stored as Record<string, unknown>).chores;
-  if (!chores || typeof chores !== 'object' || Array.isArray(chores)) return;
+  const chores =
+    stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? (stored as Record<string, unknown>).chores
+      : null;
 
-  writeStoredChoresState(chores as Record<string, unknown>, scopedUserId);
+  if (hasMeaningfulChoresState(chores)) {
+    writeStoredChoresState(chores, scopedUserId);
+    return;
+  }
+
+  const localFallback = readStoredChoresState(scopedUserId);
+  if (hasMeaningfulChoresState(localFallback)) {
+    await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'chores'], localFallback);
+    writeStoredChoresState(localFallback, scopedUserId);
+  }
 }
 
 export async function persistChoresStateToAccount(
