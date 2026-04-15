@@ -209,7 +209,35 @@ export default function FamilyPage() {
       ),
     [user?.id, visibleHouseholdMembers],
   );
-  const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+  const baseFamilyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
+  const familyLeaderboard = useMemo(() => {
+    const leaderboard = [...baseFamilyLeaderboard];
+    const existingIds = new Set(leaderboard.map((entry) => entry.id));
+
+    visibleHouseholdMembers
+      .filter(
+        (member) =>
+          member.status === 'active' &&
+          (member.role === 'owner' || member.role === 'spouse'),
+      )
+      .forEach((member) => {
+        if (!member.user_id || existingIds.has(member.user_id)) return;
+        leaderboard.push({
+          id: member.user_id,
+          name: member.full_name || member.email || 'Household member',
+          type: 'adult',
+          todayPoints: 0,
+          weekPoints: 0,
+          streak: 0,
+          headline: 'Joined family • setting up personal dashboard',
+        });
+      });
+
+    return leaderboard.sort((a, b) => {
+      if (b.weekPoints !== a.weekPoints) return b.weekPoints - a.weekPoints;
+      return a.name.localeCompare(b.name);
+    });
+  }, [baseFamilyLeaderboard, visibleHouseholdMembers]);
   const canRemoveRealHouseholdMember = useCallback(
     (member: HouseholdDashboard['members'][number]) =>
       member.status === 'active' && member.role !== 'owner' && member.user_id !== user?.id,

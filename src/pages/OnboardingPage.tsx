@@ -24,7 +24,18 @@ import {
 import { defaultSmsPreferences, saveSmsPreferences } from '@/lib/api/sms';
 import { seedChoresForKidsIfEmpty } from '@/lib/choresSetup';
 import { getWeeklyAdZip, setPreferredGroceryStoreId, setWeeklyAdPrefs } from '@/lib/groceryPrefs';
-import { getProfiles, updateFemaleHealthSettings, updateMacroPlan, type AdultId } from '@/lib/macroGame';
+import {
+  calculateMacroRecommendation,
+  getProfiles,
+  updateFemaleHealthSettings,
+  updateMacroPlan,
+  type ActivityLevel,
+  type AdultId,
+  type BodyGoal,
+  type GoalPace,
+  type MacroQuestionnaire,
+  type Sex,
+} from '@/lib/macroGame';
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
@@ -207,6 +218,40 @@ const DESIRED_OUTCOME_OPTIONS = [
   'Smoother school/sports logistics',
 ] as const;
 
+const HOUSEHOLD_MEMBER_ROLE_OPTIONS = [
+  'Mom',
+  'Dad',
+  'Spouse / Partner',
+  'Grandparent',
+  'Other adult',
+] as const;
+
+const SEX_OPTIONS = ['female', 'male'] as const;
+const ACTIVITY_LEVEL_OPTIONS = ['sedentary', 'light', 'moderate', 'active', 'athlete'] as const;
+const BODY_GOAL_OPTIONS = ['fat_loss', 'maintenance', 'muscle_gain', 'recomp'] as const;
+const GOAL_PACE_OPTIONS = ['slow', 'moderate', 'aggressive'] as const;
+
+const ACTIVITY_LEVEL_LABELS: Record<(typeof ACTIVITY_LEVEL_OPTIONS)[number], string> = {
+  sedentary: 'Sedentary',
+  light: 'Light activity',
+  moderate: 'Moderate activity',
+  active: 'Very active',
+  athlete: 'Athlete',
+};
+
+const BODY_GOAL_LABELS: Record<(typeof BODY_GOAL_OPTIONS)[number], string> = {
+  fat_loss: 'Fat loss',
+  maintenance: 'Maintenance',
+  muscle_gain: 'Muscle gain',
+  recomp: 'Recomposition',
+};
+
+const GOAL_PACE_LABELS: Record<(typeof GOAL_PACE_OPTIONS)[number], string> = {
+  slow: 'Slow and steady',
+  moderate: 'Moderate',
+  aggressive: 'Aggressive',
+};
+
 type MainPainPoint = (typeof PAIN_POINT_OPTIONS)[number];
 type WeeklyRhythm = (typeof WEEKLY_RHYTHM_OPTIONS)[number];
 type MealStylePreference = (typeof MEAL_STYLE_OPTIONS)[number];
@@ -229,6 +274,7 @@ type MorningTextChoice = (typeof MORNING_TEXT_OPTIONS)[number];
 type AppointmentReminder = (typeof APPOINTMENT_REMINDER_OPTIONS)[number];
 type CalendarSystem = (typeof CALENDAR_SYSTEM_OPTIONS)[number];
 type DesiredOutcome = (typeof DESIRED_OUTCOME_OPTIONS)[number];
+type HouseholdMemberRoleLabel = (typeof HOUSEHOLD_MEMBER_ROLE_OPTIONS)[number];
 
 interface KidProfileInput {
   name: string;
@@ -259,6 +305,8 @@ type StepId =
   | 'groceryPain'
   | 'choresPain'
   | 'healthTracking'
+  | 'householdMemberRole'
+  | 'macroTargets'
   | 'femaleWellness'
   | 'goalTracking'
   | 'scheduleText'
@@ -295,6 +343,15 @@ interface OnboardingAnswers {
   groceryShoppingMode: GroceryMode | null;
   groceryPain: GroceryPain | null;
   chorePain: ChorePain | null;
+  householdMemberRole: HouseholdMemberRoleLabel | null;
+  macroSex: Sex | null;
+  macroAge: string;
+  macroHeightFeet: string;
+  macroHeightInches: string;
+  macroWeight: string;
+  macroActivityLevel: ActivityLevel | null;
+  macroGoal: BodyGoal | null;
+  macroPace: GoalPace | null;
   healthTrackingFocus: HealthTrackingFocus[];
   femaleWellnessFocus: FemaleWellnessFocus[];
   wellnessGoals: WellnessGoal[];
@@ -365,6 +422,15 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   groceryShoppingMode: null,
   groceryPain: null,
   chorePain: null,
+  householdMemberRole: null,
+  macroSex: null,
+  macroAge: '',
+  macroHeightFeet: '',
+  macroHeightInches: '',
+  macroWeight: '',
+  macroActivityLevel: null,
+  macroGoal: null,
+  macroPace: null,
   healthTrackingFocus: [],
   femaleWellnessFocus: [],
   wellnessGoals: [],
@@ -539,6 +605,51 @@ function normalizePhone(phone: string): string {
   return phone.trim();
 }
 
+function normalizeNumberInput(value: string, maxDigits = 3): string {
+  return value.replace(/\D/g, '').slice(0, maxDigits);
+}
+
+function parseInvitedMacroQuestionnaire(answers: OnboardingAnswers): MacroQuestionnaire | null {
+  if (
+    !answers.macroSex ||
+    !answers.macroActivityLevel ||
+    !answers.macroGoal ||
+    !answers.macroPace
+  ) {
+    return null;
+  }
+
+  const age = Number.parseInt(answers.macroAge, 10);
+  const feet = Number.parseInt(answers.macroHeightFeet, 10);
+  const inches = Number.parseInt(answers.macroHeightInches || '0', 10);
+  const weight = Number.parseFloat(answers.macroWeight);
+
+  if (
+    !Number.isFinite(age) ||
+    !Number.isFinite(feet) ||
+    !Number.isFinite(inches) ||
+    !Number.isFinite(weight)
+  ) {
+    return null;
+  }
+
+  const normalizedFeet = Math.max(4, Math.min(7, feet));
+  const normalizedInches = Math.max(0, Math.min(11, inches));
+  const totalInches = normalizedFeet * 12 + normalizedInches;
+  const heightCm = Math.round(totalInches * 2.54);
+  const weightKg = Number((weight / 2.20462).toFixed(2));
+
+  return {
+    sex: answers.macroSex,
+    age: Math.max(18, Math.min(90, age)),
+    heightCm: Math.max(140, Math.min(220, heightCm)),
+    weightKg: Math.max(40, Math.min(250, weightKg)),
+    activityLevel: answers.macroActivityLevel,
+    goal: answers.macroGoal,
+    pace: answers.macroPace,
+  };
+}
+
 function normalizeDietaryPreferences(answers: OnboardingAnswers): string[] {
   const combined = [
     ...answers.dietPreferences,
@@ -615,6 +726,7 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     `Grocery mode: ${answers.groceryShoppingMode || 'not set'} at ${answers.groceryStorePreferences.join(', ')}.`,
     `Grocery friction: ${answers.groceryPain || 'not provided'}.`,
     `Chore friction: ${answers.chorePain || 'not provided'}.`,
+    answers.householdMemberRole ? `Role in household: ${answers.householdMemberRole}.` : null,
     `Health tracking: ${answers.healthTrackingFocus.join(', ') || 'none selected'}.`,
     answers.femaleWellnessFocus.length > 0
       ? `Female wellness tracking: ${answers.femaleWellnessFocus.join(', ')}.`
@@ -855,6 +967,8 @@ function buildHouseholdMemberSteps(
       ? ['welcome', 'calendarSystem', 'paywallPrep']
       : [
           'welcome',
+          'householdMemberRole',
+          'macroTargets',
           'healthTracking',
           'femaleWellness',
           'goalTracking',
@@ -909,6 +1023,10 @@ function isStepComplete(step: StepId, answers: OnboardingAnswers, account: Accou
       return answers.chorePain !== null;
     case 'healthTracking':
       return answers.healthTrackingFocus.length > 0;
+    case 'householdMemberRole':
+      return answers.householdMemberRole !== null;
+    case 'macroTargets':
+      return Boolean(parseInvitedMacroQuestionnaire(answers));
     case 'femaleWellness':
       return answers.femaleWellnessFocus.length > 0;
     case 'goalTracking':
@@ -1382,6 +1500,18 @@ export default function OnboardingPage() {
       const normalizedPhone = normalizePhone(resolvedAnswers.phoneNumber);
 
       if (invitedHouseholdMember) {
+        const invitedQuestionnaire = spouseOnboarding ? parseInvitedMacroQuestionnaire(resolvedAnswers) : null;
+        if (invitedQuestionnaire) {
+          const recommended = calculateMacroRecommendation(invitedQuestionnaire);
+          updateMacroPlan('me', {
+            questionnaire: invitedQuestionnaire,
+            calories: recommended.calories,
+            protein_g: recommended.protein_g,
+            carbs_g: recommended.carbs_g,
+            fat_g: recommended.fat_g,
+            bodyUnitSystem: 'imperial',
+          });
+        }
         await updateProfile({
           full_name: fullName,
           phone: normalizedPhone || null,
@@ -2253,11 +2383,134 @@ export default function OnboardingPage() {
       );
       break;
 
+    case 'householdMemberRole':
+      content = (
+        <QuestionScreen
+          title="What’s your role in the family?"
+          helper="This helps us personalize your setup without asking the household questions again."
+        >
+          <OptionList
+            options={HOUSEHOLD_MEMBER_ROLE_OPTIONS}
+            selected={singleSelection(answers.householdMemberRole)}
+            onToggle={(value) => setSingle('householdMemberRole', value)}
+          />
+        </QuestionScreen>
+      );
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('householdMemberRole', answers, account)}
+        />
+      );
+      break;
+
+    case 'macroTargets':
+      content = (
+        <QuestionScreen
+          title="Let’s set your macro targets"
+          helper="We’ll use your body details and goal to build your starting calories and macros."
+        >
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm font-medium mb-2">Sex</p>
+              <OptionList
+                options={SEX_OPTIONS}
+                selected={singleSelection(answers.macroSex)}
+                onToggle={(value) => setSingle('macroSex', value)}
+                optionLabel={(value) => value.charAt(0).toUpperCase() + value.slice(1)}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Age</p>
+                <Input
+                  inputMode="numeric"
+                  value={answers.macroAge}
+                  onChange={(event) => setSingle('macroAge', normalizeNumberInput(event.target.value, 2))}
+                  placeholder="35"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Weight (lb)</p>
+                <Input
+                  inputMode="decimal"
+                  value={answers.macroWeight}
+                  onChange={(event) =>
+                    setSingle('macroWeight', event.target.value.replace(/[^0-9.]/g, '').slice(0, 6))
+                  }
+                  placeholder="165"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Height</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    inputMode="numeric"
+                    value={answers.macroHeightFeet}
+                    onChange={(event) => setSingle('macroHeightFeet', normalizeNumberInput(event.target.value, 1))}
+                    placeholder="5 ft"
+                  />
+                  <Input
+                    inputMode="numeric"
+                    value={answers.macroHeightInches}
+                    onChange={(event) => setSingle('macroHeightInches', normalizeNumberInput(event.target.value, 2))}
+                    placeholder="6 in"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Activity level</p>
+                <OptionList
+                  options={ACTIVITY_LEVEL_OPTIONS}
+                  selected={singleSelection(answers.macroActivityLevel)}
+                  onToggle={(value) => setSingle('macroActivityLevel', value)}
+                  optionLabel={(value) => ACTIVITY_LEVEL_LABELS[value]}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Primary goal</p>
+                <OptionList
+                  options={BODY_GOAL_OPTIONS}
+                  selected={singleSelection(answers.macroGoal)}
+                  onToggle={(value) => setSingle('macroGoal', value)}
+                  optionLabel={(value) => BODY_GOAL_LABELS[value]}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Pace</p>
+                <OptionList
+                  options={GOAL_PACE_OPTIONS}
+                  selected={singleSelection(answers.macroPace)}
+                  onToggle={(value) => setSingle('macroPace', value)}
+                  optionLabel={(value) => GOAL_PACE_LABELS[value]}
+                />
+              </div>
+            </div>
+          </div>
+        </QuestionScreen>
+      );
+      footer = (
+        <BottomCTA
+          primaryLabel="Continue"
+          onPrimary={goNext}
+          primaryDisabled={!isStepComplete('macroTargets', answers, account)}
+        />
+      );
+      break;
+
     case 'femaleWellness':
       content = (
         <QuestionScreen
-          title="Do any female adult dashboards need cycle or pregnancy tracking?"
-          helper="If you want it, we will add it to the female adult dashboard so it is there when you need it."
+          title="Do you want cycle or pregnancy tracking on your dashboard?"
+          helper="If you want it, we’ll turn it on for your personal dashboard so it’s already there when you need it."
         >
           <OptionList
             options={FEMALE_WELLNESS_OPTIONS}
