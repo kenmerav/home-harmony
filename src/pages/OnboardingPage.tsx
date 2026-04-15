@@ -956,7 +956,7 @@ export default function OnboardingPage() {
   const inviteToken = searchParams.get('invite');
   const inviteRoleParam = searchParams.get('role');
   const needsAccountStep = !user;
-  const actorKey = user?.id || 'anon';
+  const actorKey = `${user?.id || 'anon'}:${inviteToken || 'direct'}`;
   const hydratedForActor = useRef<string | null>(null);
 
   const [answers, setAnswers] = useState<OnboardingAnswers>(DEFAULT_ONBOARDING);
@@ -980,7 +980,7 @@ export default function OnboardingPage() {
       recipePdfInputRef.current.value = '';
     }
 
-    let draft = loadOnboardingDraft(user?.id);
+    let draft = inviteToken && !user?.id ? null : loadOnboardingDraft(user?.id);
     if (user?.id && !draft) {
       const anonDraft = loadOnboardingDraft(null);
       if (anonDraft) {
@@ -1538,6 +1538,9 @@ export default function OnboardingPage() {
       };
 
       await saveOnboardingResult(user.id, payload);
+      await updateProfile({
+        onboarding_completed_at: payload.completedAt,
+      });
 
       await trackGrowthEventSafe(
         'onboarding_complete',
@@ -1644,6 +1647,7 @@ export default function OnboardingPage() {
           onboarding: answers as unknown as Record<string, unknown>,
           stepId: 'paywallPrep',
         });
+        setCurrentStepId('paywallPrep');
         toast({
           title: 'Account created',
           description: inviteToken
