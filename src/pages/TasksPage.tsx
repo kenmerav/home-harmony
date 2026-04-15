@@ -176,6 +176,25 @@ export default function TasksPage() {
     () => new Map(adultDashboards.map((dashboard) => [dashboard.id, dashboard.name])),
     [adultDashboards],
   );
+  const assignableAdults = useMemo(() => {
+    const options = new Map<string, string>();
+    options.set('me', 'Me');
+
+    adultDashboards
+      .filter((dashboard) => dashboard.memberType === 'adult')
+      .forEach((dashboard) => {
+        options.set(dashboard.id, dashboard.id === 'me' ? 'Me' : dashboard.name);
+      });
+
+    memberNameByUserId.forEach((fullName, userId) => {
+      if (!userId || userId === user?.id) return;
+      if (!options.has(userId)) {
+        options.set(userId, fullName);
+      }
+    });
+
+    return Array.from(options.entries()).map(([id, label]) => ({ id, label }));
+  }, [adultDashboards, memberNameByUserId, user?.id]);
 
   const resolveAssigneeLabel = (assignedToId?: string, assignedToName?: string) => {
     const normalizedId = assignedToId?.trim();
@@ -555,9 +574,9 @@ export default function TasksPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">No one specific</SelectItem>
-                  {adultDashboards.map((dashboard) => (
-                    <SelectItem key={dashboard.id} value={dashboard.id}>
-                      {dashboard.name}
+                  {assignableAdults.map((adult) => (
+                    <SelectItem key={adult.id} value={adult.id}>
+                      {adult.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -707,9 +726,9 @@ export default function TasksPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">No one specific</SelectItem>
-                  {adultDashboards.map((dashboard) => (
-                    <SelectItem key={dashboard.id} value={dashboard.id}>
-                      {dashboard.name}
+                  {assignableAdults.map((adult) => (
+                    <SelectItem key={adult.id} value={adult.id}>
+                      {adult.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
