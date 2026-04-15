@@ -37,6 +37,7 @@ import {
 import { removeChildFromChores, upsertChildInChores } from '@/lib/choresSetup';
 import { sendFamilyInviteEmail } from '@/lib/api/emails';
 import { useToast } from '@/hooks/use-toast';
+import { loadFamilyMemberShadowsFromAccount, type SharedFamilyMemberShadow } from '@/lib/familyMemberShadow';
 
 const EMPTY_DASHBOARD: HouseholdDashboard = {
   household: null,
@@ -74,6 +75,7 @@ export default function FamilyPage() {
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [sharedLocalProfiles, setSharedLocalProfiles] = useState<DashboardProfile[]>(() => listHouseholdProfiles());
+  const [sharedMemberShadows, setSharedMemberShadows] = useState<SharedFamilyMemberShadow[]>([]);
   const [localMemberDialogOpen, setLocalMemberDialogOpen] = useState(false);
   const [pendingDeleteMember, setPendingDeleteMember] = useState<DashboardProfile | null>(null);
   const [editingLeaderboardAdultId, setEditingLeaderboardAdultId] = useState<string | null>(null);
@@ -144,7 +146,53 @@ export default function FamilyPage() {
     };
   }, [householdProfilesScopeId, refreshTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateSharedMembers = async () => {
+      if (!householdProfilesScopeId) {
+        setSharedMemberShadows([]);
+        return;
+      }
+      const shadows = await loadFamilyMemberShadowsFromAccount(householdProfilesScopeId);
+      if (!cancelled) {
+        setSharedMemberShadows(shadows);
+      }
+    };
+
+    void hydrateSharedMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, [householdProfilesScopeId, refreshTick]);
+
   const localProfiles = sharedLocalProfiles;
+  const visibleHouseholdMembers = useMemo(() => {
+    const merged = [...dashboard.members];
+    const existingUserIds = new Set(merged.map((member) => member.user_id).filter(Boolean));
+    const existingEmails = new Set(
+      merged.map((member) => String(member.email || '').trim().toLowerCase()).filter(Boolean),
+    );
+
+    sharedMemberShadows.forEach((shadow) => {
+      const email = String(shadow.email || '').trim().toLowerCase();
+      if (existingUserIds.has(shadow.userId) || (email && existingEmails.has(email))) {
+        return;
+      }
+
+      merged.push({
+        id: `shadow-${shadow.userId}`,
+        role: shadow.role,
+        status: shadow.status,
+        created_at: shadow.createdAt,
+        user_id: shadow.userId,
+        full_name: shadow.fullName,
+        email: shadow.email,
+      });
+    });
+
+    return merged.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }, [dashboard.members, sharedMemberShadows]);
   const familyLeaderboard = useMemo(() => getFamilyLeaderboard(new Date(), user?.id), [refreshTick, user?.id]);
 
   const updateLocalMemberType = (memberId: string, nextType: 'adult' | 'child') => {
@@ -510,7 +558,7 @@ export default function FamilyPage() {
                 <section className="rounded-xl border border-border bg-card p-5">
                   <h2 className="font-semibold">Members</h2>
                   <div className="mt-3 space-y-2">
-                    {dashboard.members.map((member) => (
+                    {visibleHouseholdMembers.map((member) => (
                       <div key={member.id} className="rounded-md border border-border p-3">
                         <p className="text-sm font-medium">{member.full_name || member.email || 'Unknown member'}</p>
                         <p className="text-xs text-muted-foreground capitalize">
@@ -522,7 +570,7 @@ export default function FamilyPage() {
                         <p className="mt-1 text-xs text-muted-foreground">{householdRoleSummary(member)}</p>
                       </div>
                     ))}
-                    {dashboard.members.length === 0 && (
+                    {visibleHouseholdMembers.length === 0 && (
                       <p className="text-sm text-muted-foreground">No members yet.</p>
                     )}
                   </div>

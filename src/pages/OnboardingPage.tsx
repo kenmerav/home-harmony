@@ -28,6 +28,7 @@ import { getProfiles, updateFemaleHealthSettings, updateMacroPlan, type AdultId 
 import { useToast } from '@/hooks/use-toast';
 import { BILLING_ENABLED, getPostAuthRoute } from '@/lib/billing';
 import { setPlanRules } from '@/lib/mealPrefs';
+import { upsertFamilyMemberShadow } from '@/lib/familyMemberShadow';
 import {
   clearPendingInviteOnboarding,
   clearOnboardingDraft,
@@ -1385,6 +1386,21 @@ export default function OnboardingPage() {
           full_name: fullName,
           phone: normalizedPhone || null,
         });
+        try {
+          const household = await getHouseholdDashboard();
+          const activeMembers = (household.members || []).filter((member) => member.status === 'active');
+          const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
+          const ownerScopeId = ownerMember?.user_id || user.id;
+          await upsertFamilyMemberShadow(ownerScopeId, {
+            userId: user.id,
+            email: user.email?.trim().toLowerCase() || null,
+            fullName,
+            role: effectiveHouseholdRole === 'kid' ? 'kid' : 'spouse',
+            createdAt: new Date().toISOString(),
+          });
+        } catch (shadowError) {
+          console.error('Failed syncing invited household member shadow:', shadowError);
+        }
       } else {
         await updateProfile({
           full_name: fullName,

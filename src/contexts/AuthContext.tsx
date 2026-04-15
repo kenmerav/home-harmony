@@ -23,6 +23,7 @@ import { clearSharedHouseholdScope, setSharedHouseholdScope } from '@/lib/househ
 import { hydrateMealPrefsFromAccount } from '@/lib/mealPrefs';
 import { hydrateGroceryPrefsFromAccount } from '@/lib/groceryPrefs';
 import { hydrateChoresStateFromAccount } from '@/lib/choresStateStore';
+import { upsertFamilyMemberShadow } from '@/lib/familyMemberShadow';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -286,8 +287,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const activeMembers = (household.members || []).filter((member) => member.status === 'active');
         const ownerMember = activeMembers.find((member) => member.role === 'owner') || null;
         const ownerScopeId = ownerMember?.user_id || user.id;
+        const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
         setHideBuiltInWifeDashboard(true);
         setSharedHouseholdOwnerId(ownerScopeId);
+        void Promise.all(
+          activeMembers.map((member) =>
+            upsertFamilyMemberShadow(ownerScopeId, {
+              userId: member.user_id,
+              email: member.email,
+              fullName: member.full_name,
+              role: member.role,
+              createdAt: member.created_at,
+            }),
+          ),
+        ).catch((error) => {
+          console.error('Failed syncing family member shadows:', error);
+        });
+        if (currentMember?.user_id) {
+          void upsertFamilyMemberShadow(ownerScopeId, {
+            userId: currentMember.user_id,
+            email: user.email?.trim().toLowerCase() || currentMember.email || null,
+            fullName: profile?.fullName?.trim() || currentMember.full_name || null,
+            role: currentMember.role,
+            createdAt: currentMember.created_at,
+          }).catch((error) => {
+            console.error('Failed syncing current family member shadow:', error);
+          });
+        }
         void purgeLegacyWifeDashboardFromAccount(ownerScopeId).catch((error) => {
           console.error('Failed removing legacy wife dashboard:', error);
         });
@@ -308,7 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isDemoUser, user?.id]);
+  }, [isDemoUser, profile?.fullName, user?.email, user?.id]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser) return;
