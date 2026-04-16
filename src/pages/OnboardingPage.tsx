@@ -1067,6 +1067,7 @@ export default function OnboardingPage() {
     isProfileComplete,
     isSubscribed,
     updateProfile,
+    signOut,
     signUp,
   } = useAuth();
   const navigate = useNavigate();
@@ -1092,8 +1093,20 @@ export default function OnboardingPage() {
   const [householdRole, setHouseholdRole] = useState<'owner' | 'spouse' | 'kid' | null>(null);
   const [householdRoleLoading, setHouseholdRoleLoading] = useState(Boolean(user));
   const recipePdfInputRef = useRef<HTMLInputElement | null>(null);
+  const inviteSessionResetRef = useRef<string | null>(null);
+
+  const provisionalInviteRole =
+    inviteRoleParam === 'spouse' || inviteRoleParam === 'kid'
+      ? inviteRoleParam
+      : null;
+  const effectiveHouseholdRole = householdRole || provisionalInviteRole;
+  const invitedHouseholdMember = effectiveHouseholdRole === 'spouse' || effectiveHouseholdRole === 'kid';
+  const spouseOnboarding = effectiveHouseholdRole === 'spouse';
+  const kidOnboarding = effectiveHouseholdRole === 'kid';
+  const shouldPauseSignedInInviteHydration = Boolean(inviteToken && user?.id && householdRoleLoading);
 
   useEffect(() => {
+    if (shouldPauseSignedInInviteHydration) return;
     if (hydratedForActor.current === actorKey) return;
 
     setRecipePdfFile(null);
@@ -1101,7 +1114,13 @@ export default function OnboardingPage() {
       recipePdfInputRef.current.value = '';
     }
 
-    let draft = inviteToken && !user?.id ? null : loadOnboardingDraft(user?.id);
+    const shouldIgnoreSignedInDraftForInvite =
+      Boolean(inviteToken && user?.id && provisionalInviteRole && householdRole && householdRole !== provisionalInviteRole);
+
+    let draft =
+      inviteToken && (!user?.id || shouldIgnoreSignedInDraftForInvite)
+        ? null
+        : loadOnboardingDraft(user?.id);
     if (user?.id && !draft) {
       const anonDraft = loadOnboardingDraft(null);
       if (anonDraft) {
@@ -1164,7 +1183,15 @@ export default function OnboardingPage() {
     }
 
     hydratedForActor.current = actorKey;
-  }, [actorKey, user?.email, user?.id]);
+  }, [
+    actorKey,
+    householdRole,
+    inviteToken,
+    provisionalInviteRole,
+    shouldPauseSignedInInviteHydration,
+    user?.email,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -1201,14 +1228,43 @@ export default function OnboardingPage() {
     };
   }, [user?.id]);
 
-  const provisionalInviteRole =
-    inviteRoleParam === 'spouse' || inviteRoleParam === 'kid'
-      ? inviteRoleParam
-      : null;
-  const effectiveHouseholdRole = householdRole || provisionalInviteRole;
-  const invitedHouseholdMember = effectiveHouseholdRole === 'spouse' || effectiveHouseholdRole === 'kid';
-  const spouseOnboarding = effectiveHouseholdRole === 'spouse';
-  const kidOnboarding = effectiveHouseholdRole === 'kid';
+  useEffect(() => {
+    if (!inviteToken || !user?.id || !provisionalInviteRole || householdRoleLoading) return;
+
+    const currentRole = householdRole;
+    const hasInviteSessionMismatch =
+      currentRole === 'owner' ||
+      (currentRole === 'spouse' || currentRole === 'kid'
+        ? currentRole !== provisionalInviteRole
+        : Boolean(isProfileComplete));
+
+    if (!hasInviteSessionMismatch) return;
+
+    const resetKey = `${user.id}:${inviteToken}:${provisionalInviteRole}:${currentRole || 'unknown'}`;
+    if (inviteSessionResetRef.current === resetKey) return;
+    inviteSessionResetRef.current = resetKey;
+
+    savePendingInviteOnboarding(inviteToken, provisionalInviteRole);
+    hydratedForActor.current = null;
+    setAnswers(DEFAULT_ONBOARDING);
+    setCurrentStepId('welcome');
+    setRecipePdfFile(null);
+    if (recipePdfInputRef.current) {
+      recipePdfInputRef.current.value = '';
+    }
+
+    void signOut().catch((error) => {
+      console.error('Failed resetting signed-in session for invite onboarding:', error);
+    });
+  }, [
+    householdRole,
+    householdRoleLoading,
+    inviteToken,
+    isProfileComplete,
+    provisionalInviteRole,
+    signOut,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (inviteToken) {
