@@ -304,6 +304,13 @@ function canUseSessionStorage() {
   return typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
 }
 
+function shiftDateStringByWeeks(dateString: string, delta: number): string | null {
+  if (!dateString) return null;
+  const parsed = new Date(`${dateString}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return format(addWeeks(parsed, delta), 'yyyy-MM-dd');
+}
+
 function readDinnerServings(userId?: string | null): DinnerServingsByProfile {
   return getDinnerServingsByProfile(userId);
 }
@@ -366,6 +373,7 @@ function writeQuickAddDraft(userId: string | null | undefined, draft: QuickAddDr
 export default function MealsPage() {
   const { user } = useAuth();
   const hasRestoredQuickAddDraftRef = useRef(false);
+  const loadMealsRequestRef = useRef(0);
   const [weekOffset, setWeekOffset] = useState(0);
   const [meals, setMeals] = useState<DbPlannedMeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -476,14 +484,22 @@ export default function MealsPage() {
   const plannerDashboard = dashboardProfiles.find((profile) => profile.id === plannerDashboardId) || dashboardProfiles[0] || null;
 
   const loadMeals = useCallback(async () => {
+    const requestId = loadMealsRequestRef.current + 1;
+    loadMealsRequestRef.current = requestId;
     try {
       setLoading(true);
       const data = await fetchMealsForWeek(weekOffset);
-      setMeals(data);
+      if (loadMealsRequestRef.current === requestId) {
+        setMeals(data);
+      }
     } catch (err) {
-      console.error('Failed to load meals:', err);
+      if (loadMealsRequestRef.current === requestId) {
+        console.error('Failed to load meals:', err);
+      }
     } finally {
-      setLoading(false);
+      if (loadMealsRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [weekOffset]);
 
@@ -493,6 +509,22 @@ export default function MealsPage() {
     setMenuRejuvenatePrefsState(getMenuRejuvenatePrefs());
     void loadMeals();
   }, [loadMeals]);
+
+  const handleWeekNavigation = useCallback((delta: number) => {
+    setWeekOffset((prev) => prev + delta);
+    setPlannerExpandedByDate({});
+    setPlannerDay((prev) => shiftDateStringByWeeks(prev, delta) || format(addWeeks(new Date(), delta), 'yyyy-MM-dd'));
+    setSuggestionDate((prev) => shiftDateStringByWeeks(prev, delta) || format(addWeeks(new Date(), delta), 'yyyy-MM-dd'));
+    setPlannerForm((prev) => {
+      const nextDate = shiftDateStringByWeeks(prev.date, delta);
+      return nextDate ? { ...prev, date: nextDate } : prev;
+    });
+    setGridQuickAddContext((prev) => {
+      if (!prev) return prev;
+      const nextDate = shiftDateStringByWeeks(prev.date, delta);
+      return nextDate ? { ...prev, date: nextDate } : prev;
+    });
+  }, []);
 
   useEffect(() => {
     const available = dashboardProfiles.map((profile) => profile.id);
@@ -1938,14 +1970,14 @@ export default function MealsPage() {
 
       {/* Week Navigation */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => setWeekOffset(prev => prev - 1)}>
+        <Button variant="ghost" size="icon" onClick={() => handleWeekNavigation(-1)}>
           <ChevronLeft className="w-5 h-5" />
         </Button>
         <div className="text-center">
           <p className="font-medium">{weekLabel}</p>
           {weekOffset === 0 && <p className="text-xs text-muted-foreground">This Week</p>}
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setWeekOffset(prev => prev + 1)}>
+        <Button variant="ghost" size="icon" onClick={() => handleWeekNavigation(1)}>
           <ChevronRight className="w-5 h-5" />
         </Button>
       </div>
