@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,9 +7,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BILLING_ENABLED } from '@/lib/billing';
 import {
+  amountForBillingInterval,
   BillingInterval,
   formatUsd,
   HOME_HARMONY_PRICING,
+  inferBillingIntervalFromPriceId,
   yearlySavingsAmount,
 } from '@/lib/pricing';
 
@@ -66,6 +68,57 @@ export default function BillingPage() {
   const [searchParams] = useSearchParams();
   const hasBillingAccess = isSubscribed || Boolean(subscription?.priceId);
   const checkoutState = searchParams.get('checkout');
+  const inferredBillingInterval = useMemo(
+    () => inferBillingIntervalFromPriceId(subscription?.priceId),
+    [subscription?.priceId],
+  );
+  const nextChargeAmount = amountForBillingInterval(inferredBillingInterval);
+  const trialEndDate = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
+  const currentPeriodEndDate = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
+  const isTrialing = String(subscription?.status || '').toLowerCase() === 'trialing';
+  const isActive = String(subscription?.status || '').toLowerCase() === 'active';
+
+  const billingSummaryRows = useMemo(() => {
+    const rows: Array<{ label: string; value: string }> = [
+      { label: 'Current plan status', value: subscription?.status ? String(subscription.status) : 'inactive' },
+    ];
+
+    if (isTrialing && trialEndDate) {
+      rows.push({
+        label: 'Free trial ends',
+        value: trialEndDate.toLocaleDateString(),
+      });
+      rows.push({
+        label: 'First billing date',
+        value: trialEndDate.toLocaleDateString(),
+      });
+    } else if (currentPeriodEndDate && (isActive || isTrialing)) {
+      rows.push({
+        label: 'Next billing date',
+        value: currentPeriodEndDate.toLocaleDateString(),
+      });
+    }
+
+    if (nextChargeAmount !== null) {
+      rows.push({
+        label: isTrialing ? 'Amount after trial' : 'Billing amount',
+        value:
+          inferredBillingInterval === 'yearly'
+            ? `${formatUsd(nextChargeAmount)} per year`
+            : `${formatUsd(nextChargeAmount)} per month`,
+      });
+    }
+
+    return rows;
+  }, [
+    currentPeriodEndDate,
+    inferredBillingInterval,
+    isActive,
+    isTrialing,
+    nextChargeAmount,
+    subscription?.status,
+    trialEndDate,
+  ]);
 
   useEffect(() => {
     if (checkoutState === 'cancel') {
@@ -205,11 +258,23 @@ export default function BillingPage() {
             <p className="mt-3 text-sm text-muted-foreground">Signed in as {user?.email || 'unknown user'}</p>
 
             <div className="mt-6 rounded-xl border border-border bg-background p-4">
-              <p className="text-sm text-muted-foreground">Current plan status</p>
-              <p className="text-xl font-semibold capitalize">{subscription?.status || 'inactive'}</p>
-              {subscription?.currentPeriodEnd && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Current period ends: {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+              <p className="text-sm text-muted-foreground">Billing summary</p>
+              <div className="mt-3 space-y-2">
+                {billingSummaryRows.map((row) => (
+                  <div key={row.label} className="flex items-start justify-between gap-4 text-sm">
+                    <span className="text-muted-foreground">{row.label}</span>
+                    <span className="font-medium text-right capitalize">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+              {isTrialing && trialEndDate && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Cancel before {trialEndDate.toLocaleDateString()} and you will not be charged.
+                </p>
+              )}
+              {isActive && currentPeriodEndDate && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  If you cancel, access will stay active through {currentPeriodEndDate.toLocaleDateString()}.
                 </p>
               )}
             </div>
@@ -311,7 +376,7 @@ export default function BillingPage() {
         <div className="mt-8 flex flex-wrap gap-3">
           {hasBillingAccess ? (
             <Button variant="outline" onClick={openPortal} disabled={loadingPortal}>
-              {loadingPortal ? 'Opening portal...' : 'Manage billing'}
+              {loadingPortal ? 'Opening portal...' : 'Manage or cancel billing'}
             </Button>
           ) : (
             <Button variant="outline" disabled>
@@ -320,6 +385,12 @@ export default function BillingPage() {
           )}
           <Button variant="ghost" onClick={refreshSubscription}>Refresh status</Button>
         </div>
+
+        {hasBillingAccess && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Use <span className="font-medium text-foreground">Manage or cancel billing</span> to cancel your trial or subscription.
+          </p>
+        )}
 
         {message && <p className="mt-4 text-sm text-muted-foreground">{message}</p>}
 

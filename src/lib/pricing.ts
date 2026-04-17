@@ -28,3 +28,43 @@ export function pricingLabel(interval: BillingInterval): string {
     ? `${formatUsd(HOME_HARMONY_PRICING.monthly)}/month`
     : `${formatUsd(HOME_HARMONY_PRICING.yearly)}/year`;
 }
+
+export function inferBillingIntervalFromPriceId(priceId?: string | null): BillingInterval | null {
+  if (!priceId) return null;
+
+  const normalizedPriceId = priceId.trim().toLowerCase();
+  if (!normalizedPriceId) return null;
+
+  const monthlyEnv = String(import.meta.env.VITE_STRIPE_PRICE_ID_MONTHLY || '').trim().toLowerCase();
+  const yearlyEnv = String(import.meta.env.VITE_STRIPE_PRICE_ID_YEARLY || '').trim().toLowerCase();
+  const defaultEnv = String(import.meta.env.VITE_STRIPE_PRICE_ID || '').trim().toLowerCase();
+
+  if (monthlyEnv && normalizedPriceId === monthlyEnv) return 'monthly';
+  if (yearlyEnv && normalizedPriceId === yearlyEnv) return 'yearly';
+  if (defaultEnv && normalizedPriceId === defaultEnv) {
+    if (yearlyEnv && !monthlyEnv) return 'yearly';
+    if (monthlyEnv && !yearlyEnv) return 'monthly';
+  }
+
+  if (
+    normalizedPriceId.includes('year') ||
+    normalizedPriceId.includes('annual') ||
+    normalizedPriceId.includes('annually')
+  ) {
+    return 'yearly';
+  }
+
+  if (
+    normalizedPriceId.includes('month') ||
+    normalizedPriceId.includes('monthly')
+  ) {
+    return 'monthly';
+  }
+
+  return null;
+}
+
+export function amountForBillingInterval(interval: BillingInterval | null): number | null {
+  if (!interval) return null;
+  return interval === 'monthly' ? HOME_HARMONY_PRICING.monthly : HOME_HARMONY_PRICING.yearly;
+}
