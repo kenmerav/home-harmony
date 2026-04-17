@@ -12,6 +12,11 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { BILLING_ENABLED, getSubscriptionAccessEndDate, hasSubscriptionAccess } from '@/lib/billing';
 import { loadOnboardingResult, saveOnboardingResult, type StoredOnboardingResult } from '@/lib/onboardingStore';
+import {
+  getProfileSettingsValue,
+  loadProfileSettingsDocument,
+  updateProfileSettingsValue,
+} from '@/lib/profileSettingsStore';
 import { BodyUnitSystem, getProfiles, listDashboardProfiles, updateMacroPlan } from '@/lib/macroGame';
 import {
   defaultSmsPreferences,
@@ -57,7 +62,20 @@ const MEAL_OPTIONS = [
   'No meal planning',
 ] as const;
 const GROCERY_MODE_OPTIONS = ['Pickup', 'Delivery', 'In-store', 'Mix'] as const;
-const GROCERY_STORE_OPTIONS = ['Walmart', 'Instacart', 'Amazon', 'Target', "Kroger/Fry's", 'Other'] as const;
+const GROCERY_STORE_OPTIONS = [
+  "Fry's",
+  'Safeway',
+  'Whole Foods',
+  'Sprouts',
+  "Trader Joe's",
+  'Kroger',
+  'Target',
+  'Walmart',
+  'Costco',
+  'Instacart',
+  'Amazon',
+  'Other',
+] as const;
 const CHORE_OPTIONS = ['Rotating schedule', 'Fixed responsibilities', "I'll set it up later"] as const;
 const REMINDER_STYLE_OPTIONS = ['Minimal', 'Normal', 'Persistent (keep nudging me)'] as const;
 const WORKOUT_FREQ_OPTIONS = ['0-2', '3-5', '6+'] as const;
@@ -135,32 +153,275 @@ interface PersonalizedPlan {
   reminderProfile: ReminderProfile;
 }
 
-const DEFAULT_ANSWERS: OnboardingAnswers = {
-  primaryGoals: ['Meals & groceries', 'Chores & routines', 'Family calendar & tasks'],
-  householdType: 'Family',
-  kidCount: '2',
-  role: 'Primary planner',
-  routineIntensity: 'Balanced',
-  mealPreference: 'Plan weeknights only',
-  groceryMode: 'Pickup',
-  groceryStore: 'Walmart',
-  choreStyle: 'Rotating schedule',
-  reminderStyle: 'Normal',
-  workoutFrequency: '3-5',
-  workoutLocation: 'Both',
-  nutritionTracking: 'Track protein only',
-  hydrationTracking: 'Daily water goal',
-  stepGoal: '8,000',
-  sleepGoal: '8 hours',
-  alcoholGoal: 'Limit to weekends',
+const EMPTY_ANSWERS: OnboardingAnswers = {
+  primaryGoals: [],
+  householdType: null,
+  kidCount: null,
+  role: null,
+  routineIntensity: null,
+  mealPreference: null,
+  groceryMode: null,
+  groceryStore: null,
+  choreStyle: null,
+  reminderStyle: null,
+  workoutFrequency: null,
+  workoutLocation: null,
+  nutritionTracking: null,
+  hydrationTracking: null,
+  stepGoal: null,
+  sleepGoal: null,
+  alcoholGoal: null,
   reminderToggles: {
-    tasks: true,
-    groceries: true,
-    meals: true,
-    chores: true,
-    workouts: true,
+    tasks: false,
+    groceries: false,
+    meals: false,
+    chores: false,
+    workouts: false,
   },
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function coerceSingleOption<T extends readonly string[]>(
+  value: unknown,
+  options: T,
+): T[number] | null {
+  return typeof value === 'string' && options.includes(value as T[number]) ? (value as T[number]) : null;
+}
+
+function coerceMultiOption<T extends readonly string[]>(
+  value: unknown,
+  options: T,
+): T[number][] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is T[number] => typeof item === 'string' && options.includes(item as T[number]));
+}
+
+function mapKidCountToSetting(value: number | null): KidCount | null {
+  if (value === null || value <= 0) return null;
+  if (value >= 5) return '5+';
+  const normalized = String(value);
+  return KID_COUNT_OPTIONS.includes(normalized as KidCount) ? (normalized as KidCount) : null;
+}
+
+function mapStepGoalToSetting(value: unknown): StepGoal | null {
+  if (value === 'No target right now') return 'No step goal';
+  return coerceSingleOption(value, STEP_GOAL_OPTIONS);
+}
+
+function mapSleepGoalToSetting(value: unknown): SleepGoal | null {
+  if (value === '9 hours') return '9+ hours';
+  return coerceSingleOption(value, SLEEP_GOAL_OPTIONS);
+}
+
+function mapAlcoholGoalToSetting(value: unknown): AlcoholGoal | null {
+  switch (value) {
+    case 'Not tracking':
+      return 'Not tracking';
+    case 'Limit to weekends':
+      return 'Limit to weekends';
+    case 'Max 3 drinks/week':
+      return 'Limit drinks per week';
+    default:
+      return null;
+  }
+}
+
+function mapHydrationTrackingToSetting(value: unknown): HydrationTracking | null {
+  if (value === 'No target right now') return 'Not now';
+  if (!['64 oz', '80 oz', '100 oz+'].includes(String(value || ''))) return null;
+  return 'Daily water goal';
+}
+
+function mapNutritionTrackingToSetting(value: unknown): NutritionTracking | null {
+  const trackingFocus = Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  if (trackingFocus.includes('Macro tracking')) return 'Track full macros';
+  if (trackingFocus.includes('Protein-only tracking')) return 'Track protein only';
+  if (trackingFocus.includes('Calorie tracking')) return 'Track calories only';
+  if (trackingFocus.includes('Not right now')) return 'Skip nutrition tracking';
+  return null;
+}
+
+function mergeAnswers(...sources: Array<Partial<OnboardingAnswers> | null | undefined>): OnboardingAnswers {
+  return sources.reduce<OnboardingAnswers>(
+    (acc, source) => {
+      if (!source) return acc;
+      return {
+        ...acc,
+        ...source,
+        reminderToggles: {
+          ...acc.reminderToggles,
+          ...(source.reminderToggles || {}),
+        },
+      };
+    },
+    {
+      ...EMPTY_ANSWERS,
+      reminderToggles: { ...EMPTY_ANSWERS.reminderToggles },
+    },
+  );
+}
+
+function mapStoredOnboardingToSettingsAnswers(value: unknown): Partial<OnboardingAnswers> {
+  if (!isRecord(value)) return {};
+
+  const adultsCount = toInteger(value.adultsCount);
+  const kidsCount = toInteger(value.kidsCount);
+  const groceryMode = coerceSingleOption(value.groceryShoppingMode, GROCERY_MODE_OPTIONS);
+  const groceryStores = coerceMultiOption(value.groceryStorePreferences, GROCERY_STORE_OPTIONS);
+  const nutritionTracking = mapNutritionTrackingToSetting(value.healthTrackingFocus);
+  const hydrationTracking = mapHydrationTrackingToSetting(value.waterTarget);
+  const stepGoal = mapStepGoalToSetting(value.stepTarget);
+  const sleepGoal = mapSleepGoalToSetting(value.sleepDurationTarget);
+  const alcoholGoal = mapAlcoholGoalToSetting(value.alcoholTarget);
+
+  let householdType: HouseholdType | null = null;
+  if (kidsCount !== null && kidsCount > 0) {
+    householdType = 'Family';
+  } else if (adultsCount === 1) {
+    householdType = 'Just me';
+  }
+
+  const next: Partial<OnboardingAnswers> = {};
+  if (householdType) next.householdType = householdType;
+  if (householdType === 'Family') {
+    const kidCount = mapKidCountToSetting(kidsCount);
+    if (kidCount) next.kidCount = kidCount;
+  }
+  if (groceryMode) next.groceryMode = groceryMode;
+  if (groceryStores[0]) next.groceryStore = groceryStores[0];
+  if (nutritionTracking) next.nutritionTracking = nutritionTracking;
+  if (hydrationTracking) next.hydrationTracking = hydrationTracking;
+  if (stepGoal) next.stepGoal = stepGoal;
+  if (sleepGoal) next.sleepGoal = sleepGoal;
+  if (alcoholGoal) next.alcoholGoal = alcoholGoal;
+  return next;
+}
+
+function mapLegacySettingsAnswers(value: unknown): Partial<OnboardingAnswers> {
+  if (!isRecord(value)) return {};
+
+  const reminderToggles = isRecord(value.reminderToggles)
+    ? {
+        tasks: Boolean(value.reminderToggles.tasks),
+        groceries: Boolean(value.reminderToggles.groceries),
+        meals: Boolean(value.reminderToggles.meals),
+        chores: Boolean(value.reminderToggles.chores),
+        workouts: Boolean(value.reminderToggles.workouts),
+      }
+    : undefined;
+
+  const next: Partial<OnboardingAnswers> = {};
+  const primaryGoals = coerceMultiOption(value.primaryGoals, PRIMARY_GOAL_OPTIONS);
+  const householdType = coerceSingleOption(value.householdType, HOUSEHOLD_OPTIONS);
+  const kidCount = coerceSingleOption(value.kidCount, KID_COUNT_OPTIONS);
+  const role = coerceSingleOption(value.role, ROLE_OPTIONS);
+  const routineIntensity = coerceSingleOption(value.routineIntensity, INTENSITY_OPTIONS);
+  const mealPreference = coerceSingleOption(value.mealPreference, MEAL_OPTIONS);
+  const groceryMode = coerceSingleOption(value.groceryMode, GROCERY_MODE_OPTIONS);
+  const groceryStore = coerceSingleOption(value.groceryStore, GROCERY_STORE_OPTIONS);
+  const choreStyle = coerceSingleOption(value.choreStyle, CHORE_OPTIONS);
+  const reminderStyle = coerceSingleOption(value.reminderStyle, REMINDER_STYLE_OPTIONS);
+  const workoutFrequency = coerceSingleOption(value.workoutFrequency, WORKOUT_FREQ_OPTIONS);
+  const workoutLocation = coerceSingleOption(value.workoutLocation, WORKOUT_LOCATION_OPTIONS);
+  const nutritionTracking = coerceSingleOption(value.nutritionTracking, NUTRITION_TRACKING_OPTIONS);
+  const hydrationTracking = coerceSingleOption(value.hydrationTracking, HYDRATION_OPTIONS);
+  const stepGoal = coerceSingleOption(value.stepGoal, STEP_GOAL_OPTIONS);
+  const sleepGoal = coerceSingleOption(value.sleepGoal, SLEEP_GOAL_OPTIONS);
+  const alcoholGoal = coerceSingleOption(value.alcoholGoal, ALCOHOL_GOAL_OPTIONS);
+
+  if (primaryGoals.length > 0) next.primaryGoals = primaryGoals;
+  if (householdType) next.householdType = householdType;
+  if (kidCount) next.kidCount = kidCount;
+  if (role) next.role = role;
+  if (routineIntensity) next.routineIntensity = routineIntensity;
+  if (mealPreference) next.mealPreference = mealPreference;
+  if (groceryMode) next.groceryMode = groceryMode;
+  if (groceryStore) next.groceryStore = groceryStore;
+  if (choreStyle) next.choreStyle = choreStyle;
+  if (reminderStyle) next.reminderStyle = reminderStyle;
+  if (workoutFrequency) next.workoutFrequency = workoutFrequency;
+  if (workoutLocation) next.workoutLocation = workoutLocation;
+  if (nutritionTracking) next.nutritionTracking = nutritionTracking;
+  if (hydrationTracking) next.hydrationTracking = hydrationTracking;
+  if (stepGoal) next.stepGoal = stepGoal;
+  if (sleepGoal) next.sleepGoal = sleepGoal;
+  if (alcoholGoal) next.alcoholGoal = alcoholGoal;
+  if (reminderToggles) next.reminderToggles = reminderToggles;
+  return next;
+}
+
+function applySettingsAnswersToStoredOnboarding(
+  baseValue: unknown,
+  answers: OnboardingAnswers,
+): Record<string, unknown> {
+  const next = isRecord(baseValue) ? { ...baseValue } : {};
+
+  if (answers.householdType === 'Just me') {
+    next.adultsCount = 1;
+    next.kidsCount = 0;
+  } else if (answers.householdType === 'Family' && answers.kidCount) {
+    next.kidsCount = answers.kidCount === '5+' ? 5 : Number.parseInt(answers.kidCount, 10);
+    if (typeof next.adultsCount !== 'number') {
+      next.adultsCount = 2;
+    }
+  }
+
+  if (answers.groceryMode) {
+    next.groceryShoppingMode = answers.groceryMode;
+  }
+  if (answers.groceryStore) {
+    next.groceryStorePreferences = [answers.groceryStore];
+  }
+
+  if (answers.nutritionTracking) {
+    const baseTrackingFocus = Array.isArray(next.healthTrackingFocus)
+      ? next.healthTrackingFocus.filter((item): item is string => typeof item === 'string')
+      : [];
+    const strippedTrackingFocus = baseTrackingFocus.filter(
+      (item) => !['Macro tracking', 'Protein-only tracking', 'Calorie tracking', 'Not right now'].includes(item),
+    );
+    const mappedTracking =
+      answers.nutritionTracking === 'Track full macros'
+        ? 'Macro tracking'
+        : answers.nutritionTracking === 'Track protein only'
+        ? 'Protein-only tracking'
+        : answers.nutritionTracking === 'Track calories only'
+        ? 'Calorie tracking'
+        : 'Not right now';
+    next.healthTrackingFocus = [...strippedTrackingFocus, mappedTracking];
+  }
+
+  if (answers.stepGoal) {
+    next.stepTarget = answers.stepGoal === 'No step goal' ? 'No target right now' : answers.stepGoal;
+  }
+
+  if (answers.sleepGoal) {
+    next.sleepDurationTarget = answers.sleepGoal === '9+ hours' ? '9 hours' : answers.sleepGoal;
+  }
+
+  if (answers.alcoholGoal) {
+    next.alcoholTarget =
+      answers.alcoholGoal === 'Limit drinks per week'
+        ? 'Max 3 drinks/week'
+        : answers.alcoholGoal;
+  }
+
+  return next;
+}
 
 function hasFitnessGoal(answers: OnboardingAnswers): boolean {
   return answers.primaryGoals.includes('Fitness & workouts') || answers.primaryGoals.includes('All of the above');
@@ -244,7 +505,8 @@ function buildPersonalizedPlan(answers: OnboardingAnswers): PersonalizedPlan {
 export default function SettingsPage() {
   const { user, isDemoUser, profile, subscription, isSubscribed, updateProfile, updateEmail } = useAuth();
   const { toast } = useToast();
-  const [answers, setAnswers] = useState<OnboardingAnswers>(DEFAULT_ANSWERS);
+  const [answers, setAnswers] = useState<OnboardingAnswers>(EMPTY_ANSWERS);
+  const [storedOnboardingResult, setStoredOnboardingResult] = useState<StoredOnboardingResult | null>(null);
   const [accountDetails, setAccountDetails] = useState({
     fullName: '',
     householdName: '',
@@ -311,11 +573,25 @@ export default function SettingsPage() {
     let mounted = true;
     const run = async () => {
       setLoading(true);
-      const stored = await loadOnboardingResult(user?.id);
+      const [stored, rawSettingsDocument] = await Promise.all([
+        loadOnboardingResult(user?.id),
+        loadProfileSettingsDocument(user?.id).catch(() => ({})),
+      ]);
       if (!mounted) return;
-      if (stored?.onboarding && typeof stored.onboarding === 'object') {
-        setAnswers((prev) => ({ ...prev, ...(stored.onboarding as Partial<OnboardingAnswers>) }));
-      }
+      setStoredOnboardingResult(stored);
+      const mappedFromCanonical = mapStoredOnboardingToSettingsAnswers(stored?.onboarding);
+      const mappedFromLegacyOnboarding = mapLegacySettingsAnswers(stored?.onboarding);
+      const mappedFromSavedSettings = mapLegacySettingsAnswers(
+        getProfileSettingsValue(rawSettingsDocument, ['settingsAnswers']),
+      );
+      setAnswers(
+        mergeAnswers(
+          EMPTY_ANSWERS,
+          mappedFromCanonical,
+          mappedFromLegacyOnboarding,
+          mappedFromSavedSettings,
+        ),
+      );
       const profiles = getProfiles();
       const nextBodyUnits = Object.values(profiles)
         .filter((dashboardProfile) => dashboardProfile.memberType === 'adult')
@@ -560,13 +836,19 @@ export default function SettingsPage() {
 
   const save = async () => {
     const { homeAddress, workAddress } = persistDepartureAddresses(true);
+    const nextOnboarding = applySettingsAnswersToStoredOnboarding(storedOnboardingResult?.onboarding, answers);
     const payload: StoredOnboardingResult = {
-      completedAt: new Date().toISOString(),
-      onboarding: answers as unknown as Record<string, unknown>,
-      personalizedPlan: buildPersonalizedPlan(answers) as unknown as Record<string, unknown>,
+      completedAt: storedOnboardingResult?.completedAt || new Date().toISOString(),
+      onboarding: nextOnboarding,
+      personalizedPlan:
+        storedOnboardingResult?.personalizedPlan || (buildPersonalizedPlan(answers) as unknown as Record<string, unknown>),
     };
     try {
       await saveOnboardingResult(user?.id, payload);
+      if (user?.id) {
+        await updateProfileSettingsValue(user.id, ['settingsAnswers'], answers as unknown as Record<string, unknown>);
+      }
+      setStoredOnboardingResult(payload);
       if (canUseRemoteSms) {
         const savedSms = await saveSmsPreferences({
           ...smsPrefs,
