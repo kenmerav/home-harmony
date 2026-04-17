@@ -7,7 +7,7 @@ import { resetDemoStore } from '@/lib/demoStore';
 import { claimReferral } from '@/lib/api/referrals';
 import { clearPendingReferralCode, readPendingReferralCode } from '@/lib/referral';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
-import { BILLING_ENABLED, isBillingExemptEmail } from '@/lib/billing';
+import { BILLING_ENABLED, hasSubscriptionAccess, isBillingExemptEmail } from '@/lib/billing';
 import {
   hydrateMacroGameActivityFromAccount,
   hydrateMacroGameProfilesFromAccount,
@@ -33,6 +33,9 @@ interface SubscriptionInfo {
   currentPeriodEnd: string | null;
   trialEndsAt: string | null;
   priceId: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
+  canceledAt: string | null;
 }
 
 interface ProfileInfo {
@@ -149,6 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         currentPeriodEnd: null,
         trialEndsAt: null,
         priceId: 'complimentary-lifetime-access',
+        cancelAtPeriodEnd: false,
+        cancelAt: null,
+        canceledAt: null,
       });
       setSubscriptionLoading(false);
       return;
@@ -159,6 +165,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         currentPeriodEnd: null,
         trialEndsAt: null,
         priceId: null,
+        cancelAtPeriodEnd: false,
+        cancelAt: null,
+        canceledAt: null,
       });
       setSubscriptionLoading(false);
       return;
@@ -169,6 +178,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         currentPeriodEnd: null,
         trialEndsAt: null,
         priceId: 'demo-price',
+        cancelAtPeriodEnd: false,
+        cancelAt: null,
+        canceledAt: null,
       });
       setSubscriptionLoading(false);
       return;
@@ -176,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSubscriptionLoading(true);
     const { data, error } = await supabase
       .from('subscriptions')
-      .select('status,current_period_end,trial_ends_at,price_id')
+      .select('status,current_period_end,trial_ends_at,price_id,cancel_at_period_end,cancel_at,canceled_at')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -189,10 +201,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         currentPeriodEnd: data?.current_period_end || null,
         trialEndsAt: data?.trial_ends_at || null,
         priceId: data?.price_id || null,
+        cancelAtPeriodEnd: Boolean(data?.cancel_at_period_end),
+        cancelAt: data?.cancel_at || null,
+        canceledAt: data?.canceled_at || null,
       };
 
-      const activeStatuses = new Set(['active', 'trialing']);
-      if (!activeStatuses.has(String(nextSubscription.status || '').toLowerCase())) {
+      if (!hasSubscriptionAccess(nextSubscription)) {
         try {
           const household = await getHouseholdDashboard();
           const activeMembers = (household.members || []).filter((member) => member.status === 'active');
@@ -203,6 +217,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               currentPeriodEnd: null,
               trialEndsAt: null,
               priceId: 'household-shared-access',
+              cancelAtPeriodEnd: false,
+              cancelAt: null,
+              canceledAt: null,
             });
             setSubscriptionLoading(false);
             return;
@@ -263,11 +280,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const pendingInvite = loadPendingInviteOnboarding();
     if (!pendingInvite?.token) return;
 
-    const billingStatus = String(subscription?.status || '').toLowerCase();
     const hasDirectAccess =
       isBillingExemptEmail(user.email) ||
-      billingStatus === 'active' ||
-      billingStatus === 'trialing' ||
+      hasSubscriptionAccess(subscription) ||
       Boolean(sharedHouseholdOwnerId && sharedHouseholdOwnerId !== user.id);
 
     if (profile?.onboardingCompletedAt && hasDirectAccess) {
@@ -476,11 +491,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile.dietaryPreferences.length > 0,
     );
     const isProfileComplete = Boolean(profile?.onboardingCompletedAt || profileFieldComplete);
-    const status = subscription?.status || 'inactive';
     const isBillingExempt = !isDemoUser && isBillingExemptEmail(user?.email);
     const isHouseholdCovered = !isDemoUser && Boolean(user?.id && sharedHouseholdOwnerId && sharedHouseholdOwnerId !== user.id);
     const isSubscribed =
-      !BILLING_ENABLED || isBillingExempt || isHouseholdCovered || status === 'active' || status === 'trialing';
+      !BILLING_ENABLED || isBillingExempt || isHouseholdCovered || hasSubscriptionAccess(subscription);
     const userEmail = user?.email?.trim().toLowerCase() || '';
     const isAdmin = !isDemoUser && userEmail === ADMIN_EMAIL;
 

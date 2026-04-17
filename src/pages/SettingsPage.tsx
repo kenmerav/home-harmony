@@ -10,7 +10,7 @@ import { OptionList } from '@/components/onboarding/OptionList';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { BILLING_ENABLED } from '@/lib/billing';
+import { BILLING_ENABLED, getSubscriptionAccessEndDate, hasSubscriptionAccess } from '@/lib/billing';
 import { loadOnboardingResult, saveOnboardingResult, type StoredOnboardingResult } from '@/lib/onboardingStore';
 import { BodyUnitSystem, getProfiles, listDashboardProfiles, updateMacroPlan } from '@/lib/macroGame';
 import {
@@ -272,8 +272,12 @@ export default function SettingsPage() {
   const nextChargeAmount = amountForBillingInterval(inferredBillingInterval);
   const trialEndDate = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
   const currentPeriodEndDate = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
-  const isTrialing = String(subscription?.status || '').toLowerCase() === 'trialing';
-  const isActiveSubscription = String(subscription?.status || '').toLowerCase() === 'active';
+  const accessEndDate = getSubscriptionAccessEndDate(subscription);
+  const normalizedSubscriptionStatus = String(subscription?.status || '').toLowerCase();
+  const isTrialing = normalizedSubscriptionStatus === 'trialing';
+  const isActiveSubscription = normalizedSubscriptionStatus === 'active';
+  const isCanceledWithAccess = normalizedSubscriptionStatus === 'canceled' && hasSubscriptionAccess(subscription);
+  const displaySubscriptionStatus = isCanceledWithAccess ? 'canceled' : subscription?.status || 'inactive';
 
   const refreshSmsPrefs = useCallback(async () => {
     const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
@@ -849,9 +853,14 @@ export default function SettingsPage() {
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-border bg-background px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Status</p>
-                  <p className="mt-1 text-base font-semibold capitalize">{subscription?.status || 'inactive'}</p>
+                  <p className="mt-1 text-base font-semibold capitalize">{displaySubscriptionStatus}</p>
                 </div>
-                {isTrialing && trialEndDate ? (
+                {isCanceledWithAccess && accessEndDate ? (
+                  <div className="rounded-xl border border-border bg-background px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Access through</p>
+                    <p className="mt-1 text-base font-semibold">{accessEndDate.toLocaleDateString()}</p>
+                  </div>
+                ) : isTrialing && trialEndDate ? (
                   <div className="rounded-xl border border-border bg-background px-4 py-3">
                     <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Free trial ends</p>
                     <p className="mt-1 text-base font-semibold">{trialEndDate.toLocaleDateString()}</p>
@@ -864,7 +873,7 @@ export default function SettingsPage() {
                 ) : null}
               </div>
 
-              {nextChargeAmount !== null && (
+              {nextChargeAmount !== null && normalizedSubscriptionStatus !== 'canceled' && (
                 <p className="text-sm text-muted-foreground">
                   {isTrialing ? 'After your trial, you will be charged ' : 'Your current billing amount is '}
                   <span className="font-medium text-foreground">
@@ -879,6 +888,13 @@ export default function SettingsPage() {
               {isTrialing && trialEndDate && (
                 <p className="text-sm text-muted-foreground">
                   Cancel before <span className="font-medium text-foreground">{trialEndDate.toLocaleDateString()}</span> and you will not be charged.
+                </p>
+              )}
+
+              {isCanceledWithAccess && accessEndDate && (
+                <p className="text-sm text-muted-foreground">
+                  Your subscription is canceled. You still have access through{' '}
+                  <span className="font-medium text-foreground">{accessEndDate.toLocaleDateString()}</span>.
                 </p>
               )}
 

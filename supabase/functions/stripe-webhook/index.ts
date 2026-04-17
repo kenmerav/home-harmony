@@ -42,6 +42,17 @@ function toIso(ts?: number | null): string | null {
   return new Date(ts * 1000).toISOString();
 }
 
+function deriveStoredStatus(sub: {
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+}): string {
+  const rawStatus = String(sub.status || "inactive").toLowerCase();
+  if (Boolean(sub.cancel_at_period_end) && (rawStatus === "active" || rawStatus === "trialing")) {
+    return "canceled";
+  }
+  return rawStatus;
+}
+
 serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -70,6 +81,9 @@ serve(async (req) => {
       priceId?: string | null;
       currentPeriodEnd?: string | null;
       trialEndsAt?: string | null;
+      cancelAtPeriodEnd?: boolean | null;
+      cancelAt?: string | null;
+      canceledAt?: string | null;
     }) => {
       const { error } = await supabase
         .from("subscriptions")
@@ -82,6 +96,9 @@ serve(async (req) => {
             price_id: params.priceId || null,
             current_period_end: params.currentPeriodEnd || null,
             trial_ends_at: params.trialEndsAt || null,
+            cancel_at_period_end: Boolean(params.cancelAtPeriodEnd),
+            cancel_at: params.cancelAt || null,
+            canceled_at: params.canceledAt || null,
           },
           { onConflict: "user_id" },
         );
@@ -136,10 +153,13 @@ serve(async (req) => {
           userId,
           stripeCustomerId: sub.customer,
           stripeSubscriptionId: sub.id,
-          status: sub.status,
+          status: deriveStoredStatus(sub),
           priceId: sub.items?.data?.[0]?.price?.id || null,
           currentPeriodEnd: toIso(sub.current_period_end),
           trialEndsAt: toIso(sub.trial_end),
+          cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+          cancelAt: toIso(sub.cancel_at),
+          canceledAt: toIso(sub.canceled_at),
         });
       }
     }
@@ -156,10 +176,13 @@ serve(async (req) => {
           userId,
           stripeCustomerId: sub.customer,
           stripeSubscriptionId: sub.id,
-          status: sub.status,
+          status: deriveStoredStatus(sub),
           priceId: sub.items?.data?.[0]?.price?.id || null,
           currentPeriodEnd: toIso(sub.current_period_end),
           trialEndsAt: toIso(sub.trial_end),
+          cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+          cancelAt: toIso(sub.cancel_at),
+          canceledAt: toIso(sub.canceled_at),
         });
       }
     }

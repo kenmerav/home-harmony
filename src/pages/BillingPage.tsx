@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { HomeHarmonyLogo } from '@/components/branding/HomeHarmonyLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { BILLING_ENABLED } from '@/lib/billing';
+import { BILLING_ENABLED, getSubscriptionAccessEndDate, hasSubscriptionAccess } from '@/lib/billing';
 import {
   amountForBillingInterval,
   BillingInterval,
@@ -68,6 +68,7 @@ export default function BillingPage() {
   const [searchParams] = useSearchParams();
   const hasBillingAccess = isSubscribed || Boolean(subscription?.priceId);
   const checkoutState = searchParams.get('checkout');
+  const portalState = searchParams.get('portal');
   const inferredBillingInterval = useMemo(
     () => inferBillingIntervalFromPriceId(subscription?.priceId),
     [subscription?.priceId],
@@ -75,15 +76,24 @@ export default function BillingPage() {
   const nextChargeAmount = amountForBillingInterval(inferredBillingInterval);
   const trialEndDate = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
   const currentPeriodEndDate = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
-  const isTrialing = String(subscription?.status || '').toLowerCase() === 'trialing';
-  const isActive = String(subscription?.status || '').toLowerCase() === 'active';
+  const accessEndDate = getSubscriptionAccessEndDate(subscription);
+  const normalizedStatus = String(subscription?.status || '').toLowerCase();
+  const isTrialing = normalizedStatus === 'trialing';
+  const isActive = normalizedStatus === 'active';
+  const isCanceledWithAccess = normalizedStatus === 'canceled' && hasSubscriptionAccess(subscription);
+  const displayStatus = isCanceledWithAccess ? 'canceled' : subscription?.status || 'inactive';
 
   const billingSummaryRows = useMemo(() => {
     const rows: Array<{ label: string; value: string }> = [
-      { label: 'Current plan status', value: subscription?.status ? String(subscription.status) : 'inactive' },
+      { label: 'Current plan status', value: String(displayStatus) },
     ];
 
-    if (isTrialing && trialEndDate) {
+    if (isCanceledWithAccess && accessEndDate) {
+      rows.push({
+        label: 'Access through',
+        value: accessEndDate.toLocaleDateString(),
+      });
+    } else if (isTrialing && trialEndDate) {
       rows.push({
         label: 'Free trial ends',
         value: trialEndDate.toLocaleDateString(),
@@ -99,7 +109,7 @@ export default function BillingPage() {
       });
     }
 
-    if (nextChargeAmount !== null) {
+    if (nextChargeAmount !== null && normalizedStatus !== 'canceled') {
       rows.push({
         label: isTrialing ? 'Amount after trial' : 'Billing amount',
         value:
@@ -112,11 +122,14 @@ export default function BillingPage() {
     return rows;
   }, [
     currentPeriodEndDate,
+    displayStatus,
     inferredBillingInterval,
     isActive,
+    isCanceledWithAccess,
     isTrialing,
     nextChargeAmount,
-    subscription?.status,
+    normalizedStatus,
+    accessEndDate,
     trialEndDate,
   ]);
 
@@ -164,6 +177,33 @@ export default function BillingPage() {
       cancelled = true;
     };
   }, [checkoutState, checkoutSyncing, isSubscribed, navigate, refreshSubscription]);
+
+  useEffect(() => {
+    if (checkoutState === 'success' || portalState !== 'return') return;
+
+    let cancelled = false;
+    setMessage('Refreshing your billing status...');
+
+    const run = async () => {
+      try {
+        await syncSubscriptionStatus();
+        if (cancelled) return;
+        await refreshSubscription();
+        if (cancelled) return;
+        setMessage('Billing status updated.');
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const text = await resolveInvokeErrorMessage(error, 'Unable to refresh billing status right now.');
+        setMessage(text);
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutState, portalState, refreshSubscription]);
 
   if (!BILLING_ENABLED) {
     return (
@@ -221,7 +261,7 @@ export default function BillingPage() {
       const headers = await getFunctionHeaders();
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
         headers,
-        body: { returnUrl: `${window.location.origin}/billing` },
+        body: { returnUrl: `${window.location.origin}/billing?portal=return` },
       });
       if (error) {
         const detail = await resolveInvokeErrorMessage(error, 'Unable to open customer portal');
@@ -267,6 +307,11 @@ export default function BillingPage() {
                   </div>
                 ))}
               </div>
+              {isCanceledWithAccess && accessEndDate && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Your cancellation is set. You have access through {accessEndDate.toLocaleDateString()}.
+                </p>
+              )}
               {isTrialing && trialEndDate && (
                 <p className="mt-3 text-xs text-muted-foreground">
                   Cancel before {trialEndDate.toLocaleDateString()} and you will not be charged.

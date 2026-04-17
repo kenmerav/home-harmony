@@ -18,6 +18,17 @@ function toIso(ts?: number | null): string | null {
   return new Date(ts * 1000).toISOString();
 }
 
+function deriveStoredStatus(sub: {
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+}): string {
+  const rawStatus = String(sub.status || "inactive").toLowerCase();
+  if (Boolean(sub.cancel_at_period_end) && (rawStatus === "active" || rawStatus === "trialing")) {
+    return "canceled";
+  }
+  return rawStatus;
+}
+
 async function fetchStripeJson<T = unknown>(
   stripeSecretKey: string,
   path: string,
@@ -36,6 +47,9 @@ type StripeSubscription = {
   id?: string;
   customer?: string;
   status?: string;
+  cancel_at_period_end?: boolean | null;
+  cancel_at?: number | null;
+  canceled_at?: number | null;
   created?: number;
   current_period_end?: number | null;
   trial_end?: number | null;
@@ -78,7 +92,7 @@ serve(async (req) => {
 
     const { data: existing, error: existingError } = await service
       .from("subscriptions")
-      .select("user_id,status,stripe_customer_id,stripe_subscription_id,price_id,current_period_end,trial_ends_at")
+      .select("user_id,status,stripe_customer_id,stripe_subscription_id,price_id,current_period_end,trial_ends_at,cancel_at_period_end,cancel_at,canceled_at")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -94,10 +108,13 @@ serve(async (req) => {
             user_id: user.id,
             stripe_customer_id: typeof sub.customer === "string" ? sub.customer : existing?.stripe_customer_id || null,
             stripe_subscription_id: sub.id || existing?.stripe_subscription_id || null,
-            status: sub.status || existing?.status || "inactive",
+            status: deriveStoredStatus(sub) || existing?.status || "inactive",
             price_id: sub.items?.data?.[0]?.price?.id || existing?.price_id || null,
             current_period_end: toIso(sub.current_period_end) || existing?.current_period_end || null,
             trial_ends_at: toIso(sub.trial_end) || existing?.trial_ends_at || null,
+            cancel_at_period_end: Boolean(sub.cancel_at_period_end),
+            cancel_at: toIso(sub.cancel_at) || existing?.cancel_at || null,
+            canceled_at: toIso(sub.canceled_at) || existing?.canceled_at || null,
           },
           { onConflict: "user_id" },
         );
@@ -163,7 +180,7 @@ serve(async (req) => {
       await upsertSubscription(bestSubscription);
       return json({
         synced: true,
-        status: bestSubscription.status || "inactive",
+        status: deriveStoredStatus(bestSubscription),
         priceId: bestSubscription.items?.data?.[0]?.price?.id || null,
       });
     }
