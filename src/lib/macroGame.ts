@@ -1329,12 +1329,17 @@ export function getEffectiveMealLogsForDate(personId: AdultId, date = dayKey(), 
   const scopedUserId = userId ?? currentStorageScopeUserId;
   const state = readState(scopedUserId);
   const equivalentPersonIds = resolveEquivalentMealLogPersonIds(state, personId, scopedUserId);
+  const includeUnassignedPlannerEntries = isMeProfileLike(state, personId, scopedUserId);
   const actualLogs = state.mealLogs
     .map(fromStoredMealLog)
     .filter((log) => equivalentPersonIds.has(log.person) && log.date === date);
   const existingKeys = new Set(actualLogs.map((log) => buildMealIdentityWithinScope(log)));
   const supplementalPlannerLogs = getPlannedFoodEntriesForDate(date, scopedUserId)
-    .filter((entry) => entry.personId && equivalentPersonIds.has(entry.personId) && entry.mealType !== 'dinner')
+    .filter((entry) => {
+      if (entry.mealType === 'dinner') return false;
+      if (entry.personId && equivalentPersonIds.has(entry.personId)) return true;
+      return includeUnassignedPlannerEntries && !entry.personId;
+    })
     .map<MealLog>((entry) => ({
       id: `planner-log:${entry.id}`,
       recipeId: entry.sourceRecipeId || undefined,

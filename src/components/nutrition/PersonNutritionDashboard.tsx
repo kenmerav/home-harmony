@@ -112,7 +112,11 @@ export function PersonNutritionDashboard({ personId, accent }: PersonNutritionDa
   useEffect(() => {
     const handleMacroStateUpdated = () => setRefreshTick((prev) => prev + 1);
     window.addEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
-    return () => window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+    window.addEventListener('homehub:meals-updated', handleMacroStateUpdated);
+    return () => {
+      window.removeEventListener('homehub:macro-state-updated', handleMacroStateUpdated);
+      window.removeEventListener('homehub:meals-updated', handleMacroStateUpdated);
+    };
   }, []);
 
   useEffect(() => {

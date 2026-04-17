@@ -38,7 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
-import { getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
+import { getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { listTaskDatesInRange, loadTasks, updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { estimateCommuteEta } from '@/lib/api/commute';
 import {
@@ -595,7 +595,7 @@ export default function CalendarPage() {
         const mealDate = addDays(weekStart, dayToIndexMonday(day));
         if (!inRange(mealDate, rangeStart, rangeEnd)) return;
 
-        const mealStart = withTime(mealDate, dinnerPrefs.preferredDinnerTime || '18:00');
+        const mealStart = withTime(mealDate, getDinnerTimeForDay(day, dinnerPrefs));
         nextEvents.push({
           id: `meal-${meal.id}`,
           title: meal.recipes.name,
