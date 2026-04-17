@@ -297,6 +297,10 @@ const DAY_NAME_BY_WEEKDAY: Record<number, string> = {
   7: "sunday",
 };
 
+const WEEKDAY_BY_DAY_NAME: Record<string, number> = Object.fromEntries(
+  Object.entries(DAY_NAME_BY_WEEKDAY).map(([weekday, dayName]) => [dayName, Number.parseInt(weekday, 10)]),
+);
+
 const DAY_LABEL_BY_NAME: Record<string, string> = {
   monday: "Mon",
   tuesday: "Tue",
@@ -1529,6 +1533,29 @@ function parseUsDate(dateText: string, timezone: string): DateTime | null {
   if (normalized === "today") return now.startOf("day");
   if (normalized === "tomorrow") return now.plus({ days: 1 }).startOf("day");
 
+  const relativeWeekdayMatch = normalized.match(/^(this|next)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/);
+  if (relativeWeekdayMatch) {
+    const modifier = relativeWeekdayMatch[1];
+    const weekdayName = relativeWeekdayMatch[2] as keyof typeof WEEKDAY_BY_DAY_NAME;
+    const targetWeekday = WEEKDAY_BY_DAY_NAME[weekdayName];
+    const dayStart = now.startOf("day");
+    let offset = targetWeekday - dayStart.weekday;
+    if (modifier === "this") {
+      if (offset < 0) offset += 7;
+    } else {
+      if (offset <= 0) offset += 7;
+    }
+    return dayStart.plus({ days: offset });
+  }
+
+  if (normalized in WEEKDAY_BY_DAY_NAME) {
+    const targetWeekday = WEEKDAY_BY_DAY_NAME[normalized as keyof typeof WEEKDAY_BY_DAY_NAME];
+    const dayStart = now.startOf("day");
+    let offset = targetWeekday - dayStart.weekday;
+    if (offset < 0) offset += 7;
+    return dayStart.plus({ days: offset });
+  }
+
   const mdMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
   if (mdMatch) {
     const month = Number.parseInt(mdMatch[1] || "", 10);
@@ -1555,6 +1582,53 @@ function parseUsDate(dateText: string, timezone: string): DateTime | null {
   }
 
   return null;
+}
+
+function extractScheduleLookupDate(body: string, timezone: string): DateTime | null {
+  const normalized = normalizeToken(body);
+
+  if (normalized.includes("today")) {
+    return parseUsDate("today", timezone);
+  }
+
+  if (normalized.includes("tomorrow")) {
+    return parseUsDate("tomorrow", timezone);
+  }
+
+  const weekdayPhraseMatch = normalized.match(/\b(?:this|next)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+  if (weekdayPhraseMatch) {
+    const fullMatch = weekdayPhraseMatch[0];
+    const parsed = parseUsDate(fullMatch, timezone);
+    if (parsed) return parsed;
+  }
+
+  const weekdayMatch = normalized.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+  if (weekdayMatch) {
+    const parsed = parseUsDate(weekdayMatch[1], timezone);
+    if (parsed) return parsed;
+  }
+
+  const slashDateMatch = body.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/);
+  if (slashDateMatch) {
+    const parsed = parseUsDate(slashDateMatch[0], timezone);
+    if (parsed) return parsed;
+  }
+
+  const monthDateMatch = normalized.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/);
+  if (monthDateMatch) {
+    const parsed = parseUsDate(monthDateMatch[0], timezone);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function scheduleLabelForDate(date: DateTime, timezone: string): string {
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const tomorrow = today.plus({ days: 1 });
+  if (date.hasSame(today, "day")) return "Today";
+  if (date.hasSame(tomorrow, "day")) return "Tomorrow";
+  return date.toFormat("EEEE");
 }
 
 function parseTimeForZone(timeText: string, date: DateTime, timezone: string): DateTime | null {
@@ -3402,6 +3476,19 @@ async function buildTodayScheduleReply(
   return formatAgendaList("Today", today, events);
 }
 
+async function buildScheduleReplyForDate(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  date: DateTime,
+  timezone: string,
+  includeModules: string[],
+  smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): Promise<string> {
+  const events = await fetchAgendaForDate(supabase, userId, date.startOf("day"), timezone, includeModules, smsPreference, profileSettingsDocument);
+  return formatAgendaList(scheduleLabelForDate(date, timezone), date.startOf("day"), events);
+}
+
 async function buildNextWeekScheduleReply(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -3944,7 +4031,20 @@ serve(async (req) => {
     const wantsNextWeek = hasAnyKeyword(body, ["next week", "coming week"]);
     const wantsThisWeek = hasAnyKeyword(body, ["this week", "this weeks"]);
     const asksMeals = hasAnyKeyword(body, ["meal", "meals", "dinner", "menu", "breakfast", "lunch"]);
-    const asksSchedule = hasAnyKeyword(body, ["what do i have", "schedule", "calendar", "event", "events", "tomorrow", "next week", "this week"]);
+    const asksSchedule = hasAnyKeyword(body, [
+      "what do i have",
+      "what's on",
+      "whats on",
+      "what is on",
+      "schedule",
+      "calendar",
+      "event",
+      "events",
+      "tomorrow",
+      "next week",
+      "this week",
+    ]);
+    const requestedScheduleDate = asksSchedule ? extractScheduleLookupDate(body, timezone) : null;
     const asksChores = hasAnyKeyword(body, ["chore", "chores", "kid", "kids"]);
     const asksAutoGenerateMeals =
       hasAnyKeyword(body, ["run meals", "auto generate", "autogenerate", "generate meals", "plan meals"]) ||
@@ -3994,6 +4094,19 @@ serve(async (req) => {
 
     if (asksMeals && (wantsThisWeek || body.includes("week"))) {
       const reply = await buildMealsReply(supabase, pref.user_id, timezone, false);
+      return twiml(reply);
+    }
+
+    if (requestedScheduleDate) {
+      const reply = await buildScheduleReplyForDate(
+        supabase,
+        pref.user_id,
+        requestedScheduleDate,
+        timezone,
+        includeModules,
+        pref,
+        profileSettingsDocument,
+      );
       return twiml(reply);
     }
 
