@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { acceptHouseholdInvite, createOrGetHousehold, getHouseholdDashboard } from '@/lib/api/family';
+import { sendAdminNewUserNotice } from '@/lib/api/emails';
 import { trackGrowthEventSafe } from '@/lib/api/growthAnalytics';
 import {
   enqueueCookbookImportFromPdf,
@@ -1782,6 +1783,23 @@ export default function OnboardingPage() {
         },
         `onboarding_complete:${user.id}`,
       );
+
+      try {
+        await sendAdminNewUserNotice({
+          email: user.email?.trim().toLowerCase() || account.email.trim().toLowerCase(),
+          userName: fullName,
+          roleLabel:
+            effectiveHouseholdRole === 'kid'
+              ? 'Kid household member'
+              : invitedHouseholdMember
+              ? 'Spouse household member'
+              : 'Primary account owner',
+          onboardingMode: invitedHouseholdMember ? 'personal_household_member' : 'household_owner',
+          householdName: invitedHouseholdMember ? profile?.householdName || null : householdName,
+        });
+      } catch (adminEmailError) {
+        console.error('Failed sending admin new user notice:', adminEmailError);
+      }
 
       if (!invitedHouseholdMember && failedLinkImports > 0) {
         toast({

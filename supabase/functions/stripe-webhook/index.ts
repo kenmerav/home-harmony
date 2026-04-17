@@ -53,6 +53,39 @@ function deriveStoredStatus(sub: {
   return rawStatus;
 }
 
+function formatDateForEmail(iso: string | null): string {
+  if (!iso) return "the end of your current access period";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "the end of your current access period";
+  return parsed.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function didJustCancel(existing: {
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+  canceled_at?: string | null;
+} | null, next: {
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+  canceled_at?: string | null;
+}): boolean {
+  const previousStatus = String(existing?.status || "").toLowerCase();
+  const nextStatus = String(next.status || "").toLowerCase();
+  const previousScheduled = Boolean(existing?.cancel_at_period_end);
+  const nextScheduled = Boolean(next.cancel_at_period_end);
+  const previousCanceledAt = existing?.canceled_at || null;
+  const nextCanceledAt = next.canceled_at || null;
+
+  if (!previousScheduled && nextScheduled) return true;
+  if (previousStatus !== "canceled" && nextStatus === "canceled") return true;
+  if (!previousCanceledAt && nextCanceledAt) return true;
+  return false;
+}
+
 serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -103,6 +136,51 @@ serve(async (req) => {
           { onConflict: "user_id" },
         );
       if (error) throw error;
+    };
+
+    const fetchExistingSubscription = async (userId: string) => {
+      const { data, error } = await supabase
+        .from("subscriptions")
+        .select("status,cancel_at_period_end,canceled_at,current_period_end,trial_ends_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as {
+        status?: string | null;
+        cancel_at_period_end?: boolean | null;
+        canceled_at?: string | null;
+        current_period_end?: string | null;
+        trial_ends_at?: string | null;
+      } | null;
+    };
+
+    const fetchProfileSummary = async (userId: string) => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("email,full_name")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { email?: string | null; full_name?: string | null } | null;
+    };
+
+    const sendTransactionalEmail = async (action: string, body: Record<string, unknown>) => {
+      const response = await fetch(`${supabaseUrl}/functions/v1/transactional-email`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action,
+          ...body,
+        }),
+      });
+
+      if (!response.ok) {
+        const details = await response.text().catch(() => "");
+        throw new Error(`transactional-email failed (${response.status}): ${details || "Unknown error"}`);
+      }
     };
 
     const resolveUserIdForSubscriptionEvent = async (sub: {
@@ -172,18 +250,65 @@ serve(async (req) => {
       const sub = event.data.object;
       const userId = await resolveUserIdForSubscriptionEvent(sub);
       if (userId) {
+        const existing = await fetchExistingSubscription(userId);
+        const nextStatus = deriveStoredStatus(sub);
+        const nextCurrentPeriodEnd = toIso(sub.current_period_end);
+        const nextTrialEndsAt = toIso(sub.trial_end);
+        const nextCanceledAt = toIso(sub.canceled_at);
         await upsertSubscription({
           userId,
           stripeCustomerId: sub.customer,
           stripeSubscriptionId: sub.id,
-          status: deriveStoredStatus(sub),
+          status: nextStatus,
           priceId: sub.items?.data?.[0]?.price?.id || null,
-          currentPeriodEnd: toIso(sub.current_period_end),
-          trialEndsAt: toIso(sub.trial_end),
+          currentPeriodEnd: nextCurrentPeriodEnd,
+          trialEndsAt: nextTrialEndsAt,
           cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
           cancelAt: toIso(sub.cancel_at),
-          canceledAt: toIso(sub.canceled_at),
+          canceledAt: nextCanceledAt,
         });
+
+        if (
+          didJustCancel(existing, {
+            status: nextStatus,
+            cancel_at_period_end: Boolean(sub.cancel_at_period_end),
+            canceled_at: nextCanceledAt,
+          })
+        ) {
+          const profile = await fetchProfileSummary(userId).catch((error) => {
+            console.error("Failed loading profile for cancellation email:", error);
+            return null;
+          });
+          const recipientEmail = profile?.email?.trim().toLowerCase() || "";
+          const accessEndsOn = formatDateForEmail(nextTrialEndsAt || nextCurrentPeriodEnd || existing?.trial_ends_at || existing?.current_period_end || null);
+          const isTrial = String(sub.status || "").toLowerCase() === "trialing";
+
+          if (recipientEmail) {
+            try {
+              await sendTransactionalEmail("send_subscription_canceled_notice", {
+                userId,
+                email: recipientEmail,
+                userName: profile?.full_name || recipientEmail,
+                accessEndsOn,
+                isTrial,
+              });
+            } catch (emailError) {
+              console.error("Failed sending user cancellation email:", emailError);
+            }
+
+            try {
+              await sendTransactionalEmail("send_admin_subscription_canceled_notice", {
+                userId,
+                email: recipientEmail,
+                userName: profile?.full_name || recipientEmail,
+                accessEndsOn,
+                isTrial,
+              });
+            } catch (adminEmailError) {
+              console.error("Failed sending admin cancellation email:", adminEmailError);
+            }
+          }
+        }
       }
     }
 

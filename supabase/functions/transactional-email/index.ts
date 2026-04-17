@@ -9,7 +9,10 @@ type Action =
   | "send_onboarding_preview"
   | "send_welcome_preview"
   | "send_email_preview"
-  | "send_lifecycle_email";
+  | "send_lifecycle_email"
+  | "send_admin_new_user_notice"
+  | "send_subscription_canceled_notice"
+  | "send_admin_subscription_canceled_notice";
 
 type LifecycleTemplateKey =
   | "welcome"
@@ -28,6 +31,7 @@ interface SendEmailArgs {
 }
 
 const DEFAULT_ADMIN_EMAILS = ["kroberts035@gmail.com"];
+const OWNER_NOTIFICATION_EMAIL = "ken@homeharmonyhq.com";
 
 function parseAdminEmails(raw: string | null): Set<string> {
   if (!raw) return new Set(DEFAULT_ADMIN_EMAILS);
@@ -272,6 +276,117 @@ function familyInviteTemplate(args: {
         <p style="margin:0 0 20px;line-height:1.55;">Accept the invite to collaborate on meals, groceries, tasks, and chores.</p>
         <a href="${args.inviteLink}" style="display:inline-block;background:#2f7d5b;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Accept Invite</a>
         <p style="margin:16px 0 0;color:#6b7280;font-size:13px;">If the button doesn't work, open this link: ${escapeHtml(args.inviteLink)}</p>
+      </div>
+    `,
+  };
+}
+
+function subscriptionCanceledTemplate(args: {
+  userName: string;
+  accessEndsOn: string;
+  isTrial: boolean;
+  appUrl: string;
+}) {
+  const safeName = escapeHtml(args.userName || "there");
+  const billingUrl = `${args.appUrl.replace(/\/$/, "")}/billing`;
+  const accessLine = args.isTrial
+    ? `You can keep using Home Harmony until your free trial ends on ${escapeHtml(args.accessEndsOn)}.`
+    : `You can keep using Home Harmony until your current billing period ends on ${escapeHtml(args.accessEndsOn)}.`;
+
+  return {
+    subject: "Your Home Harmony subscription has been canceled",
+    text:
+      `Hi ${args.userName || "there"},\n\n` +
+      `Your Home Harmony subscription has been canceled.\n\n` +
+      `${args.isTrial ? "You can keep using Home Harmony until your free trial ends" : "You can keep using Home Harmony until your current billing period ends"} on ${args.accessEndsOn}.\n\n` +
+      `You can review your billing any time here: ${billingUrl}\n\n` +
+      `Ken and the Home Harmony HQ Team\n`,
+    html: `
+      <div style="background:#f6f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e9dfcf;border-radius:20px;overflow:hidden;">
+          <div style="padding:32px 28px;background:linear-gradient(180deg,#fbf7f1 0%,#ffffff 100%);">
+            <h1 style="font-size:30px;line-height:1.15;margin:0 0 18px;font-family:Georgia,serif;font-weight:700;color:#1f1a17;">
+              Your subscription has been canceled
+            </h1>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Hi ${safeName},
+            </p>
+            <p style="margin:0 0 18px;line-height:1.75;font-size:16px;color:#5f554c;">
+              Your Home Harmony subscription has been canceled.
+            </p>
+            <div style="margin:0 0 22px;padding:18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+              <p style="margin:0;line-height:1.7;color:#5f554c;">
+                ${accessLine}
+              </p>
+            </div>
+            <a href="${billingUrl}" style="display:inline-block;background:#2f7d5b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
+              View Billing
+            </a>
+            <p style="margin:24px 0 0;line-height:1.7;font-size:15px;color:#5f554c;">
+              Ken and the Home Harmony HQ Team
+            </p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
+}
+
+function adminNewUserTemplate(args: {
+  userName: string;
+  email: string;
+  roleLabel: string;
+  onboardingMode: string;
+  householdName?: string | null;
+}) {
+  return {
+    subject: `New Home Harmony user: ${args.userName || args.email}`,
+    text:
+      `A new user just completed Home Harmony onboarding.\n\n` +
+      `Name: ${args.userName || "Unknown"}\n` +
+      `Email: ${args.email}\n` +
+      `Role: ${args.roleLabel}\n` +
+      `Onboarding mode: ${args.onboardingMode}\n` +
+      `Household: ${args.householdName || "Not provided"}\n`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1f2937;">
+        <h1 style="font-size:24px;margin:0 0 12px;">New Home Harmony user</h1>
+        <p style="margin:0 0 16px;line-height:1.6;">A new user just completed onboarding.</p>
+        <div style="padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+          <p style="margin:0 0 8px;"><strong>Name:</strong> ${escapeHtml(args.userName || "Unknown")}</p>
+          <p style="margin:0 0 8px;"><strong>Email:</strong> ${escapeHtml(args.email)}</p>
+          <p style="margin:0 0 8px;"><strong>Role:</strong> ${escapeHtml(args.roleLabel)}</p>
+          <p style="margin:0 0 8px;"><strong>Onboarding mode:</strong> ${escapeHtml(args.onboardingMode)}</p>
+          <p style="margin:0;"><strong>Household:</strong> ${escapeHtml(args.householdName || "Not provided")}</p>
+        </div>
+      </div>
+    `,
+  };
+}
+
+function adminCancellationTemplate(args: {
+  userName: string;
+  email: string;
+  accessEndsOn: string;
+  isTrial: boolean;
+}) {
+  return {
+    subject: `Canceled: ${args.userName || args.email}`,
+    text:
+      `A Home Harmony customer canceled.\n\n` +
+      `Name: ${args.userName || "Unknown"}\n` +
+      `Email: ${args.email}\n` +
+      `Access through: ${args.accessEndsOn}\n` +
+      `Canceled during trial: ${args.isTrial ? "Yes" : "No"}\n`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1f2937;">
+        <h1 style="font-size:24px;margin:0 0 12px;">Subscription canceled</h1>
+        <div style="padding:16px 18px;border:1px solid #efe7da;border-radius:14px;background:#fcfaf7;">
+          <p style="margin:0 0 8px;"><strong>Name:</strong> ${escapeHtml(args.userName || "Unknown")}</p>
+          <p style="margin:0 0 8px;"><strong>Email:</strong> ${escapeHtml(args.email)}</p>
+          <p style="margin:0 0 8px;"><strong>Access through:</strong> ${escapeHtml(args.accessEndsOn)}</p>
+          <p style="margin:0;"><strong>Canceled during trial:</strong> ${args.isTrial ? "Yes" : "No"}</p>
+        </div>
       </div>
     `,
   };
@@ -757,6 +872,97 @@ serve(async (req) => {
         text: template.text,
       });
       await logEmailCost(userId, "lifecycle_email", { action, templateKey, to: recipientEmail });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_admin_new_user_notice") {
+      const recipientEmail = OWNER_NOTIFICATION_EMAIL;
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : inviterName;
+      const userEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : authUser?.email?.trim().toLowerCase() || "";
+      const roleLabel = typeof payload.roleLabel === "string" ? payload.roleLabel.trim() : "user";
+      const onboardingMode = typeof payload.onboardingMode === "string" ? payload.onboardingMode.trim() : "unknown";
+      const householdName = typeof payload.householdName === "string" ? payload.householdName.trim() : null;
+      if (!userEmail) return json({ error: "User email is required." }, 400);
+
+      const template = adminNewUserTemplate({
+        userName,
+        email: userEmail,
+        roleLabel,
+        onboardingMode,
+        householdName,
+      });
+      const provider = await sendViaResend({
+        to: recipientEmail,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+      await logEmailCost(authUser?.id || null, "admin_new_user_notice", {
+        action,
+        to: recipientEmail,
+        userEmail,
+        roleLabel,
+      });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_subscription_canceled_notice") {
+      if (!isServiceRoleAuth) return json({ error: "Forbidden." }, 403);
+
+      const recipientEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : "there";
+      const accessEndsOn = typeof payload.accessEndsOn === "string" ? payload.accessEndsOn.trim() : "";
+      const isTrial = Boolean(payload.isTrial);
+      const userId = typeof payload.userId === "string" ? payload.userId.trim() : null;
+      if (!recipientEmail || !accessEndsOn) return json({ error: "Recipient email and access end date are required." }, 400);
+
+      const template = subscriptionCanceledTemplate({
+        userName,
+        accessEndsOn,
+        isTrial,
+        appUrl,
+      });
+      const provider = await sendViaResend({
+        to: recipientEmail,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+      await logEmailCost(userId, "subscription_canceled_notice", { action, to: recipientEmail, isTrial });
+
+      return json({ success: true, provider });
+    }
+
+    if (action === "send_admin_subscription_canceled_notice") {
+      if (!isServiceRoleAuth) return json({ error: "Forbidden." }, 403);
+
+      const userName = typeof payload.userName === "string" ? payload.userName.trim() : "Unknown";
+      const userEmail = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+      const accessEndsOn = typeof payload.accessEndsOn === "string" ? payload.accessEndsOn.trim() : "";
+      const isTrial = Boolean(payload.isTrial);
+      const userId = typeof payload.userId === "string" ? payload.userId.trim() : null;
+      if (!userEmail || !accessEndsOn) return json({ error: "User email and access end date are required." }, 400);
+
+      const template = adminCancellationTemplate({
+        userName,
+        email: userEmail,
+        accessEndsOn,
+        isTrial,
+      });
+      const provider = await sendViaResend({
+        to: OWNER_NOTIFICATION_EMAIL,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+      await logEmailCost(userId, "admin_subscription_canceled_notice", {
+        action,
+        to: OWNER_NOTIFICATION_EMAIL,
+        userEmail,
+        isTrial,
+      });
 
       return json({ success: true, provider });
     }

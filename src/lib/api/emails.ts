@@ -79,3 +79,24 @@ export async function sendFamilyInviteEmail(payload: {
       (typeof window !== 'undefined' ? window.location.origin : undefined),
   });
 }
+
+export async function sendAdminNewUserNotice(payload: {
+  email: string;
+  userName?: string;
+  roleLabel?: string;
+  onboardingMode?: string;
+  householdName?: string | null;
+  appUrl?: string;
+}) {
+  return invokeEmail({
+    action: 'send_admin_new_user_notice',
+    email: payload.email,
+    userName: payload.userName,
+    roleLabel: payload.roleLabel,
+    onboardingMode: payload.onboardingMode,
+    householdName: payload.householdName || null,
+    appUrl:
+      payload.appUrl ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined),
+  });
+}
