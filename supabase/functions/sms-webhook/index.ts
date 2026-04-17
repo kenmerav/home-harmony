@@ -145,6 +145,16 @@ type CalendarAddIntent = {
   description?: string | null;
 };
 
+type CalendarAddDraft = {
+  title: string;
+  layer: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  locationText?: string | null;
+  description?: string | null;
+};
+
 type CalendarFollowUpIntent = {
   layer?: string;
   reminderLeadMinutes?: number;
@@ -158,6 +168,15 @@ type SmsAssistantContext = {
   lastCalendarEvent?: {
     eventId: string;
     title: string;
+    updatedAt: string;
+  } | null;
+  pendingCalendarAdd?: {
+    title: string;
+    startsAt: string;
+    endsAt: string | null;
+    allDay: boolean;
+    locationText?: string | null;
+    description?: string | null;
     updatedAt: string;
   } | null;
   lastMealLog?: {
@@ -749,7 +768,7 @@ async function parseCalendarAddIntentWithAi(
   body: string,
   timezone: string,
   userId: string | null,
-): Promise<CalendarAddIntent | null> {
+): Promise<CalendarAddDraft | null> {
   const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openAiApiKey) return null;
 
@@ -764,7 +783,7 @@ Return JSON only in this exact schema:
   "startTime": "h:mm AM/PM or empty string",
   "endTime": "h:mm AM/PM or empty string",
   "allDay": boolean,
-  "layer": "Family or calendar name",
+  "layer": "Family or calendar name or empty string",
   "locationText": "string or empty string",
   "description": "string or empty string"
 }
@@ -773,7 +792,7 @@ Rules:
 - Only return "calendar_add" if the user is clearly asking to create/add a calendar event.
 - Do not treat schedule lookups like "what do i have tomorrow" as calendar_add.
 - If the user says family, use "Family".
-- If the user does not specify a calendar/filter, default to "Family".
+- If the user does not specify a calendar/filter, return an empty string for layer.
 - Use the provided timezone context when resolving relative dates like today or tomorrow.
 - If the date or title is missing or unclear, return intent "none".
 - Do not invent details not implied by the message.`;
@@ -848,7 +867,8 @@ Rules:
   const startTimeText = String(parsed.startTime || "").trim();
   const endTimeText = String(parsed.endTime || "").trim();
   const allDay = parseBoolean(parsed.allDay);
-  const layer = normalizeCalendarLayerName(String(parsed.layer || "Family"));
+  const rawLayer = String(parsed.layer || "").trim();
+  const layer = rawLayer ? normalizeCalendarLayerName(rawLayer) : null;
   const locationText = String(parsed.locationText || "").trim() || null;
   const description = String(parsed.description || "").trim() || null;
 
@@ -1035,6 +1055,7 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   const record = input as Record<string, unknown>;
   const rawLast = record.lastCalendarEvent;
+  const rawPendingCalendarAdd = record.pendingCalendarAdd;
   const rawMeal = record.lastMealLog;
   const context: SmsAssistantContext = {};
 
@@ -1047,6 +1068,28 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
       context.lastCalendarEvent = {
         eventId,
         title: title || "Event",
+        updatedAt,
+      };
+    }
+  }
+
+  if (rawPendingCalendarAdd && typeof rawPendingCalendarAdd === "object" && !Array.isArray(rawPendingCalendarAdd)) {
+    const pending = rawPendingCalendarAdd as Record<string, unknown>;
+    const title = typeof pending.title === "string" ? pending.title.trim() : "";
+    const startsAt = typeof pending.startsAt === "string" ? pending.startsAt.trim() : "";
+    const endsAt = typeof pending.endsAt === "string" ? pending.endsAt.trim() : null;
+    const allDay = parseBoolean(pending.allDay);
+    const locationText = typeof pending.locationText === "string" ? pending.locationText.trim() : "";
+    const description = typeof pending.description === "string" ? pending.description.trim() : "";
+    const updatedAt = typeof pending.updatedAt === "string" ? pending.updatedAt.trim() : "";
+    if (title && startsAt && updatedAt) {
+      context.pendingCalendarAdd = {
+        title,
+        startsAt,
+        endsAt,
+        allDay,
+        locationText: locationText || null,
+        description: description || null,
         updatedAt,
       };
     }
@@ -1495,19 +1538,20 @@ function groceryItemMatchesName(itemName: string, requestedName: string): boolea
   return itemKey === requestedKey || itemKey.includes(requestedKey) || requestedKey.includes(itemKey);
 }
 
-function parseCalendarAddIntent(body: string, timezone: string): CalendarAddIntent | null {
+function parseCalendarAddIntent(body: string, timezone: string): CalendarAddDraft | null {
   const normalized = trimTrailingPunctuation(body);
   const buildCalendarIntent = (
     titleRaw: string,
     layerRaw: string | null | undefined,
     dateTextRaw: string,
     timeTextRaw: string,
-  ): CalendarAddIntent | null => {
+  ): CalendarAddDraft | null => {
     const title = normalizeCalendarTitle(trimTrailingPunctuation(titleRaw || ""));
-    const layer = normalizeCalendarLayerName(layerRaw || "family");
+    const rawLayer = String(layerRaw || "").trim();
+    const layer = rawLayer ? normalizeCalendarLayerName(rawLayer) : null;
     const dateText = trimTrailingPunctuation(dateTextRaw || "");
     const timeText = trimTrailingPunctuation(timeTextRaw || "");
-    if (!title || !layer) return null;
+    if (!title) return null;
 
     const date = parseUsDate(dateText, timezone);
     if (!date) return null;
@@ -1582,11 +1626,11 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     },
     {
       pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
-      defaultLayer: "family",
+      defaultLayer: null,
     },
     {
       pattern: /^add\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
-      defaultLayer: "family",
+      defaultLayer: null,
     },
     {
       pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
@@ -1598,11 +1642,11 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     },
     {
       pattern: /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
-      defaultLayer: "family",
+      defaultLayer: null,
     },
     {
       pattern: /^add\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
-      defaultLayer: "family",
+      defaultLayer: null,
     },
   ];
 
@@ -1666,6 +1710,84 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
   }
 
   return null;
+}
+
+async function loadCalendarLayerChoices(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<string[]> {
+  const choices = new Set<string>(["Family"]);
+  const { data: ownerProfile, error: ownerProfileError } = await supabase
+    .from("profiles")
+    .select("household_id,full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (ownerProfileError) throw ownerProfileError;
+
+  const ownFirstName = firstNameFromFullName(String(ownerProfile?.full_name || ""));
+  if (ownFirstName) choices.add(ownFirstName);
+
+  const householdId = typeof ownerProfile?.household_id === "string" ? ownerProfile.household_id : null;
+  if (!householdId) return Array.from(choices);
+
+  const { data: householdMembers, error: householdMembersError } = await supabase
+    .from("household_members")
+    .select("user_id,status")
+    .eq("household_id", householdId)
+    .eq("status", "active");
+  if (householdMembersError) throw householdMembersError;
+
+  const memberUserIds = Array.from(
+    new Set(
+      (householdMembers || [])
+        .map((member) => (typeof member.user_id === "string" ? member.user_id : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!memberUserIds.length) return Array.from(choices);
+
+  const { data: memberProfiles, error: memberProfilesError } = await supabase
+    .from("profiles")
+    .select("id,full_name")
+    .in("id", memberUserIds);
+  if (memberProfilesError) throw memberProfilesError;
+
+  for (const profile of ((memberProfiles || []) as Array<{ id: string; full_name: string | null }>)) {
+    const firstName = firstNameFromFullName(String(profile.full_name || ""));
+    if (firstName) choices.add(firstName);
+  }
+
+  return Array.from(choices);
+}
+
+function resolveCalendarLayerChoice(body: string, choices: string[]): string | null {
+  const stripped = trimTrailingPunctuation(body)
+    .replace(/\b(calendar|filter)\b/gi, " ")
+    .replace(/\bfor\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!stripped) return null;
+
+  const requested = normalizeNameForMatch(stripped);
+  if (!requested) return null;
+
+  const matched = choices.find((choice) => normalizeNameForMatch(choice) === requested);
+  if (matched) return matched;
+
+  const normalizedLayer = normalizeCalendarLayerName(stripped);
+  if (!normalizedLayer) return null;
+  return choices.find((choice) => normalizeNameForMatch(choice) === normalizeNameForMatch(normalizedLayer)) || null;
+}
+
+function formatCalendarLayerQuestion(choices: string[]): string {
+  const deduped = Array.from(new Set(choices.filter(Boolean)));
+  if (!deduped.length) {
+    return "Which calendar should I use for that event? Reply with Family or the calendar name.";
+  }
+  if (deduped.length === 1) {
+    return `Which calendar should I use for that event? Reply with ${deduped[0]}.`;
+  }
+  return `Which calendar should I use for that event? Reply with one of: ${deduped.join(", ")}.`;
 }
 
 function parseGroceryAddIntent(body: string): GroceryAddIntent | null {
@@ -3605,6 +3727,54 @@ serve(async (req) => {
     }
 
     const likelyCalendarAdd = looksLikeCalendarAddRequest(body);
+    const { document: smsAssistantDocument, context: smsAssistantContext } = await loadSmsAssistantContext(supabase, pref.user_id);
+    const pendingCalendarAdd = smsAssistantContext.pendingCalendarAdd;
+    const pendingCalendarAddUpdatedAt = pendingCalendarAdd?.updatedAt
+      ? DateTime.fromISO(pendingCalendarAdd.updatedAt, { zone: timezone })
+      : null;
+    const hasFreshPendingCalendarAdd =
+      !!pendingCalendarAdd &&
+      !!pendingCalendarAddUpdatedAt?.isValid &&
+      pendingCalendarAddUpdatedAt >= DateTime.now().setZone(timezone).minus({ hours: 24 });
+
+    if (hasFreshPendingCalendarAdd) {
+      try {
+        const layerChoices = await loadCalendarLayerChoices(supabase, pref.user_id);
+        if (/^(cancel|never mind|nevermind|stop)$/i.test(trimTrailingPunctuation(body))) {
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingCalendarAdd: null,
+          });
+          return twiml("Okay, I dropped that pending calendar event.");
+        }
+
+        const resolvedLayer = resolveCalendarLayerChoice(body, layerChoices);
+        if (resolvedLayer && pendingCalendarAdd) {
+          const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, {
+            ...pendingCalendarAdd,
+            layer: resolvedLayer,
+          });
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingCalendarAdd: null,
+            lastCalendarEvent: {
+              eventId: result.eventId,
+              title: pendingCalendarAdd.title,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+          return twiml(result.reply);
+        }
+
+        const shortReply = trimTrailingPunctuation(body).split(/\s+/).filter(Boolean).length <= 4;
+        if (shortReply && !likelyCalendarAdd) {
+          return twiml(formatCalendarLayerQuestion(layerChoices));
+        }
+      } catch (error) {
+        console.error("sms pending calendar layer resolution failed:", error);
+      }
+    }
+
     let calendarIntent = parseCalendarAddIntent(body, timezone);
     if (!calendarIntent && likelyCalendarAdd) {
       try {
@@ -3614,11 +3784,32 @@ serve(async (req) => {
       }
     }
     if (calendarIntent) {
+      if (!calendarIntent.layer) {
+        try {
+          const layerChoices = await loadCalendarLayerChoices(supabase, pref.user_id);
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingCalendarAdd: {
+              title: calendarIntent.title,
+              startsAt: calendarIntent.startsAt,
+              endsAt: calendarIntent.endsAt,
+              allDay: calendarIntent.allDay,
+              locationText: calendarIntent.locationText || null,
+              description: calendarIntent.description || null,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+          return twiml(formatCalendarLayerQuestion(layerChoices));
+        } catch (error) {
+          console.error("sms pending calendar add save failed:", error);
+          return twiml("I understood the event, but I couldn't ask the calendar follow-up right now. Please try again in a moment.");
+        }
+      }
       try {
-        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
         const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, calendarIntent);
-        await saveSmsAssistantContext(supabase, pref.user_id, document, {
-          ...context,
+        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+          ...smsAssistantContext,
+          pendingCalendarAdd: null,
           lastCalendarEvent: {
             eventId: result.eventId,
             title: calendarIntent.title,
