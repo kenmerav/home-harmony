@@ -60,6 +60,7 @@ export default function BillingPage() {
   const { user, signOut, subscription, isSubscribed, refreshSubscription } = useAuth();
   const [loadingCheckout, setLoadingCheckout] = useState(false);
   const [loadingPortal, setLoadingPortal] = useState(false);
+  const [loadingRefresh, setLoadingRefresh] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('yearly');
   const [promoCode, setPromoCode] = useState('');
@@ -278,6 +279,21 @@ export default function BillingPage() {
     }
   };
 
+  const handleRefreshStatus = async () => {
+    setLoadingRefresh(true);
+    setMessage('Refreshing your billing status...');
+    try {
+      await syncSubscriptionStatus();
+      await refreshSubscription();
+      setMessage('Billing status updated.');
+    } catch (error: unknown) {
+      const text = await resolveInvokeErrorMessage(error, 'Unable to refresh billing status right now.');
+      setMessage(text);
+    } finally {
+      setLoadingRefresh(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background grid place-items-center p-4">
       <div className="w-full max-w-5xl rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
@@ -428,7 +444,9 @@ export default function BillingPage() {
               Billing portal unlocks after you start your trial
             </Button>
           )}
-          <Button variant="ghost" onClick={refreshSubscription}>Refresh status</Button>
+          <Button variant="ghost" onClick={() => void handleRefreshStatus()} disabled={loadingRefresh}>
+            {loadingRefresh ? 'Refreshing...' : 'Refresh status'}
+          </Button>
         </div>
 
         {hasBillingAccess && (
