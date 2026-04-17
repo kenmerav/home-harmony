@@ -1350,14 +1350,16 @@ function groceryItemMatchesName(itemName: string, requestedName: string): boolea
 
 function parseCalendarAddIntent(body: string, timezone: string): CalendarAddIntent | null {
   const normalized = trimTrailingPunctuation(body);
-  const verboseMatch = normalized.match(
-    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)(?:\s+filter)?(?:\s+on\s+calendar)?\s+(?:starting\s+at|at)\s+(.+?)\s+for\s+(.+)$/i,
-  );
-  if (verboseMatch) {
-    const title = normalizeCalendarTitle(trimTrailingPunctuation(verboseMatch[1] || ""));
-    const layer = normalizeCalendarLayerName(verboseMatch[2] || "");
-    const timeText = trimTrailingPunctuation(verboseMatch[3] || "");
-    const dateText = trimTrailingPunctuation(verboseMatch[4] || "");
+  const buildCalendarIntent = (
+    titleRaw: string,
+    layerRaw: string | null | undefined,
+    dateTextRaw: string,
+    timeTextRaw: string,
+  ): CalendarAddIntent | null => {
+    const title = normalizeCalendarTitle(trimTrailingPunctuation(titleRaw || ""));
+    const layer = normalizeCalendarLayerName(layerRaw || "family");
+    const dateText = trimTrailingPunctuation(dateTextRaw || "");
+    const timeText = trimTrailingPunctuation(timeTextRaw || "");
     if (!title || !layer) return null;
 
     const date = parseUsDate(dateText, timezone);
@@ -1383,6 +1385,39 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
       endsAt: startsAt.plus({ hours: 1 }).toUTC().toISO() || null,
       allDay: false,
     };
+  };
+
+  const verboseMatch = normalized.match(
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+(.+?)(?:\s+filter)?(?:\s+on\s+calendar)?\s+(?:starting\s+at|at)\s+(.+?)\s+for\s+(.+)$/i,
+  );
+  if (verboseMatch) {
+    return buildCalendarIntent(verboseMatch[1] || "", verboseMatch[2] || "", verboseMatch[4] || "", verboseMatch[3] || "");
+  }
+
+  const trailingLayerPatterns = [
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+  ];
+
+  for (const pattern of trailingLayerPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    return buildCalendarIntent(match[1] || "", match[4] || "", match[2] || "", match[3] || "");
+  }
+
+  const explicitLayerPatterns = [
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+(today|tomorrow)\s+at\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+(today|tomorrow)\s+at\s+(.+)$/i,
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+on\s+(.+?)\s+at\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+on\s+(.+?)\s+at\s+(.+)$/i,
+  ];
+
+  for (const pattern of explicitLayerPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    return buildCalendarIntent(match[1] || "", match[2] || "", match[3] || "", match[4] || "");
   }
 
   const calendarPatterns = [
@@ -1423,22 +1458,16 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
   for (const { pattern, defaultLayer } of calendarPatterns) {
     const match = normalized.match(pattern);
     if (!match) continue;
-
-    const title = normalizeCalendarTitle(trimTrailingPunctuation(match[1] || ""));
-    const rawLayer = defaultLayer ? defaultLayer : trimTrailingPunctuation(match[2] || "");
-    const layer = normalizeCalendarLayerName(rawLayer);
     const dateIndex = defaultLayer ? 2 : 3;
     const timeIndex = defaultLayer ? 3 : 4;
-    const date = parseUsDate(trimTrailingPunctuation(match[dateIndex] || ""), timezone);
-    const startsAt = date ? parseTimeForZone(trimTrailingPunctuation(match[timeIndex] || ""), date, timezone) : null;
-    if (!title || !layer || !date || !startsAt) continue;
-    return {
-      title,
-      layer,
-      startsAt: startsAt.toUTC().toISO() || "",
-      endsAt: startsAt.plus({ hours: 1 }).toUTC().toISO() || null,
-      allDay: false,
-    };
+    const rawLayer = defaultLayer ? defaultLayer : trimTrailingPunctuation(match[2] || "");
+    const intent = buildCalendarIntent(
+      match[1] || "",
+      rawLayer,
+      match[dateIndex] || "",
+      match[timeIndex] || "",
+    );
+    if (intent) return intent;
   }
 
   const patterns = [
@@ -1452,9 +1481,9 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
     const match = normalized.match(pattern);
     if (!match) continue;
 
-    const title = normalizeCalendarTitle(trimTrailingPunctuation(match[1] || ""));
+    const title = trimTrailingPunctuation(match[1] || "");
     const rawLayer = trimTrailingPunctuation(match[2] || "");
-    let layer = normalizeCalendarLayerName(rawLayer);
+    let layer = rawLayer;
     const third = trimTrailingPunctuation(match[3] || "");
     const fourth = trimTrailingPunctuation(match[4] || "");
     if (!title || !layer) return null;
@@ -1480,29 +1509,9 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
       }
     }
 
-    const date = parseUsDate(dateText, timezone);
-    if (!date) return null;
-
-    if (!timeText) {
-      const allDayStart = date.set({ hour: 12, minute: 0, second: 0, millisecond: 0 });
-      return {
-        title,
-        layer,
-        startsAt: allDayStart.toUTC().toISO() || "",
-        endsAt: null,
-        allDay: true,
-      };
-    }
-
-    const startsAt = parseTimeForZone(timeText, date, timezone);
-    if (!startsAt) return null;
-    return {
-      title,
-      layer,
-      startsAt: startsAt.toUTC().toISO() || "",
-      endsAt: startsAt.plus({ hours: 1 }).toUTC().toISO() || null,
-      allDay: false,
-    };
+    const intent = buildCalendarIntent(title, layer, dateText, timeText);
+    if (intent) return intent;
+    return null;
   }
 
   return null;
