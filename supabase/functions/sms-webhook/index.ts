@@ -773,6 +773,7 @@ async function parseCalendarAddIntentWithAi(
   if (!openAiApiKey) return null;
 
   const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
   const systemPrompt = `You extract a calendar-add intent from a Home Harmony SMS.
 
 Return JSON only in this exact schema:
@@ -811,7 +812,7 @@ Rules:
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Timezone: ${timezone}\nSMS: ${body}`,
+          content: `Timezone: ${timezone}\nToday: ${localToday.toISODate()}\nSMS: ${body}`,
         },
       ],
       response_format: { type: "json_object" },
@@ -874,8 +875,23 @@ Rules:
 
   if (!title || !dateText) return null;
 
-  const date = DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
+  const normalizedBody = trimTrailingPunctuation(body).toLowerCase();
+  let date =
+    normalizedBody.includes("tomorrow")
+      ? parseUsDate("tomorrow", timezone)
+      : normalizedBody.includes("today")
+      ? parseUsDate("today", timezone)
+      : DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
   if (!date.isValid) return null;
+
+  if (date < localToday.minus({ days: 30 })) {
+    for (let i = 0; i < 4; i += 1) {
+      const nextYear = date.plus({ years: 1 });
+      if (nextYear <= date) break;
+      date = nextYear;
+      if (date >= localToday.minus({ days: 7 })) break;
+    }
+  }
 
   if (allDay || !startTimeText) {
     return {
