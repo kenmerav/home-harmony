@@ -328,7 +328,32 @@ function parseTimeToHourMinute(value: string | null | undefined): { hour: number
   };
 }
 
-function preferredDinnerTimeForDay(row: InboundSmsPreferenceRow, weekdayName: string): string {
+function preferredDinnerTimeForDay(
+  row: InboundSmsPreferenceRow,
+  weekdayName: string,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): string {
+  const sharedDinnerPrefs = profileSettingsDocument
+    ? getDocumentValue(profileSettingsDocument, ["shared_preferences", "meals", "dinnerReminderPrefs"])
+    : undefined;
+  if (sharedDinnerPrefs && typeof sharedDinnerPrefs === "object" && !Array.isArray(sharedDinnerPrefs)) {
+    const record = sharedDinnerPrefs as Record<string, unknown>;
+    const preferredDinnerTime =
+      typeof record.preferredDinnerTime === "string" && /^\d{2}:\d{2}$/.test(record.preferredDinnerTime.slice(0, 5))
+        ? record.preferredDinnerTime.slice(0, 5)
+        : null;
+    const dinnerTimesByDay =
+      record.dinnerTimesByDay && typeof record.dinnerTimesByDay === "object" && !Array.isArray(record.dinnerTimesByDay)
+        ? (record.dinnerTimesByDay as Record<string, unknown>)
+        : null;
+    const sharedCandidate = dinnerTimesByDay ? dinnerTimesByDay[weekdayName] : null;
+    if (typeof sharedCandidate === "string") {
+      const normalized = sharedCandidate.slice(0, 5);
+      if (/^\d{2}:\d{2}$/.test(normalized)) return normalized;
+    }
+    if (preferredDinnerTime) return preferredDinnerTime;
+  }
+
   const fallback = String(row.preferred_dinner_time || "18:00").slice(0, 5);
   const rawMap = row.dinner_times_by_day && typeof row.dinner_times_by_day === "object"
     ? row.dinner_times_by_day
@@ -3268,6 +3293,7 @@ async function fetchAgendaForDate(
   timezone: string,
   includeModules: string[],
   smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<AgendaEvent[]> {
   const events: AgendaEvent[] = [];
   const dateIso = localDate.toISODate();
@@ -3329,7 +3355,7 @@ async function fetchAgendaForDate(
         .eq("day", day)
         .eq("is_skipped", false);
 
-      const { hour, minute } = parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day));
+      const { hour, minute } = parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument));
       for (const row of data || []) {
         const mealName =
           typeof row.recipes === "object" && row.recipes && "name" in row.recipes
@@ -3356,9 +3382,10 @@ async function buildTomorrowScheduleReply(
   timezone: string,
   includeModules: string[],
   smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<string> {
   const tomorrow = DateTime.now().setZone(timezone).plus({ days: 1 }).startOf("day");
-  const events = await fetchAgendaForDate(supabase, userId, tomorrow, timezone, includeModules, smsPreference);
+  const events = await fetchAgendaForDate(supabase, userId, tomorrow, timezone, includeModules, smsPreference, profileSettingsDocument);
   return formatAgendaList("Tomorrow", tomorrow, events);
 }
 
@@ -3368,9 +3395,10 @@ async function buildTodayScheduleReply(
   timezone: string,
   includeModules: string[],
   smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<string> {
   const today = DateTime.now().setZone(timezone).startOf("day");
-  const events = await fetchAgendaForDate(supabase, userId, today, timezone, includeModules, smsPreference);
+  const events = await fetchAgendaForDate(supabase, userId, today, timezone, includeModules, smsPreference, profileSettingsDocument);
   return formatAgendaList("Today", today, events);
 }
 
@@ -3380,12 +3408,13 @@ async function buildNextWeekScheduleReply(
   timezone: string,
   includeModules: string[],
   smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<string> {
   const tomorrow = DateTime.now().setZone(timezone).plus({ days: 1 }).startOf("day");
   const grouped: Array<{ date: DateTime; events: AgendaEvent[] }> = [];
   for (let i = 0; i < 7; i += 1) {
     const date = tomorrow.plus({ days: i });
-    const events = await fetchAgendaForDate(supabase, userId, date, timezone, includeModules, smsPreference);
+    const events = await fetchAgendaForDate(supabase, userId, date, timezone, includeModules, smsPreference, profileSettingsDocument);
     grouped.push({ date, events });
   }
   return formatRangeAgenda("Next 7 days", grouped);
@@ -3409,6 +3438,7 @@ async function buildTonightDinnerReply(
   userId: string,
   timezone: string,
   smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<string> {
   const today = DateTime.now().setZone(timezone).startOf("day");
   const weekOf = weekOfIso(today);
@@ -3436,7 +3466,7 @@ async function buildTonightDinnerReply(
   }
 
   const dinnerTime = DateTime.fromISO(`${today.toISODate()}T00:00:00`, { zone: timezone }).set(
-    parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day)),
+    parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument)),
   );
   const names = dinnerNames.join(" and ");
   return dinnerNames.length === 1
@@ -3534,6 +3564,10 @@ serve(async (req) => {
     const includeModules = Array.isArray(pref.include_modules)
       ? pref.include_modules.map((value: unknown) => String(value).toLowerCase())
       : ["meals", "manual"];
+    const profileSettingsDocument = await loadProfileSettingsDocument(supabase, pref.user_id).catch((error) => {
+      console.error("Failed loading profile settings document for SMS webhook:", error);
+      return {};
+    });
     const numMedia = Number.parseInt(params.get("NumMedia") || "0", 10);
     const mediaUrl = params.get("MediaUrl0")?.trim() || "";
     const mediaContentType = params.get("MediaContentType0")?.trim() || "";
@@ -3954,7 +3988,7 @@ serve(async (req) => {
     }
 
     if (asksMeals && (wantsTonight || body.includes("for dinner"))) {
-      const reply = await buildTonightDinnerReply(supabase, pref.user_id, timezone, pref);
+      const reply = await buildTonightDinnerReply(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
       return twiml(reply);
     }
 
@@ -3970,6 +4004,7 @@ serve(async (req) => {
         timezone,
         includeModules,
         pref,
+        profileSettingsDocument,
       );
       return twiml(reply);
     }
@@ -3981,6 +4016,7 @@ serve(async (req) => {
         timezone,
         includeModules,
         pref,
+        profileSettingsDocument,
       );
       return twiml(reply);
     }
@@ -3992,6 +4028,7 @@ serve(async (req) => {
         timezone,
         includeModules,
         pref,
+        profileSettingsDocument,
       );
       return twiml(reply);
     }
