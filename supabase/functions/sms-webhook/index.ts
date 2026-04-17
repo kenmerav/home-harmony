@@ -1395,6 +1395,10 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddInte
   }
 
   const trailingLayerPatterns = [
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+for\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+for\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+for\s+on\s+(.+?)\s+at\s+(.+?)\s+for\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+for\s+on\s+(.+?)\s+at\s+(.+?)\s+for\s+(.+)$/i,
     /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
     /^add\s+(.+?)\s+to\s+calendar\s+(today|tomorrow)\s+at\s+(.+?)\s+for\s+(.+)$/i,
     /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+on\s+(.+?)\s+at\s+(.+?)\s+for\s+(.+)$/i,
