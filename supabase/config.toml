@@ -30,6 +30,9 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.sync-subscription-status]
+verify_jwt = false
+
 [functions.admin-metrics]
 verify_jwt = false
 

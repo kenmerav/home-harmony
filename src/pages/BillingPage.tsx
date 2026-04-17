@@ -42,6 +42,18 @@ async function getFunctionHeaders() {
     : undefined;
 }
 
+async function syncSubscriptionStatus() {
+  const headers = await getFunctionHeaders();
+  const { data, error } = await supabase.functions.invoke('sync-subscription-status', {
+    headers,
+  });
+  if (error) {
+    const detail = await resolveInvokeErrorMessage(error, 'Unable to sync billing status');
+    throw new Error(detail);
+  }
+  return data as { synced?: boolean; status?: string | null; priceId?: string | null } | null;
+}
+
 export default function BillingPage() {
   const { user, signOut, subscription, isSubscribed, refreshSubscription } = useAuth();
   const [loadingCheckout, setLoadingCheckout] = useState(false);
@@ -76,6 +88,12 @@ export default function BillingPage() {
 
     const run = async () => {
       for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (cancelled) return;
+        try {
+          await syncSubscriptionStatus();
+        } catch (error) {
+          console.error('Failed syncing subscription status after checkout:', error);
+        }
         if (cancelled) return;
         await refreshSubscription();
         if (cancelled) return;
