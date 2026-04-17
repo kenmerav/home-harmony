@@ -737,6 +737,153 @@ Rules:
   };
 }
 
+function looksLikeCalendarAddRequest(body: string): boolean {
+  const normalized = trimTrailingPunctuation(body).toLowerCase();
+  const hasCalendarTarget = /\b(calendar|event|events)\b/.test(normalized);
+  const hasCreateVerb = /^(add|create|put)\b/.test(normalized);
+  const looksLikeQuestion = /^(what|whats|what's|show|do i have|is there)\b/.test(normalized);
+  return hasCalendarTarget && hasCreateVerb && !looksLikeQuestion;
+}
+
+async function parseCalendarAddIntentWithAi(
+  body: string,
+  timezone: string,
+  userId: string | null,
+): Promise<CalendarAddIntent | null> {
+  const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openAiApiKey) return null;
+
+  const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+  const systemPrompt = `You extract a calendar-add intent from a Home Harmony SMS.
+
+Return JSON only in this exact schema:
+{
+  "intent": "calendar_add" | "none",
+  "title": "string",
+  "date": "YYYY-MM-DD or empty string",
+  "startTime": "h:mm AM/PM or empty string",
+  "endTime": "h:mm AM/PM or empty string",
+  "allDay": boolean,
+  "layer": "Family or calendar name",
+  "locationText": "string or empty string",
+  "description": "string or empty string"
+}
+
+Rules:
+- Only return "calendar_add" if the user is clearly asking to create/add a calendar event.
+- Do not treat schedule lookups like "what do i have tomorrow" as calendar_add.
+- If the user says family, use "Family".
+- If the user does not specify a calendar/filter, default to "Family".
+- Use the provided timezone context when resolving relative dates like today or tomorrow.
+- If the date or title is missing or unclear, return intent "none".
+- Do not invent details not implied by the message.`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0,
+      max_tokens: 600,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Timezone: ${timezone}\nSMS: ${body}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `AI SMS calendar parsing failed (${response.status}).`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    }
+    | null;
+
+  await logUsageCostEvent({
+    userId,
+    category: "ai",
+    provider: "openai",
+    meter: "sms_calendar_text_parse",
+    estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResponse?.usage),
+    quantity: 1,
+    metadata: {
+      model: openAiModel,
+      promptTokens: aiResponse?.usage?.prompt_tokens ?? 0,
+      completionTokens: aiResponse?.usage?.completion_tokens ?? 0,
+      cachedPromptTokens: aiResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+  });
+
+  const content = aiResponse?.choices?.[0]?.message?.content || "";
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  if (String(parsed.intent || "").trim().toLowerCase() !== "calendar_add") {
+    return null;
+  }
+
+  const title = normalizeCalendarTitle(String(parsed.title || ""));
+  const dateText = String(parsed.date || "").trim();
+  const startTimeText = String(parsed.startTime || "").trim();
+  const endTimeText = String(parsed.endTime || "").trim();
+  const allDay = parseBoolean(parsed.allDay);
+  const layer = normalizeCalendarLayerName(String(parsed.layer || "Family"));
+  const locationText = String(parsed.locationText || "").trim() || null;
+  const description = String(parsed.description || "").trim() || null;
+
+  if (!title || !dateText) return null;
+
+  const date = DateTime.fromISO(dateText, { zone: timezone }).startOf("day");
+  if (!date.isValid) return null;
+
+  if (allDay || !startTimeText) {
+    return {
+      title,
+      layer,
+      startsAt: date.set({ hour: 12, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO() || "",
+      endsAt: null,
+      allDay: true,
+      locationText,
+      description,
+    };
+  }
+
+  const startsAt = parseTimeForZone(startTimeText, date, timezone);
+  if (!startsAt) return null;
+  const endsAt = endTimeText ? parseTimeForZone(endTimeText, date, timezone) : startsAt.plus({ hours: 1 });
+
+  return {
+    title,
+    layer,
+    startsAt: startsAt.toUTC().toISO() || "",
+    endsAt: (endsAt || startsAt.plus({ hours: 1 })).toUTC().toISO() || null,
+    allDay: false,
+    locationText,
+    description,
+  };
+}
+
 function normalizeRecipientMap(input: unknown): Record<string, string[]> {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   return Object.entries(input as Record<string, unknown>).reduce<Record<string, string[]>>((map, [moduleName, recipients]) => {
@@ -3457,7 +3604,15 @@ serve(async (req) => {
       }
     }
 
-    const calendarIntent = parseCalendarAddIntent(body, timezone);
+    const likelyCalendarAdd = looksLikeCalendarAddRequest(body);
+    let calendarIntent = parseCalendarAddIntent(body, timezone);
+    if (!calendarIntent && likelyCalendarAdd) {
+      try {
+        calendarIntent = await parseCalendarAddIntentWithAi(body, timezone, pref.user_id);
+      } catch (error) {
+        console.error("sms ai calendar parse failed:", error);
+      }
+    }
     if (calendarIntent) {
       try {
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
@@ -3476,6 +3631,9 @@ serve(async (req) => {
         const detail = describeUnknownError(error);
         return twiml(`I could not add that calendar event right now: ${detail}`);
       }
+    }
+    if (likelyCalendarAdd) {
+      return twiml("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.");
     }
 
     const followUpIntent = parseCalendarFollowUpIntent(body, timezone);
