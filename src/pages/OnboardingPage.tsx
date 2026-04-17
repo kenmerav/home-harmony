@@ -337,7 +337,6 @@ interface OnboardingAnswers {
   mealDietNotes: string;
   weeklyStaples: WeeklyStaple[];
   weeklyStaplesOther: string;
-  recipesToImplement: string;
   recipeLinks: string;
   planningStyle: PlanningStyle | null;
   groceryStorePreferences: GroceryStorePreference[];
@@ -416,7 +415,6 @@ const DEFAULT_ONBOARDING: OnboardingAnswers = {
   mealDietNotes: '',
   weeklyStaples: [],
   weeklyStaplesOther: '',
-  recipesToImplement: '',
   recipeLinks: '',
   planningStyle: null,
   groceryStorePreferences: ["Fry's"],
@@ -707,7 +705,6 @@ function buildDayLocks(
 
 function buildGoalsText(answers: OnboardingAnswers): string {
   const avoidFoods = parseListText(answers.avoidFoods);
-  const recipeRequests = parseListText(answers.recipesToImplement);
   const recipeLinks = parseRecipeLinks(answers.recipeLinks);
   const kids = parseKidProfiles(answers.kidProfiles);
   return [
@@ -722,7 +719,6 @@ function buildGoalsText(answers: OnboardingAnswers): string {
     avoidFoods.length > 0 ? `Avoid foods: ${avoidFoods.join(', ')}.` : null,
     answers.weeklyStaples.length > 0 ? `Staples: ${answers.weeklyStaples.join(', ')}.` : null,
     answers.weeklyStaplesOther.trim() ? `Staple notes: ${answers.weeklyStaplesOther.trim()}.` : null,
-    recipeRequests.length > 0 ? `Recipes to add: ${recipeRequests.join(', ')}.` : null,
     recipeLinks.length > 0 ? `Recipe links provided: ${recipeLinks.length}.` : null,
     `Grocery mode: ${answers.groceryShoppingMode || 'not set'} at ${answers.groceryStorePreferences.join(', ')}.`,
     `Grocery friction: ${answers.groceryPain || 'not provided'}.`,
@@ -1768,7 +1764,6 @@ export default function OnboardingPage() {
           diets: resolvedAnswers.dietPreferences,
           staples: resolvedAnswers.weeklyStaples,
           kidProfiles: normalizedKidProfiles.map((kid) => `${kid.name}:${kid.age}`),
-          hasRecipeRequests: invitedHouseholdMember ? false : parseListText(resolvedAnswers.recipesToImplement).length > 0,
           hasRecipeLinks: invitedHouseholdMember ? false : parseRecipeLinks(resolvedAnswers.recipeLinks).length > 0,
           hasRecipePdf: invitedHouseholdMember ? false : Boolean(recipePdfFile),
           importedLinkRecipeCount,
@@ -2257,34 +2252,23 @@ export default function OnboardingPage() {
     case 'recipesToImplement':
       content = (
         <QuestionScreen
-          title="Any recipes you already want to include?"
-          helper="Optional. Add recipe names, paste recipe links, or upload a PDF cookbook."
+          title="Want to bring in any recipes right now?"
+          helper="Optional. Paste recipe links now. You can add more manually or import a PDF cookbook later from Recipes."
         >
           <div className="space-y-5">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Recipe names</p>
-              <Textarea
-                value={answers.recipesToImplement}
-                onChange={(event) => setSingle('recipesToImplement', event.target.value)}
-                placeholder="Examples: Grandma's chili, turkey taco bowls, chicken enchilada soup"
-                rows={4}
-              />
-              <p className="text-xs text-muted-foreground">Separate recipes with commas or new lines.</p>
-            </div>
-
             <div className="space-y-2">
               <p className="text-sm font-medium">Recipe links</p>
               <Textarea
                 value={answers.recipeLinks}
                 onChange={(event) => setSingle('recipeLinks', event.target.value)}
-                placeholder="Paste one link per line (blog posts, recipe pages, Pinterest pins)"
+                placeholder="Paste 1-3 recipe links, one per line"
                 rows={3}
               />
-              <p className="text-xs text-muted-foreground">We will try to import recipes from each link.</p>
+              <p className="text-xs text-muted-foreground">We will try to import each link now so you can keep moving.</p>
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-medium">Upload a PDF cookbook</p>
+              <p className="text-sm font-medium">Optional: upload a PDF cookbook</p>
               <Input
                 ref={recipePdfInputRef}
                 type="file"
@@ -2313,7 +2297,7 @@ export default function OnboardingPage() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                PDF imports run in the background right after onboarding.
+                PDF imports run in the background after onboarding. You can also upload one later from Recipes.
               </p>
             </div>
           </div>
