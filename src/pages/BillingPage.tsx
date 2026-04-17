@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HomeHarmonyLogo } from '@/components/branding/HomeHarmonyLogo';
@@ -49,8 +49,50 @@ export default function BillingPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<BillingInterval>('yearly');
   const [promoCode, setPromoCode] = useState('');
+  const [checkoutSyncing, setCheckoutSyncing] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const hasBillingAccess = isSubscribed || Boolean(subscription?.priceId);
+  const checkoutState = searchParams.get('checkout');
+
+  useEffect(() => {
+    if (checkoutState === 'cancel') {
+      setMessage('Checkout was canceled. Your plan selection is still here when you are ready.');
+      return;
+    }
+    if (checkoutState !== 'success') return;
+
+    if (isSubscribed) {
+      setMessage('Subscription active. Opening the app...');
+      navigate('/app', { replace: true });
+      return;
+    }
+
+    if (checkoutSyncing) return;
+
+    let cancelled = false;
+    setCheckoutSyncing(true);
+    setMessage('Payment received. Finalizing your access...');
+
+    const run = async () => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (cancelled) return;
+        await refreshSubscription();
+        if (cancelled) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+      if (!cancelled) {
+        setCheckoutSyncing(false);
+        setMessage('Payment succeeded. Your access is still syncing. Click Refresh status if needed.');
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutState, checkoutSyncing, isSubscribed, navigate, refreshSubscription]);
 
   if (!BILLING_ENABLED) {
     return (
@@ -227,9 +269,15 @@ export default function BillingPage() {
                 </div>
               )}
               {!isSubscribed ? (
-                <Button className="w-full" onClick={() => void startCheckout(selectedInterval)} disabled={loadingCheckout}>
+                <Button
+                  className="w-full"
+                  onClick={() => void startCheckout(selectedInterval)}
+                  disabled={loadingCheckout || checkoutSyncing}
+                >
                   {loadingCheckout
                     ? 'Opening checkout...'
+                    : checkoutSyncing
+                    ? 'Finalizing your access...'
                     : `Start ${HOME_HARMONY_PRICING.trialDays}-day free trial on ${selectedInterval}`}
                 </Button>
               ) : (
