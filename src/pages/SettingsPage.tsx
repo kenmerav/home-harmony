@@ -10,6 +10,7 @@ import { OptionList } from '@/components/onboarding/OptionList';
 import { MacroGoalDialog } from '@/components/nutrition/MacroGoalDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { BILLING_ENABLED } from '@/lib/billing';
 import { loadOnboardingResult, saveOnboardingResult, type StoredOnboardingResult } from '@/lib/onboardingStore';
 import { BodyUnitSystem, getProfiles, listDashboardProfiles, updateMacroPlan } from '@/lib/macroGame';
 import {
@@ -28,6 +29,12 @@ import {
   saveCommonDepartureAddresses,
   saveDepartureAddressProfile,
 } from '@/lib/departureAddresses';
+import {
+  amountForBillingInterval,
+  formatUsd,
+  HOME_HARMONY_PRICING,
+  inferBillingIntervalFromPriceId,
+} from '@/lib/pricing';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -235,7 +242,7 @@ function buildPersonalizedPlan(answers: OnboardingAnswers): PersonalizedPlan {
 }
 
 export default function SettingsPage() {
-  const { user, isDemoUser, profile, updateProfile, updateEmail } = useAuth();
+  const { user, isDemoUser, profile, subscription, isSubscribed, updateProfile, updateEmail } = useAuth();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<OnboardingAnswers>(DEFAULT_ANSWERS);
   const [accountDetails, setAccountDetails] = useState({
@@ -261,6 +268,12 @@ export default function SettingsPage() {
   const [macroDialogPersonId, setMacroDialogPersonId] = useState<string | null>(null);
   const canUseRemoteSms = Boolean(user?.id && user.id !== 'demo-user');
   const adultMacroProfiles = listDashboardProfiles();
+  const inferredBillingInterval = inferBillingIntervalFromPriceId(subscription?.priceId);
+  const nextChargeAmount = amountForBillingInterval(inferredBillingInterval);
+  const trialEndDate = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
+  const currentPeriodEndDate = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
+  const isTrialing = String(subscription?.status || '').toLowerCase() === 'trialing';
+  const isActiveSubscription = String(subscription?.status || '').toLowerCase() === 'active';
 
   const refreshSmsPrefs = useCallback(async () => {
     const savedDepartureProfile = loadDepartureAddressProfile(user?.id);
@@ -829,6 +842,68 @@ export default function SettingsPage() {
             </Button>
           </div>
         </SectionCard>
+
+        {BILLING_ENABLED && !isDemoUser && (
+          <SectionCard title="Billing" subtitle="View your trial, billing timing, and cancel options">
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Status</p>
+                  <p className="mt-1 text-base font-semibold capitalize">{subscription?.status || 'inactive'}</p>
+                </div>
+                {isTrialing && trialEndDate ? (
+                  <div className="rounded-xl border border-border bg-background px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Free trial ends</p>
+                    <p className="mt-1 text-base font-semibold">{trialEndDate.toLocaleDateString()}</p>
+                  </div>
+                ) : currentPeriodEndDate ? (
+                  <div className="rounded-xl border border-border bg-background px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Next billing date</p>
+                    <p className="mt-1 text-base font-semibold">{currentPeriodEndDate.toLocaleDateString()}</p>
+                  </div>
+                ) : null}
+              </div>
+
+              {nextChargeAmount !== null && (
+                <p className="text-sm text-muted-foreground">
+                  {isTrialing ? 'After your trial, you will be charged ' : 'Your current billing amount is '}
+                  <span className="font-medium text-foreground">
+                    {inferredBillingInterval === 'yearly'
+                      ? `${formatUsd(nextChargeAmount)} per year`
+                      : `${formatUsd(nextChargeAmount)} per month`}
+                  </span>
+                  .
+                </p>
+              )}
+
+              {isTrialing && trialEndDate && (
+                <p className="text-sm text-muted-foreground">
+                  Cancel before <span className="font-medium text-foreground">{trialEndDate.toLocaleDateString()}</span> and you will not be charged.
+                </p>
+              )}
+
+              {isSubscribed ? (
+                <div className="flex flex-wrap gap-3">
+                  <Button asChild variant="outline">
+                    <Link to="/billing">Manage or cancel billing</Link>
+                  </Button>
+                  <p className="self-center text-sm text-muted-foreground">
+                    Billing changes and cancellation are handled through the secure billing page.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  <Button asChild variant="outline">
+                    <Link to="/billing">Open billing</Link>
+                  </Button>
+                  <p className="self-center text-sm text-muted-foreground">
+                    Open billing to start or manage your trial.
+                  </p>
+                </div>
+              )}
+            </div>
+          </SectionCard>
+        )}
 
         <SectionCard title="SMS schedule texts" subtitle="Daily schedule texts, night-before preview, and event reminders">
           {canUseRemoteSms ? (
