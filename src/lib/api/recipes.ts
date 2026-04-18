@@ -5,7 +5,7 @@ import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
 import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
 import { getSharedHouseholdOwnerId } from '@/lib/householdScope';
-import { imageFileToUploadDataUrl, isEdgeTransportFailureMessage } from '@/lib/imageUpload';
+import { imageFileToRecipeImportDataUrls, isEdgeTransportFailureMessage } from '@/lib/imageUpload';
 
 export type RecipeCourseType = 'main' | 'side' | 'dessert';
 export const NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME = '__No Meal Needed Placeholder__';
@@ -311,7 +311,7 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
       return { success: false, error: 'Image is too large. Use an image under 12MB.' };
     }
 
-    const imageDataUrl = await imageFileToUploadDataUrl(file, {
+    const imageDataUrls = await imageFileToRecipeImportDataUrls(file, {
       maxDimension: 1800,
       preferredQuality: 0.92,
       maxDataUrlLength: 3_500_000,
@@ -319,7 +319,8 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
     const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
       body: {
         fileName: file.name,
-        imageDataUrl,
+        imageDataUrl: imageDataUrls[0],
+        imageDataUrls,
       },
     });
 

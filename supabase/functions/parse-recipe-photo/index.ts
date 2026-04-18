@@ -193,12 +193,12 @@ function normalizeRecipe(raw: unknown): ExtractedRecipe | null {
 async function extractRecipesWithAi(params: {
   openAiApiKey: string;
   openAiModel: string;
-  imageDataUrl: string;
+  imageDataUrls: string[];
   fileName?: string;
   systemPrompt: string;
   userPrompt: string;
 }) {
-  const { openAiApiKey, openAiModel, imageDataUrl, fileName, systemPrompt, userPrompt } = params;
+  const { openAiApiKey, openAiModel, imageDataUrls, fileName, systemPrompt, userPrompt } = params;
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -215,7 +215,10 @@ async function extractRecipesWithAi(params: {
           role: "user",
           content: [
             { type: "text", text: `${userPrompt}\nFile: ${fileName || "recipe photo"}` },
-            { type: "image_url", image_url: { url: imageDataUrl } },
+            ...imageDataUrls.map((imageDataUrl) => ({
+              type: "image_url" as const,
+              image_url: { url: imageDataUrl },
+            })),
           ],
         },
       ],
@@ -274,9 +277,21 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const imageDataUrl = body?.imageDataUrl;
+    const imageDataUrls = Array.isArray(body?.imageDataUrls)
+      ? body.imageDataUrls.filter(
+          (value: unknown): value is string =>
+            typeof value === "string" && value.startsWith("data:image/"),
+        )
+      : [];
     const fileName = body?.fileName;
 
-    if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+    const candidateImageDataUrls = imageDataUrls.length
+      ? imageDataUrls
+      : typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/")
+      ? [imageDataUrl]
+      : [];
+
+    if (!candidateImageDataUrls.length) {
       return jsonOk({ success: false, error: "Valid image data is required" });
     }
 
@@ -291,6 +306,8 @@ serve(async (req) => {
     const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 
     const systemPrompt = `You extract recipes from screenshots, photos, and recipe cards.
+The image input may include the same screenshot more than once: a full image plus cropped variants to help with multi-column recipe layouts.
+Treat all provided images as views of the same recipe content unless they clearly show different recipes.
 The image may be a screenshot of a recipe website, a recipe card, a social post, handwritten notes, or a partial crop.
 Ignore ads, navigation, comments, and unrelated UI.
 Extract the main recipe(s) visible in the image, even if the screenshot is partial.
@@ -324,7 +341,7 @@ Rules:
     const primaryResult = await extractRecipesWithAi({
       openAiApiKey,
       openAiModel,
-      imageDataUrl,
+      imageDataUrls: candidateImageDataUrls,
       fileName,
       systemPrompt,
       userPrompt:
@@ -338,7 +355,7 @@ Rules:
       const fallbackResult = await extractRecipesWithAi({
         openAiApiKey,
         openAiModel,
-        imageDataUrl,
+        imageDataUrls: candidateImageDataUrls,
         fileName,
         systemPrompt,
         userPrompt:
