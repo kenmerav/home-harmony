@@ -145,6 +145,132 @@ function recipeSetQualityScore(recipes: ExtractedRecipe[]): number {
   return recipes.reduce((sum, recipe) => sum + recipeQualityScore(recipe), 0);
 }
 
+function normalizeOcrText(value: string): string {
+  return value
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[•●▪]/g, "\n- ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function ocrLines(value: string): string[] {
+  return normalizeOcrText(value)
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function looksLikeMetaLine(line: string): boolean {
+  return (
+    /servings?/i.test(line) ||
+    /macros?/i.test(line) ||
+    /calories?/i.test(line) ||
+    /per serving/i.test(line) ||
+    /for lower calorie/i.test(line)
+  );
+}
+
+function looksLikeSectionHeading(line: string): boolean {
+  return (
+    /^ingredients?$/i.test(line) ||
+    /^instructions?$/i.test(line) ||
+    /^directions?$/i.test(line) ||
+    /^steps?$/i.test(line) ||
+    /^for the /i.test(line)
+  );
+}
+
+function isLikelyTitleLine(line: string): boolean {
+  if (!line) return false;
+  if (looksLikeMetaLine(line) || looksLikeSectionHeading(line)) return false;
+  if (/^\d+[.)]/.test(line)) return false;
+  if (/\d/.test(line)) return false;
+  if (line.length < 3 || line.length > 40) return false;
+  const wordCount = line.split(/\s+/).filter(Boolean).length;
+  return wordCount >= 1 && wordCount <= 4;
+}
+
+function extractTitleFromOcrLines(lines: string[]): string {
+  const sectionBreakIndex = lines.findIndex((line) => /^ingredients?$|^instructions?$/i.test(line));
+  const searchLimit = sectionBreakIndex >= 0 ? sectionBreakIndex : Math.min(lines.length, 14);
+  let bestTitle = "";
+
+  for (let start = 0; start < searchLimit; start += 1) {
+    for (let end = start; end < Math.min(searchLimit, start + 4); end += 1) {
+      const chunk = lines.slice(start, end + 1);
+      if (!chunk.every(isLikelyTitleLine)) continue;
+      const candidate = chunk.join(" ").replace(/\s+/g, " ").trim();
+      if (candidate.length > bestTitle.length) {
+        bestTitle = candidate;
+      }
+    }
+  }
+
+  return bestTitle || "Imported Recipe";
+}
+
+function parseMacroLine(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  const match = compact.match(/(\d+)G?P(\d+)G?C(\d+)G?F/i);
+  if (!match) return null;
+  return {
+    protein_g: toNumber(match[1], 0),
+    carbs_g: toNumber(match[2], 0),
+    fat_g: toNumber(match[3], 0),
+  };
+}
+
+function extractRecipesFromOcrTextHeuristically(ocrText: string): ExtractedRecipe[] {
+  const lines = ocrLines(ocrText);
+  if (!lines.length) return [];
+
+  const servingsLine = lines.find((line) => /servings?/i.test(line));
+  const caloriesLine = lines.find((line) => /calories?(?: per serving)?/i.test(line));
+  const macrosLine = lines.find((line) => /macros?(?: per serving)?/i.test(line) || /g?p.*g?c.*g?f/i.test(line.replace(/\s+/g, "")));
+
+  const servingsMatch = servingsLine?.match(/(\d+(?:\.\d+)?)/);
+  const caloriesMatch = caloriesLine?.match(/(\d{2,4})/);
+  const parsedMacros = macrosLine ? parseMacroLine(macrosLine) : null;
+
+  const ingredientsIndex = lines.findIndex((line) => /^ingredients?$/i.test(line));
+  const instructionsIndex = lines.findIndex((line) => /^instructions?$|^directions?$|^steps?$/i.test(line));
+
+  const ingredientsLines =
+    ingredientsIndex >= 0
+      ? lines
+          .slice(ingredientsIndex + 1, instructionsIndex >= 0 ? instructionsIndex : undefined)
+          .map((line) => line.replace(/^[-*]\s*/, "").trim())
+          .filter((line) => line && !looksLikeMetaLine(line))
+      : [];
+
+  const instructionsLines =
+    instructionsIndex >= 0
+      ? lines.slice(instructionsIndex + 1).filter((line) => line && !/^allow meals?/i.test(line))
+      : [];
+
+  const recipe: ExtractedRecipe = {
+    name: extractTitleFromOcrLines(lines),
+    servings: servingsMatch ? Math.max(1, toNumber(servingsMatch[1], 4)) : 4,
+    macrosPerServing: {
+      calories: caloriesMatch ? Math.max(0, toNumber(caloriesMatch[1], 0)) : 0,
+      protein_g: parsedMacros?.protein_g ?? 0,
+      carbs_g: parsedMacros?.carbs_g ?? 0,
+      fat_g: parsedMacros?.fat_g ?? 0,
+    },
+    ingredients: ingredientsLines,
+    ingredientsRaw: ingredientsLines.join("\n"),
+    instructions: instructionsLines.join("\n"),
+  };
+
+  if (recipe.ingredients.length < 2 && recipe.instructions.length < 30) {
+    return [];
+  }
+
+  return [recipe];
+}
+
 function combineUsage(usages: Array<OpenAiUsageLike | null | undefined>): OpenAiUsageLike | null {
   const present = usages.filter(Boolean) as OpenAiUsageLike[];
   if (!present.length) return null;
@@ -290,7 +416,7 @@ async function extractOcrTextWithAi(params: {
         {
           role: "system",
           content:
-            "You transcribe recipe screenshots and recipe cards. Return JSON only in the schema {\"ocrText\":\"string\"}. Preserve visible wording, headings, bullet items, numbered steps, servings, macros, and notes. Do not summarize or interpret.",
+            "You transcribe recipe screenshots and recipe cards. Preserve visible wording, headings, bullet items, numbered steps, servings, macros, and notes. Do not summarize or interpret. Return plain text only.",
         },
         {
           role: "user",
@@ -307,7 +433,6 @@ async function extractOcrTextWithAi(params: {
           ],
         },
       ],
-      response_format: { type: "json_object" },
     }),
   });
 
@@ -323,14 +448,15 @@ async function extractOcrTextWithAi(params: {
       }
     | null;
 
-  let ocrText = "";
-  try {
-    const parsed = JSON.parse(aiResponse?.choices?.[0]?.message?.content || "{}") as {
-      ocrText?: unknown;
-    };
-    ocrText = typeof parsed.ocrText === "string" ? parsed.ocrText.trim() : "";
-  } catch {
-    ocrText = "";
+  const content = aiResponse?.choices?.[0]?.message?.content || "";
+  let ocrText = content.trim();
+  if (ocrText.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(ocrText) as { ocrText?: unknown };
+      ocrText = typeof parsed.ocrText === "string" ? parsed.ocrText.trim() : ocrText;
+    } catch {
+      // Keep the raw plain-text OCR content.
+    }
   }
 
   return {
@@ -545,15 +671,17 @@ Rules:
       });
 
       if (ocrResult.ocrText) {
+        const heuristicRecipes = extractRecipesFromOcrTextHeuristically(ocrResult.ocrText);
         const textParseResult = await parseRecipesFromOcrTextWithAi({
           openAiApiKey,
           openAiModel,
           fileName,
           ocrText: ocrResult.ocrText,
         });
-        if (recipeSetQualityScore(textParseResult.recipes) > recipeSetQualityScore(recipes)) {
-          recipes = textParseResult.recipes;
-        }
+        const candidates = [recipes, heuristicRecipes, textParseResult.recipes];
+        recipes = candidates.reduce((best, candidate) =>
+          recipeSetQualityScore(candidate) > recipeSetQualityScore(best) ? candidate : best,
+        );
         usage = combineUsage([usage, ocrResult.usage, textParseResult.usage]);
       }
     }
