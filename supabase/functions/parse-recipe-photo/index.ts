@@ -125,6 +125,26 @@ function uniqueByName(recipes: ExtractedRecipe[]): ExtractedRecipe[] {
   return next;
 }
 
+function recipeQualityScore(recipe: ExtractedRecipe): number {
+  const instructionStepCount = recipe.instructions
+    .split(/\r?\n|(?=\d+\.)/g)
+    .map((step) => step.trim())
+    .filter(Boolean).length;
+  return [
+    recipe.name && recipe.name !== "Imported Recipe" ? 6 : 2,
+    recipe.servings > 0 ? 1 : 0,
+    Math.min(recipe.ingredients.length, 12) * 2,
+    Math.min(Math.ceil(recipe.instructions.length / 120), 10) * 2,
+    Math.min(instructionStepCount, 8),
+    recipe.macrosPerServing.calories > 0 ? 1 : 0,
+  ].reduce((sum, part) => sum + part, 0);
+}
+
+function recipeSetQualityScore(recipes: ExtractedRecipe[]): number {
+  if (!recipes.length) return 0;
+  return recipes.reduce((sum, recipe) => sum + recipeQualityScore(recipe), 0);
+}
+
 function combineUsage(usages: Array<OpenAiUsageLike | null | undefined>): OpenAiUsageLike | null {
   const present = usages.filter(Boolean) as OpenAiUsageLike[];
   if (!present.length) return null;
@@ -229,6 +249,154 @@ async function extractRecipesWithAi(params: {
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
     throw new Error(errorText || `AI processing failed (${response.status})`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: OpenAiUsageLike;
+      }
+    | null;
+  const content: string | undefined = aiResponse?.choices?.[0]?.message?.content;
+  const rawRecipes = safeParseRecipesJson(content);
+  const recipes = (rawRecipes || [])
+    .map((recipe) => normalizeRecipe(recipe))
+    .filter((recipe): recipe is ExtractedRecipe => Boolean(recipe));
+
+  return {
+    recipes: uniqueByName(recipes),
+    usage: aiResponse?.usage || null,
+  };
+}
+
+async function extractOcrTextWithAi(params: {
+  openAiApiKey: string;
+  openAiModel: string;
+  imageDataUrls: string[];
+  fileName?: string;
+}) {
+  const { openAiApiKey, openAiModel, imageDataUrls, fileName } = params;
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0.0,
+      max_tokens: 5000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You transcribe recipe screenshots and recipe cards. Return JSON only in the schema {\"ocrText\":\"string\"}. Preserve visible wording, headings, bullet items, numbered steps, servings, macros, and notes. Do not summarize or interpret.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                `Transcribe the recipe text visible in these images. They may be full screenshots plus cropped views of the same screenshot. Merge them into one clean transcription and avoid duplicate repeated lines.\nFile: ${fileName || "recipe photo"}`,
+            },
+            ...imageDataUrls.map((imageDataUrl) => ({
+              type: "image_url" as const,
+              image_url: { url: imageDataUrl },
+            })),
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `OCR processing failed (${response.status})`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: OpenAiUsageLike;
+      }
+    | null;
+
+  let ocrText = "";
+  try {
+    const parsed = JSON.parse(aiResponse?.choices?.[0]?.message?.content || "{}") as {
+      ocrText?: unknown;
+    };
+    ocrText = typeof parsed.ocrText === "string" ? parsed.ocrText.trim() : "";
+  } catch {
+    ocrText = "";
+  }
+
+  return {
+    ocrText,
+    usage: aiResponse?.usage || null,
+  };
+}
+
+async function parseRecipesFromOcrTextWithAi(params: {
+  openAiApiKey: string;
+  openAiModel: string;
+  fileName?: string;
+  ocrText: string;
+}) {
+  const { openAiApiKey, openAiModel, fileName, ocrText } = params;
+  const systemPrompt = `You extract recipe data from OCR text pulled from screenshots, recipe cards, and social posts.
+Return JSON only in this exact schema:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "servings": number,
+      "macrosPerServing": {
+        "calories": number,
+        "protein_g": number,
+        "carbs_g": number,
+        "fat_g": number,
+        "fiber_g": number
+      },
+      "ingredients": ["string"],
+      "ingredientsRaw": "string",
+      "instructions": "string"
+    }
+  ]
+}
+Rules:
+- Extract only the recipe or recipes explicitly present in the OCR text.
+- If macros are missing, use 0 values.
+- If servings are missing, use 4.
+- If the OCR text is partial but still clearly describes one recipe, return that recipe with partial ingredients/instructions.
+- If no usable recipe is present, return {"recipes":[]}.`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0.1,
+      max_tokens: 5000,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `File: ${fileName || "recipe photo"}\n\nExtract recipe(s) from this OCR text:\n${ocrText.slice(0, 28000)}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `OCR recipe parsing failed (${response.status})`);
   }
 
   const aiResponse = await response.json().catch(() => null) as
@@ -363,6 +531,31 @@ Rules:
       });
       recipes = fallbackResult.recipes;
       usage = combineUsage([primaryResult.usage, fallbackResult.usage]);
+    }
+
+    const needsOcrFallback =
+      recipes.length === 0 || recipeSetQualityScore(recipes) < 24;
+
+    if (needsOcrFallback) {
+      const ocrResult = await extractOcrTextWithAi({
+        openAiApiKey,
+        openAiModel,
+        imageDataUrls: candidateImageDataUrls,
+        fileName,
+      });
+
+      if (ocrResult.ocrText) {
+        const textParseResult = await parseRecipesFromOcrTextWithAi({
+          openAiApiKey,
+          openAiModel,
+          fileName,
+          ocrText: ocrResult.ocrText,
+        });
+        if (recipeSetQualityScore(textParseResult.recipes) > recipeSetQualityScore(recipes)) {
+          recipes = textParseResult.recipes;
+        }
+        usage = combineUsage([usage, ocrResult.usage, textParseResult.usage]);
+      }
     }
 
     if (!recipes.length) {
