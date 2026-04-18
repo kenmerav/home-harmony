@@ -1929,10 +1929,10 @@ function parseGroceryAddIntent(body: string): GroceryAddIntent | null {
     .replace(/\b(?:every week|weekly)\b/gi, "")
     .trim();
 
-  if (/^to\s+(?:the\s+)?grocery(?:\s+list)?\b/i.test(name)) {
-    name = name.replace(/^to\s+(?:the\s+)?grocery(?:\s+list)?\s*/i, "");
+  if (/^to\s+(?:(?:the|my)\s+)?grocery(?:\s+list)?\b/i.test(name)) {
+    name = name.replace(/^to\s+(?:(?:the|my)\s+)?grocery(?:\s+list)?\s*/i, "");
   } else {
-    name = name.replace(/\s+to\s+(?:the\s+)?grocery(?:\s+list)?$/i, "");
+    name = name.replace(/\s+to\s+(?:(?:the|my)\s+)?grocery(?:\s+list)?$/i, "");
   }
 
   name = name.trim().replace(/\s+/g, " ");
