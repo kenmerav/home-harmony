@@ -1075,20 +1075,36 @@ export async function fetchRecipes(): Promise<DbRecipe[]> {
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
 
-  const ownerId = getSharedHouseholdOwnerId();
+  const ownerId = getSharedHouseholdOwnerId() || (await supabase.auth.getUser()).data.user?.id || null;
   if (!ownerId) {
     throw new Error('Please sign in again, then retry loading recipes.');
   }
 
-  const { data, error } = await supabase
-    .from('recipes')
-    .select('*')
-    .eq('owner_id', ownerId)
-    .order('created_at', { ascending: false });
+  const attemptFetch = async (filterByOwner: boolean) => {
+    let query = supabase
+      .from('recipes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filterByOwner) {
+      query = query.eq('owner_id', ownerId);
+    }
+
+    return query;
+  };
+
+  let { data, error } = await attemptFetch(true);
+
+  if (error && shouldRetryRecipeInsertWithLegacyShape(error)) {
+    console.warn('Retrying recipe fetch with legacy read shape:', formatPostgrestError(error));
+    const fallbackResult = await attemptFetch(false);
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     console.error('Error fetching recipes:', error);
-    throw error;
+    throw new Error(formatPostgrestError(error, 'Failed to load recipes.'));
   }
 
   return (data || [])
