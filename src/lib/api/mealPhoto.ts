@@ -48,7 +48,7 @@ export async function estimateMealFromPhoto(
       if (isEdgeTransportFailureMessage(error.message)) {
         return {
           success: false,
-          error: 'That image was too large or could not be sent cleanly. Try a tighter crop and retry.',
+          error: 'I could not send that image cleanly. Home Harmony already compressed it, but a tighter crop usually works best.',
         };
       }
       return {

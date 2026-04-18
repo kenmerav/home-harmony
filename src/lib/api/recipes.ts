@@ -328,7 +328,7 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
       if (isEdgeTransportFailureMessage(error.message)) {
         return {
           success: false,
-          error: 'That screenshot was too large or could not be sent cleanly. Try a tighter crop of just the recipe card and retry.',
+          error: 'I could not send that screenshot cleanly. Home Harmony already compressed it, but a tighter crop of just the recipe usually works best.',
         };
       }
       return {

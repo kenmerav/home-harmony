@@ -42,33 +42,51 @@ export async function imageFileToUploadDataUrl(
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await loadImageElement(objectUrl);
-    const longestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height) || 1;
-    const scale = Math.min(1, maxDimension / longestSide);
-    const targetWidth = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
-    const targetHeight = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
-
+    const sourceWidth = image.naturalWidth || image.width || 1;
+    const sourceHeight = image.naturalHeight || image.height || 1;
+    const longestSide = Math.max(sourceWidth, sourceHeight) || 1;
+    const baseScale = Math.min(1, maxDimension / longestSide);
+    const baseWidth = Math.max(1, Math.round(sourceWidth * baseScale));
+    const baseHeight = Math.max(1, Math.round(sourceHeight * baseScale));
     const canvas = document.createElement('canvas');
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
     const context = canvas.getContext('2d');
-    if (!context) {
-      return originalDataUrl;
-    }
+    if (!context) return originalDataUrl;
 
-    // Fill white first so screenshots and recipe cards stay legible when encoded as JPEG.
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, targetWidth, targetHeight);
-    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+    const qualitySteps = [preferredQuality, 0.86, 0.78, 0.7, 0.62, 0.55, 0.48];
+    let bestCandidate = originalDataUrl;
 
-    const qualitySteps = [preferredQuality, 0.86, 0.78, 0.7, 0.62];
-    for (const quality of qualitySteps) {
-      const candidate = canvas.toDataURL('image/jpeg', quality);
-      if (candidate.length <= maxDataUrlLength) {
-        return candidate;
+    const renderCandidate = (width: number, height: number, quality: number) => {
+      canvas.width = width;
+      canvas.height = height;
+      context.clearRect(0, 0, width, height);
+      // Fill white first so screenshots and recipe cards stay legible when encoded as JPEG.
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', quality);
+    };
+
+    let width = baseWidth;
+    let height = baseHeight;
+    while (Math.max(width, height) >= 700 && Math.min(width, height) >= 400) {
+      for (const quality of qualitySteps) {
+        const candidate = renderCandidate(width, height, quality);
+        if (candidate.length < bestCandidate.length) {
+          bestCandidate = candidate;
+        }
+        if (candidate.length <= maxDataUrlLength) {
+          return candidate;
+        }
+      }
+
+      width = Math.max(400, Math.round(width * 0.82));
+      height = Math.max(400, Math.round(height * 0.82));
+      if (Math.max(width, height) <= 700 && Math.min(width, height) <= 400) {
+        break;
       }
     }
 
-    return canvas.toDataURL('image/jpeg', 0.55);
+    return bestCandidate;
   } catch {
     return originalDataUrl;
   } finally {
