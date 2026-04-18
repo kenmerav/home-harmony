@@ -5,6 +5,7 @@ import { getDemoRecipes, setDemoRecipes } from '@/lib/demoStore';
 import { normalizeRecipeIngredients, normalizeRecipeInstructions, normalizeRecipeName } from '@/lib/recipeText';
 import type { StarterRecipeProfile } from '@/data/starterDinnerRecipes';
 import { getSharedHouseholdOwnerId } from '@/lib/householdScope';
+import { imageFileToUploadDataUrl, isEdgeTransportFailureMessage } from '@/lib/imageUpload';
 
 export type RecipeCourseType = 'main' | 'side' | 'dessert';
 export const NO_MEAL_NEEDED_PLACEHOLDER_RECIPE_NAME = '__No Meal Needed Placeholder__';
@@ -174,25 +175,6 @@ async function invokeCookbookImport(body: Record<string, unknown>) {
   );
 }
 
-function isEdgeTransportFailureMessage(errorMessage?: string): boolean {
-  const value = String(errorMessage || '').toLowerCase();
-  return (
-    value.includes('failed to send a request to the edge function') ||
-    value.includes('failed to fetch') ||
-    value.includes('networkerror') ||
-    value.includes('fetch failed')
-  );
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Failed to read image'));
-    reader.readAsDataURL(file);
-  });
-}
-
 export async function enqueueCookbookImportFromPdf(
   file: File,
   options: ParsePdfOptions = {},
@@ -329,7 +311,11 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
       return { success: false, error: 'Image is too large. Use an image under 12MB.' };
     }
 
-    const imageDataUrl = await fileToDataUrl(file);
+    const imageDataUrl = await imageFileToUploadDataUrl(file, {
+      maxDimension: 1800,
+      preferredQuality: 0.92,
+      maxDataUrlLength: 3_500_000,
+    });
     const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
       body: {
         fileName: file.name,
@@ -339,6 +325,12 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
 
     if (error) {
       console.error('Edge function error (parse-recipe-photo):', error);
+      if (isEdgeTransportFailureMessage(error.message)) {
+        return {
+          success: false,
+          error: 'That screenshot was too large or could not be sent cleanly. Try a tighter crop of just the recipe card and retry.',
+        };
+      }
       return {
         success: false,
         error: error.message || 'Failed to process recipe image',

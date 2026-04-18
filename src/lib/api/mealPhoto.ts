@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { imageFileToUploadDataUrl, isEdgeTransportFailureMessage } from '@/lib/imageUpload';
 
 export interface EstimatedMealFromPhoto {
   name: string;
@@ -16,15 +17,6 @@ interface EstimateMealPhotoResponse {
   meal?: EstimatedMealFromPhoto;
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Failed to read image'));
-    reader.readAsDataURL(file);
-  });
-}
-
 export async function estimateMealFromPhoto(
   file: File,
   note?: string,
@@ -38,7 +30,11 @@ export async function estimateMealFromPhoto(
       return { success: false, error: 'Image is too large. Use an image under 12MB.' };
     }
 
-    const imageDataUrl = await fileToDataUrl(file);
+    const imageDataUrl = await imageFileToUploadDataUrl(file, {
+      maxDimension: 1800,
+      preferredQuality: 0.9,
+      maxDataUrlLength: 3_500_000,
+    });
     const { data, error } = await supabase.functions.invoke('estimate-meal-photo', {
       body: {
         imageDataUrl,
@@ -49,6 +45,12 @@ export async function estimateMealFromPhoto(
 
     if (error) {
       console.error('Edge function error (estimate-meal-photo):', error);
+      if (isEdgeTransportFailureMessage(error.message)) {
+        return {
+          success: false,
+          error: 'That image was too large or could not be sent cleanly. Try a tighter crop and retry.',
+        };
+      }
       return {
         success: false,
         error: error.message || 'Failed to estimate meal photo',
