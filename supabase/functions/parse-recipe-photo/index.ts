@@ -36,6 +36,28 @@ function jsonOk(body: unknown) {
   });
 }
 
+function formatOpenAiError(errorText: string, status: number, contextLabel: string): string {
+  const trimmed = errorText.trim();
+  if (!trimmed) return `${contextLabel} failed (${status})`;
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: {
+        message?: string;
+        type?: string;
+        code?: string;
+      };
+    };
+    const code = parsed.error?.code || parsed.error?.type || "";
+    if (code === "insufficient_quota") {
+      return "Recipe photo import is temporarily unavailable because Home Harmony's OpenAI credits are exhausted. Add billing or credits to the OpenAI project, then retry.";
+    }
+    return parsed.error?.message?.trim() || `${contextLabel} failed (${status})`;
+  } catch {
+    return trimmed || `${contextLabel} failed (${status})`;
+  }
+}
+
 function safeParseRecipesJson(maybeJson: string | undefined): unknown[] | null {
   if (!maybeJson) return null;
   const trimmed = maybeJson.trim();
@@ -374,7 +396,7 @@ async function extractRecipesWithAi(params: {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `AI processing failed (${response.status})`);
+    throw new Error(formatOpenAiError(errorText, response.status, "AI recipe extraction"));
   }
 
   const aiResponse = await response.json().catch(() => null) as
@@ -438,7 +460,7 @@ async function extractOcrTextWithAi(params: {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `OCR processing failed (${response.status})`);
+    throw new Error(formatOpenAiError(errorText, response.status, "AI OCR extraction"));
   }
 
   const aiResponse = await response.json().catch(() => null) as
@@ -522,7 +544,7 @@ Rules:
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `OCR recipe parsing failed (${response.status})`);
+    throw new Error(formatOpenAiError(errorText, response.status, "AI OCR recipe parsing"));
   }
 
   const aiResponse = await response.json().catch(() => null) as
