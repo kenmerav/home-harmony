@@ -118,6 +118,37 @@ interface CookbookImportFunctionResponse {
   jobs?: CookbookImportJob[];
 }
 
+async function invokeRecipePhotoParser(body: Record<string, unknown>) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    throw sessionError;
+  }
+
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) {
+    throw new Error('Not authenticated');
+  }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const response = await fetch(`${supabaseUrl}/functions/v1/parse-recipe-photo`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: publishableKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `parse-recipe-photo failed (${response.status})`);
+  }
+
+  return response.json() as Promise<ParseCookbookResponse>;
+}
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, encoded] = dataUrl.split(',');
   const mimeMatch = header?.match(/data:(.*?);base64/);
@@ -381,26 +412,10 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
     try {
       const { imageUrls, paths } = await uploadRecipeImportImages(imageDataUrls, file.name);
       uploadedPaths = paths;
-      const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
-        body: {
-          fileName: file.name,
-          imageUrls,
-        },
+      const data = await invokeRecipePhotoParser({
+        fileName: file.name,
+        imageUrls,
       });
-
-      if (error) {
-        console.error('Edge function error (parse-recipe-photo):', error);
-        if (isEdgeTransportFailureMessage(error.message)) {
-          return {
-            success: false,
-            error: 'I could not send that screenshot cleanly. Home Harmony already compressed it, but a tighter crop of just the recipe usually works best.',
-          };
-        }
-        return {
-          success: false,
-          error: error.message || 'Failed to process recipe image',
-        };
-      }
 
       return data as ParseCookbookResponse;
     } finally {
@@ -408,6 +423,12 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
     }
   } catch (error) {
     console.error('Error parsing recipe photo:', error);
+    if (error instanceof Error && isEdgeTransportFailureMessage(error.message)) {
+      return {
+        success: false,
+        error: 'The recipe screenshot import request did not reach the parser cleanly. Hard refresh once and try again.',
+      };
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
