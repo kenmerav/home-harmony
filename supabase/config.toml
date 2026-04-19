@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.parse-recipe-url]
 verify_jwt = false
 
+[functions.parse-recipe-photo]
+verify_jwt = false
+
 [functions.sms-dispatch]
 verify_jwt = false
 
