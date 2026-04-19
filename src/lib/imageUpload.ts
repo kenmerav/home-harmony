@@ -48,6 +48,10 @@ function uniqueDataUrls(candidates: string[]): string[] {
   return next;
 }
 
+function totalDataUrlLength(candidates: string[]): number {
+  return candidates.reduce((sum, candidate) => sum + candidate.length, 0);
+}
+
 function renderImageVariantDataUrl(
   image: HTMLImageElement,
   sourceRect: ImageSourceRect,
@@ -153,10 +157,15 @@ export async function imageFileToRecipeImportDataUrls(
   file: File,
   options: UploadDataUrlOptions = {},
 ): Promise<string[]> {
-  const normalizedOptions = normalizeUploadOptions(options);
-  const fullDataUrl = await imageFileToUploadDataUrl(file, normalizedOptions);
+  const baseOptions = {
+    maxDimension: options.maxDimension ?? 1280,
+    preferredQuality: options.preferredQuality ?? 0.72,
+    maxDataUrlLength: options.maxDataUrlLength ?? 750_000,
+  };
+  const combinedBudget = 1_900_000;
+  const fallbackDataUrl = await imageFileToUploadDataUrl(file, baseOptions);
   if (typeof window === 'undefined' || !file.type.startsWith('image/')) {
-    return [fullDataUrl];
+    return [fallbackDataUrl];
   }
 
   const objectUrl = URL.createObjectURL(file);
@@ -168,24 +177,44 @@ export async function imageFileToRecipeImportDataUrls(
     const leftWidth = Math.max(1, Math.min(sourceWidth, Math.round(sourceWidth * 0.58)));
     const rightX = Math.max(0, Math.round(sourceWidth * 0.42) - overlapWidth);
     const rightWidth = Math.max(1, sourceWidth - rightX);
+    const sourceRects = {
+      full: { x: 0, y: 0, width: sourceWidth, height: sourceHeight },
+      left: { x: 0, y: 0, width: leftWidth, height: sourceHeight },
+      right: { x: rightX, y: 0, width: rightWidth, height: sourceHeight },
+    } as const;
 
-    return uniqueDataUrls([
-      fullDataUrl,
-      renderImageVariantDataUrl(
-        image,
-        { x: 0, y: 0, width: leftWidth, height: sourceHeight },
-        normalizedOptions,
-        fullDataUrl,
-      ),
-      renderImageVariantDataUrl(
-        image,
-        { x: rightX, y: 0, width: rightWidth, height: sourceHeight },
-        normalizedOptions,
-        fullDataUrl,
-      ),
-    ]);
+    const attemptOptions = [
+      baseOptions,
+      { maxDimension: 1100, preferredQuality: 0.62, maxDataUrlLength: 600_000 },
+      { maxDimension: 900, preferredQuality: 0.5, maxDataUrlLength: 420_000 },
+    ];
+
+    for (const attempt of attemptOptions) {
+      const rendered = {
+        full: renderImageVariantDataUrl(image, sourceRects.full, attempt, fallbackDataUrl),
+        left: renderImageVariantDataUrl(image, sourceRects.left, attempt, fallbackDataUrl),
+        right: renderImageVariantDataUrl(image, sourceRects.right, attempt, fallbackDataUrl),
+      };
+
+      const candidateGroups = [
+        uniqueDataUrls([rendered.full, rendered.left, rendered.right]),
+        uniqueDataUrls([rendered.left, rendered.right]),
+        uniqueDataUrls([rendered.full, rendered.right]),
+        uniqueDataUrls([rendered.full, rendered.left]),
+        uniqueDataUrls([rendered.left]),
+        uniqueDataUrls([rendered.right]),
+        uniqueDataUrls([rendered.full]),
+      ];
+
+      const withinBudget = candidateGroups.find((group) => totalDataUrlLength(group) <= combinedBudget);
+      if (withinBudget && withinBudget.length) {
+        return withinBudget;
+      }
+    }
+
+    return [fallbackDataUrl];
   } catch {
-    return [fullDataUrl];
+    return [fallbackDataUrl];
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
