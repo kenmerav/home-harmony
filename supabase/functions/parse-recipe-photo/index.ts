@@ -26,7 +26,7 @@ type OpenAiUsageLike = {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-homeharmony-access-token, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 function jsonOk(body: unknown) {
@@ -549,7 +549,8 @@ serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
+    const sessionToken = req.headers.get("x-homeharmony-access-token");
+    const authHeader = sessionToken ? `Bearer ${sessionToken}` : req.headers.get("Authorization");
     if (!authHeader) {
       return jsonOk({ success: false, error: "Unauthorized" });
     }

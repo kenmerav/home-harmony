@@ -134,9 +134,10 @@ async function invokeRecipePhotoParser(body: Record<string, unknown>) {
   const response = await fetch(`${supabaseUrl}/functions/v1/parse-recipe-photo`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${publishableKey}`,
       apikey: publishableKey,
       'Content-Type': 'application/json',
+      'x-homeharmony-access-token': accessToken,
     },
     body: JSON.stringify(body),
   });
