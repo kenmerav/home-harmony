@@ -118,6 +118,67 @@ interface CookbookImportFunctionResponse {
   jobs?: CookbookImportJob[];
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, encoded] = dataUrl.split(',');
+  const mimeMatch = header?.match(/data:(.*?);base64/);
+  const mimeType = mimeMatch?.[1] || 'image/jpeg';
+  const binary = atob(encoded || '');
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function uploadRecipeImportImages(
+  imageDataUrls: string[],
+  fileName: string,
+): Promise<{ imageUrls: string[]; paths: string[] }> {
+  const bucket = supabase.storage.from('cookbooks');
+  const safeBaseName = fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9-_]+/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || 'recipe-photo';
+  const stamp = `${Date.now()}-${crypto.randomUUID()}`;
+  const paths: string[] = [];
+  const imageUrls: string[] = [];
+
+  try {
+    for (const [index, imageDataUrl] of imageDataUrls.entries()) {
+      const path = `recipe-photo-imports/${safeBaseName}-${stamp}-${index + 1}.jpg`;
+      const { error: uploadError } = await bucket.upload(path, dataUrlToBlob(imageDataUrl), {
+        contentType: 'image/jpeg',
+        cacheControl: '900',
+        upsert: false,
+      });
+      if (uploadError) {
+        throw uploadError;
+      }
+      paths.push(path);
+
+      const { data: signedData, error: signedUrlError } = await bucket.createSignedUrl(path, 60 * 15);
+      if (signedUrlError || !signedData?.signedUrl) {
+        throw signedUrlError || new Error('Failed to create signed URL for recipe photo');
+      }
+      imageUrls.push(signedData.signedUrl);
+    }
+
+    return { imageUrls, paths };
+  } catch (error) {
+    if (paths.length) {
+      await bucket.remove(paths).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function cleanupRecipeImportImages(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  await supabase.storage.from('cookbooks').remove(paths).catch(() => undefined);
+}
+
 // Conservative defaults for stability across model limits and noisy PDFs.
 const MAX_CHUNK_CHARS = 25000;
 const MIN_RETRY_CHUNK_CHARS = 6000;
@@ -316,29 +377,35 @@ export async function parseRecipesFromImage(file: File): Promise<ParseCookbookRe
       preferredQuality: 0.92,
       maxDataUrlLength: 3_500_000,
     });
-    const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
-      body: {
-        fileName: file.name,
-        imageDataUrl: imageDataUrls[0],
-        imageDataUrls,
-      },
-    });
+    let uploadedPaths: string[] = [];
+    try {
+      const { imageUrls, paths } = await uploadRecipeImportImages(imageDataUrls, file.name);
+      uploadedPaths = paths;
+      const { data, error } = await supabase.functions.invoke('parse-recipe-photo', {
+        body: {
+          fileName: file.name,
+          imageUrls,
+        },
+      });
 
-    if (error) {
-      console.error('Edge function error (parse-recipe-photo):', error);
-      if (isEdgeTransportFailureMessage(error.message)) {
+      if (error) {
+        console.error('Edge function error (parse-recipe-photo):', error);
+        if (isEdgeTransportFailureMessage(error.message)) {
+          return {
+            success: false,
+            error: 'I could not send that screenshot cleanly. Home Harmony already compressed it, but a tighter crop of just the recipe usually works best.',
+          };
+        }
         return {
           success: false,
-          error: 'I could not send that screenshot cleanly. Home Harmony already compressed it, but a tighter crop of just the recipe usually works best.',
+          error: error.message || 'Failed to process recipe image',
         };
       }
-      return {
-        success: false,
-        error: error.message || 'Failed to process recipe image',
-      };
-    }
 
-    return data as ParseCookbookResponse;
+      return data as ParseCookbookResponse;
+    } finally {
+      await cleanupRecipeImportImages(uploadedPaths);
+    }
   } catch (error) {
     console.error('Error parsing recipe photo:', error);
     return {

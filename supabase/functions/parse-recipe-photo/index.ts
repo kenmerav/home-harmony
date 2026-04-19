@@ -571,6 +571,12 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const imageDataUrl = body?.imageDataUrl;
+    const imageUrls = Array.isArray(body?.imageUrls)
+      ? body.imageUrls.filter(
+          (value: unknown): value is string =>
+            typeof value === "string" && /^https?:\/\//i.test(value),
+        )
+      : [];
     const imageDataUrls = Array.isArray(body?.imageDataUrls)
       ? body.imageDataUrls.filter(
           (value: unknown): value is string =>
@@ -579,7 +585,9 @@ serve(async (req) => {
       : [];
     const fileName = body?.fileName;
 
-    const candidateImageDataUrls = imageDataUrls.length
+    const candidateImageDataUrls = imageUrls.length
+      ? imageUrls
+      : imageDataUrls.length
       ? imageDataUrls
       : typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/")
       ? [imageDataUrl]
