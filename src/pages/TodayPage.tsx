@@ -1035,12 +1035,21 @@ export default function TodayPage() {
           )}
         </SectionCard>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)]">
-          <SectionCard title="Nutrition and Goals" subtitle="Track food, protein, water, and alcohol when needed">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
+          <SectionCard
+            title="Nutrition and Goals"
+            subtitle="Track food, protein, water, and alcohol when needed"
+            className="h-full"
+          >
             <div className="space-y-4">
-              <div className={cn('grid grid-cols-1 gap-4', todaysScores.length > 1 && 'md:grid-cols-2')}>
+              <div
+                className={cn(
+                  'grid auto-rows-fr grid-cols-1 gap-4 [&>*]:w-full',
+                  todaysScores.length > 1 && 'md:grid-cols-2',
+                )}
+              >
                 {todaysScores.map((entry) => (
-                  <div key={entry.id} className="rounded-lg border border-border p-3 space-y-3">
+                  <div key={entry.id} className="w-full rounded-lg border border-border p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="font-medium">{entry.label}</p>
                       <div className="text-xs text-muted-foreground flex items-center gap-2">
@@ -1082,12 +1091,17 @@ export default function TodayPage() {
                 ))}
               </div>
 
-              <div className={cn('grid grid-cols-1 gap-4', todaysScores.length > 1 && 'sm:grid-cols-2')}>
+              <div
+                className={cn(
+                  'grid auto-rows-fr grid-cols-1 gap-4 [&>*]:w-full',
+                  todaysScores.length > 1 && 'sm:grid-cols-2',
+                )}
+              >
                 {todaysScores.map((entry) => {
                   const targetProtein = profiles[entry.id]?.macroPlan?.protein_g || 0;
                   return (
-                    <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block">
-                      <SectionCard className="card-hover">
+                    <Link key={entry.id} to={`/dashboard/${entry.id}`} className="block w-full">
+                      <SectionCard className="card-hover h-full w-full">
                         <div className="text-center mb-3">
                           <p className="text-sm text-muted-foreground">{entry.label}</p>
                           <p className="text-2xl font-display font-semibold">{Math.round(entry.score.calories)}</p>
