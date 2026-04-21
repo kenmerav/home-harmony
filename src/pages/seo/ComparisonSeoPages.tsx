@@ -10,6 +10,10 @@ import {
 import { ResourcePageLayout } from './ResourcePageLayout';
 
 const comparisonNarrative: Record<string, { intro: string; closing: string }> = {
+  'home-harmony-vs-mealime': {
+    intro: 'This comparison is for families deciding between a recipe-first meal planner and a broader family execution system.',
+    closing: 'If meals are the entry point but follow-through is the real problem, test the full household workflow instead of only the recipe engine.',
+  },
   'home-harmony-vs-cozi': {
     intro: 'This comparison focuses on households deciding between calendar-first coordination and a fuller operations system.',
     closing: 'Migrate one workflow first so you can test operational fit before a full switch.',
@@ -44,10 +48,11 @@ function buildComparisonFaq(page: (typeof comparisonPages)[number]) {
 
 export function ComparisonHubPage() {
   useSeoMeta({
-    title: 'Home Harmony Comparisons | Cozi, AnyList, Todoist Alternatives',
+    title: 'Home Harmony Comparisons | Mealime, Cozi, AnyList, and Todoist Alternatives',
     description:
-      'Compare Home Harmony against Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, and routines.',
+      'Compare Home Harmony against Mealime, Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, and routines.',
     keywords: [
+      'home harmony vs mealime',
       'home harmony vs cozi',
       'home harmony vs anylist',
       'home harmony vs todoist',

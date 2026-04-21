@@ -14,6 +14,44 @@ export interface ComparisonPage {
 
 export const comparisonPages: ComparisonPage[] = [
   {
+    slug: 'home-harmony-vs-mealime',
+    competitor: 'Mealime',
+    title: 'Home Harmony vs Mealime for Family Meal Planning and Grocery',
+    description:
+      'Compare Home Harmony and Mealime for family meal planning, grocery automation, shared calendar coordination, chores, tasks, and household follow-through.',
+    heroImage: '/seo/unique/meal-plans.jpg',
+    heroAlt: 'Home Harmony and Mealime comparison for family meal planning and grocery workflows',
+    bestForHomeHarmony: [
+      'Families that need meal planning tied to grocery, calendar, chores, tasks, and shared household execution.',
+      'Households where meals are only one part of the weekly coordination problem.',
+    ],
+    whereHomeHarmonyWins: [
+      'Shared family workflow across meal planning, grocery rollups, chores, tasks, calendar, and reminders.',
+      'Saved foods plus recipes, so real-life lunches, snacks, and leftovers fit the system.',
+      'Personal dashboards for adults without breaking the shared family plan underneath.',
+    ],
+    whereCompetitorWins: [
+      'Fast recipe-first setup for users who only want meal suggestions and a grocery list.',
+      'Lower complexity if the household does not need shared chores, tasks, or calendar coordination.',
+    ],
+    switchChecklist: [
+      'Keep your go-to recipes and saved foods, then rebuild the first week inside one shared family workspace.',
+      'Set shared dinner timing and grocery preferences before adding chores and task ownership.',
+      'Invite your spouse after the owner finishes household setup so the family system stays shared.',
+      'Move calendar and recurring home tasks in after meals and grocery are steady.',
+    ],
+    faq: [
+      {
+        question: 'Is Home Harmony a Mealime replacement?',
+        answer: 'It can be, especially for families who need meal planning connected to grocery, chores, tasks, and shared household execution.',
+      },
+      {
+        question: 'Should I switch if Mealime already handles recipes well?',
+        answer: 'Switch when your bottleneck is no longer recipe ideas, but getting the whole household to follow the plan week after week.',
+      },
+    ],
+  },
+  {
     slug: 'home-harmony-vs-cozi',
     competitor: 'Cozi',
     title: 'Home Harmony vs Cozi for Family Operations',

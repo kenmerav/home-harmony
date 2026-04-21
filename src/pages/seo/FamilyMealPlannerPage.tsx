@@ -73,9 +73,9 @@ const comparisonBullets = [
 
 export default function FamilyMealPlannerPage() {
   useSeoMeta({
-    title: 'Family Meal Planner App | Weekly Meal Plans, Grocery Lists, and Shared Family Scheduling',
+    title: 'Meal Planning App for Families | Weekly Meal Planner, Grocery, Calendar, and Chores',
     description:
-      'Home Harmony is a family meal planner app for busy households that need weekly meal plans, automatic grocery lists, shared schedules, and one calm system for meals, chores, and routines.',
+      'Home Harmony is a meal planning app for families that need weekly meal plans, automatic grocery lists, shared schedules, and one calm system for meals, chores, and routines.',
     keywords: [
       'family meal planner',
       'meal planning app for families',
@@ -104,7 +104,7 @@ export default function FamilyMealPlannerPage() {
         applicationCategory: 'LifestyleApplication',
         operatingSystem: 'Web',
         description:
-          'A family meal planner app that connects weekly meal planning, grocery lists, calendars, tasks, and chores for busy households.',
+          'A meal planning app for families that connects weekly meal planning, grocery lists, calendars, tasks, and chores for busy households.',
         url: 'https://www.homeharmonyhq.com/family-meal-planner',
         featureList: [
           'Weekly family meal planner',
@@ -138,7 +138,7 @@ export default function FamilyMealPlannerPage() {
         <section className="border-b border-border/60 pb-10">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Family Meal Planning</p>
           <h1 className="mt-3 max-w-4xl font-display text-4xl leading-[1.04] tracking-tight md:text-6xl">
-            A family meal planner app that actually works in real life
+            A meal planning app for families that actually works in real life
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-7 text-muted-foreground md:text-xl">
             Home Harmony is built for busy families who need more than recipes. Plan the week, generate grocery lists,

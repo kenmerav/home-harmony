@@ -324,8 +324,8 @@ const routes = [
   },
   {
     path: "/family-meal-planner",
-    title: "Family Meal Planner App | Weekly Meals, Grocery, Calendar, and Chores | Home Harmony",
-    heading: "A family meal planner that also handles grocery, calendar, chores, and tasks",
+    title: "Meal Planning App for Families | Weekly Meal Planner, Grocery, Calendar, and Chores",
+    heading: "A meal planning app for families that also handles grocery, calendar, chores, and tasks",
     description:
       "See how Home Harmony helps families plan weekly meals, build grocery lists automatically, coordinate shared calendars, and keep chores and tasks moving together.",
     image: "/landing/hero-family.jpg",
@@ -392,12 +392,13 @@ const routes = [
   },
   {
     path: "/compare",
-    title: "Home Harmony Comparisons | Cozi, AnyList, and Todoist Alternatives",
+    title: "Home Harmony Comparisons | Mealime, Cozi, AnyList, and Todoist Alternatives",
     heading: "Home Harmony vs popular family tools",
     description:
-      "Compare Home Harmony with Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, tasks, and routines.",
+      "Compare Home Harmony with Mealime, Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, tasks, and routines.",
     image: "/seo/task-systems.jpg",
     keywords: [
+      "home harmony vs mealime",
       "home harmony vs cozi",
       "home harmony vs anylist",
       "home harmony vs todoist",
