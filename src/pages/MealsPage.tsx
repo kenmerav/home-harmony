@@ -745,24 +745,34 @@ export default function MealsPage() {
     toast({ title: 'Planner rules saved' });
   };
 
-  const handleRegenerate = async (daysToRegen?: DayOfWeek[]) => {
+  const runDinnerRegenerate = async (
+    daysToRegen?: DayOfWeek[],
+    options?: { silent?: boolean },
+  ) => {
+    const data = await generateMeals(weekOffset, daysToRegen, planRules);
+    setMeals(data);
+    if (!options?.silent) {
+      toast({ title: 'Meals generated!', description: `${data.length} meals planned for the week` });
+    }
+    await trackGrowthEventSafe(
+      'meals_regenerated',
+      {
+        weekOffset,
+        days: daysToRegen || days,
+        preferFavorites: !!planRules.preferFavorites,
+        preferKidFriendly: !!planRules.preferKidFriendly,
+        favoritesOnly: !!planRules.favoritesOnly,
+        kidFriendlyOnly: !!planRules.kidFriendlyOnly,
+        maxCookMinutes: planRules.maxCookMinutes || null,
+      },
+    );
+    return data;
+  };
+
+  const handleRegenerate = async (daysToRegen?: DayOfWeek[], options?: { silent?: boolean }) => {
     setRegenerating(true);
     try {
-      const data = await generateMeals(weekOffset, daysToRegen, planRules);
-      setMeals(data);
-      toast({ title: 'Meals generated!', description: `${data.length} meals planned for the week` });
-      await trackGrowthEventSafe(
-        'meals_regenerated',
-        {
-          weekOffset,
-          days: daysToRegen || days,
-          preferFavorites: !!planRules.preferFavorites,
-          preferKidFriendly: !!planRules.preferKidFriendly,
-          favoritesOnly: !!planRules.favoritesOnly,
-          kidFriendlyOnly: !!planRules.kidFriendlyOnly,
-          maxCookMinutes: planRules.maxCookMinutes || null,
-        },
-      );
+      await runDinnerRegenerate(daysToRegen, options);
     } catch (error: unknown) {
       toast({ title: 'Error', description: getErrorMessage(error, 'Failed to generate meals'), variant: 'destructive' });
     } finally {
@@ -1823,10 +1833,10 @@ export default function MealsPage() {
     return weightedPool[Math.floor(Math.random() * weightedPool.length)] || null;
   };
 
-  const regeneratePlannerGridRow = async (row: MealGridRow) => {
+  const regeneratePlannerGridRow = async (row: MealGridRow, options?: { silent?: boolean }) => {
     if (row.mealType === 'dinner') {
-      await handleRegenerate();
-      return;
+      await runDinnerRegenerate(undefined, options);
+      return days.length;
     }
 
     const recipes = await ensureRecipesLoaded();
@@ -1843,12 +1853,14 @@ export default function MealsPage() {
     });
 
     if (filteredCandidatePool.length === 0) {
-      toast({
-        title: `No ${plannedMealTypeLabel[mealType].toLowerCase()} recipes found`,
-        description: `Try loosening favorites/kid-friendly filters or import more ${plannedMealTypeLabel[mealType].toLowerCase()} recipes.`,
-        variant: 'destructive',
-      });
-      return;
+      if (!options?.silent) {
+        toast({
+          title: `No ${plannedMealTypeLabel[mealType].toLowerCase()} recipes found`,
+          description: `Try loosening favorites/kid-friendly filters or import more ${plannedMealTypeLabel[mealType].toLowerCase()} recipes.`,
+          variant: 'destructive',
+        });
+      }
+      return 0;
     }
 
     const usedRecipeIds = new Set<string>();
@@ -1897,10 +1909,76 @@ export default function MealsPage() {
     }
 
     refreshPlannerEntries();
-    toast({
-      title: `${row.label} regenerated`,
-      description: `Updated ${updatedCount} day${updatedCount === 1 ? '' : 's'} for this week.`,
-    });
+    if (!options?.silent) {
+      toast({
+        title: `${row.label} regenerated`,
+        description: `Updated ${updatedCount} day${updatedCount === 1 ? '' : 's'} for this week.`,
+      });
+    }
+    return updatedCount;
+  };
+
+  const handleTopViewRegenerate = async () => {
+    if (topMealsViewMode === 'dinner-list') {
+      await handleRegenerate();
+      return;
+    }
+
+    const breakfastRow = MEAL_GRID_ROWS.find((row) => row.key === 'breakfast');
+    const lunchRow = MEAL_GRID_ROWS.find((row) => row.key === 'lunch');
+    const snackRows = MEAL_GRID_ROWS.filter((row) => row.mealType === 'snack');
+    const nonDinnerRows = MEAL_GRID_ROWS.filter((row) => row.mealType !== 'dinner');
+
+    setRegenerating(true);
+    try {
+      if (topMealsViewMode === 'breakfast-list' && breakfastRow) {
+        const updatedCount = await regeneratePlannerGridRow(breakfastRow, { silent: true });
+        toast({
+          title: 'Breakfast list regenerated',
+          description: `Updated ${updatedCount} day${updatedCount === 1 ? '' : 's'} with breakfast-tagged recipes.`,
+        });
+        return;
+      }
+
+      if (topMealsViewMode === 'lunch-list' && lunchRow) {
+        const updatedCount = await regeneratePlannerGridRow(lunchRow, { silent: true });
+        toast({
+          title: 'Lunch list regenerated',
+          description: `Updated ${updatedCount} day${updatedCount === 1 ? '' : 's'} with lunch-tagged recipes.`,
+        });
+        return;
+      }
+
+      if (topMealsViewMode === 'snack-list') {
+        let updatedCount = 0;
+        for (const row of snackRows) {
+          updatedCount += await regeneratePlannerGridRow(row, { silent: true });
+        }
+        toast({
+          title: 'Snack list regenerated',
+          description: `Updated ${updatedCount} snack slot${updatedCount === 1 ? '' : 's'} with snack-tagged recipes.`,
+        });
+        return;
+      }
+
+      if (topMealsViewMode === 'weekly-meal-grid') {
+        await runDinnerRegenerate(undefined, { silent: true });
+        let updatedCount = days.length;
+        for (const row of nonDinnerRows) {
+          updatedCount += await regeneratePlannerGridRow(row, { silent: true });
+        }
+        toast({
+          title: 'Weekly meal grid regenerated',
+          description: `Updated ${updatedCount} meal slots across the week using matching meal tags.`,
+        });
+      }
+    } catch (error: unknown) {
+      toast({ title: 'Error', description: getErrorMessage(error, 'Failed to regenerate this view'), variant: 'destructive' });
+    } finally {
+      setRegenerating(false);
+      setSelectiveDialogOpen(false);
+      setSelectedDays(new Set());
+    }
   };
 
   const plannerRows =
@@ -1941,10 +2019,10 @@ export default function MealsPage() {
     <AppLayout>
       <PageHeader
         title="Weekly Meals"
-        subtitle="Dinner plan for the week"
+        subtitle="Planned meals for the week"
         action={
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-            <Button size="sm" onClick={() => handleRegenerate()} disabled={regenerating}>
+            <Button size="sm" onClick={() => void handleTopViewRegenerate()} disabled={regenerating}>
               <RefreshCw className={cn("w-4 h-4 mr-2", regenerating && "animate-spin")} />
               Regenerate
             </Button>
