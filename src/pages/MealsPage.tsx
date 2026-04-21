@@ -1834,12 +1834,7 @@ export default function MealsPage() {
     const isSnackFirstSlot = row.key === 'snack-1';
     const isSnackSecondSlot = row.key === 'snack-2';
 
-    const candidatePool = recipes.filter((recipe) => {
-      if (mealType === 'breakfast') return recipe.meal_type === 'breakfast' || recipe.meal_type === 'snack';
-      if (mealType === 'lunch') return recipe.meal_type === 'lunch' || recipe.meal_type === 'dinner';
-      if (mealType === 'snack') return recipe.meal_type === 'snack' || recipe.meal_type === 'breakfast';
-      return recipe.meal_type === mealType;
-    });
+    const candidatePool = recipes.filter((recipe) => recipe.meal_type === mealType);
 
     const filteredCandidatePool = candidatePool.filter((recipe) => {
       if (planRules.favoritesOnly && !favoriteIds.has(recipe.id)) return false;
