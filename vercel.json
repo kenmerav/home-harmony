@@ -219,6 +219,110 @@
   ],
   "rewrites": [
     {
+      "source": "/family-meal-planner",
+      "destination": "/family-meal-planner/index.html"
+    },
+    {
+      "source": "/resources",
+      "destination": "/resources/index.html"
+    },
+    {
+      "source": "/meal-plans",
+      "destination": "/meal-plans/index.html"
+    },
+    {
+      "source": "/meal-plans/:slug",
+      "destination": "/meal-plans/:slug/index.html"
+    },
+    {
+      "source": "/grocery-lists",
+      "destination": "/grocery-lists/index.html"
+    },
+    {
+      "source": "/grocery-lists/:slug",
+      "destination": "/grocery-lists/:slug/index.html"
+    },
+    {
+      "source": "/pantry-meals",
+      "destination": "/pantry-meals/index.html"
+    },
+    {
+      "source": "/pantry-meals/:slug",
+      "destination": "/pantry-meals/:slug/index.html"
+    },
+    {
+      "source": "/recipe-collections",
+      "destination": "/recipe-collections/index.html"
+    },
+    {
+      "source": "/recipe-collections/:slug",
+      "destination": "/recipe-collections/:slug/index.html"
+    },
+    {
+      "source": "/household-templates",
+      "destination": "/household-templates/index.html"
+    },
+    {
+      "source": "/household-templates/:slug",
+      "destination": "/household-templates/:slug/index.html"
+    },
+    {
+      "source": "/macro-plans",
+      "destination": "/macro-plans/index.html"
+    },
+    {
+      "source": "/macro-plans/:slug",
+      "destination": "/macro-plans/:slug/index.html"
+    },
+    {
+      "source": "/chore-systems",
+      "destination": "/chore-systems/index.html"
+    },
+    {
+      "source": "/chore-systems/:slug",
+      "destination": "/chore-systems/:slug/index.html"
+    },
+    {
+      "source": "/task-systems",
+      "destination": "/task-systems/index.html"
+    },
+    {
+      "source": "/task-systems/:slug",
+      "destination": "/task-systems/:slug/index.html"
+    },
+    {
+      "source": "/workout-tracking",
+      "destination": "/workout-tracking/index.html"
+    },
+    {
+      "source": "/workout-tracking/:slug",
+      "destination": "/workout-tracking/:slug/index.html"
+    },
+    {
+      "source": "/lifestyle-tracking",
+      "destination": "/lifestyle-tracking/index.html"
+    },
+    {
+      "source": "/lifestyle-tracking/:slug",
+      "destination": "/lifestyle-tracking/:slug/index.html"
+    },
+    {
+      "source": "/compare",
+      "destination": "/compare/index.html"
+    },
+    {
+      "source": "/compare/:slug",
+      "destination": "/compare/:slug/index.html"
+    },
+    {
+      "source": "/templates",
+      "destination": "/templates/index.html"
+    },
+    {
+      "source": "/templates/:slug",
+      "destination": "/templates/:slug/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
