@@ -178,6 +178,15 @@ interface ManualRecipeFormState {
 }
 
 type LibraryFilter = 'all' | 'recipes' | 'saved-foods';
+type RecipeMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+const RECIPE_MEAL_FILTERS: Array<{ id: RecipeMealFilter; label: string }> = [
+  { id: 'all', label: 'All meals' },
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'lunch', label: 'Lunch' },
+  { id: 'dinner', label: 'Dinner' },
+  { id: 'snack', label: 'Snack' },
+];
 
 interface RecipesUploadDraft {
   uploadModalOpen: boolean;
@@ -429,6 +438,7 @@ export default function RecipesPage() {
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all');
+  const [recipeMealFilter, setRecipeMealFilter] = useState<RecipeMealFilter>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [kidFriendlyOnly, setKidFriendlyOnly] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -772,9 +782,10 @@ export default function RecipesPage() {
       !normalizedQuery ||
       normalizedName.includes(normalizedQuery) ||
       normalizedQuery.split(' ').filter(Boolean).every((term) => normalizedName.includes(term));
+    const matchesMealType = recipeMealFilter === 'all' || recipe.mealType === recipeMealFilter;
     const matchesFavorite = !favoritesOnly || !!recipe.isFavorite;
     const matchesKidFriendly = !kidFriendlyOnly || !!recipe.isKidFriendly;
-    return matchesSearch && matchesFavorite && matchesKidFriendly;
+    return matchesSearch && matchesMealType && matchesFavorite && matchesKidFriendly;
   });
   const normalizedSearchQuery = searchQuery
     .toLowerCase()
@@ -783,6 +794,15 @@ export default function RecipesPage() {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
   const filteredSavedFoods = savedFoods.filter((food) => {
+    const matchesMealType =
+      recipeMealFilter === 'all' ||
+      (food.defaultMealType === 'breakfast' ||
+        food.defaultMealType === 'lunch' ||
+        food.defaultMealType === 'dinner' ||
+        food.defaultMealType === 'snack'
+        ? food.defaultMealType === recipeMealFilter
+        : false);
+    if (!matchesMealType) return false;
     if (!normalizedSearchQuery) return true;
     const normalizedName = food.name
       .toLowerCase()
@@ -1851,6 +1871,19 @@ export default function RecipesPage() {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-10"
         />
+      </div>
+
+      <div className="mb-6 flex flex-wrap gap-2">
+        {RECIPE_MEAL_FILTERS.map((filter) => (
+          <Button
+            key={filter.id}
+            variant={recipeMealFilter === filter.id ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setRecipeMealFilter(filter.id)}
+          >
+            {filter.label}
+          </Button>
+        ))}
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
