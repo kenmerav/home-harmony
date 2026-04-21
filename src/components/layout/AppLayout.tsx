@@ -267,7 +267,7 @@ export function AppLayout({ children, contentWidthClassName }: AppLayoutProps) {
           isSidebarCollapsed ? 'md:pl-20' : 'md:pl-64',
         )}
       >
-        <div className={cn(contentWidthClassName || "max-w-4xl", "mx-auto p-4 md:p-6")}>
+        <div className={cn(contentWidthClassName || "w-full max-w-[1500px]", "p-4 md:p-6")}>
           <div className="mb-4 flex items-center justify-between">
             <Button
               variant="outline"
