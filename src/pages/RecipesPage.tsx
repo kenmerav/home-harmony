@@ -45,7 +45,7 @@ import { getFavoriteIds, getKidFriendlyOverrides, setFavorite, setKidFriendly } 
 import { inferKidFriendly } from '@/lib/kidFriendly';
 import { isDemoModeEnabled } from '@/lib/demoMode';
 import { getNextWeekOf, loadWeeklyPlanningStatus, type WeeklyPlanningStatus } from '@/lib/api/weeklyPlanningStatus';
-import { getCommonFoods, type CommonFood } from '@/lib/mealBudgetPlanner';
+import { addOrUpdateCommonFood, getCommonFoods, type CommonFood } from '@/lib/mealBudgetPlanner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -171,6 +171,16 @@ interface ManualRecipeFormState {
   isMealPrep: boolean;
   ingredients: string;
   instructions: string;
+  calories: string;
+  protein_g: string;
+  carbs_g: string;
+  fat_g: string;
+}
+
+interface SavedFoodFormState {
+  name: string;
+  servings: string;
+  defaultMealType: '' | NonNullable<CommonFood['defaultMealType']>;
   calories: string;
   protein_g: string;
   carbs_g: string;
@@ -324,6 +334,32 @@ function normalizeIntegerInput(value: string): string {
   const digitsOnly = value.replace(/\D/g, '');
   if (!digitsOnly) return '';
   return digitsOnly.replace(/^0+(?=\d)/, '');
+}
+
+function normalizeDecimalInput(value: string): string {
+  const sanitized = value.replace(/[^\d.]/g, '');
+  if (!sanitized) return '';
+
+  const [whole = '', ...fractionParts] = sanitized.split('.');
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, '') || (whole ? '0' : '');
+  if (fractionParts.length === 0) {
+    return normalizedWhole;
+  }
+
+  const normalizedFraction = fractionParts.join('').slice(0, 2);
+  return `${normalizedWhole || '0'}.${normalizedFraction}`;
+}
+
+function toSavedFoodFormState(food: CommonFood): SavedFoodFormState {
+  return {
+    name: food.name,
+    servings: String(food.servings),
+    defaultMealType: food.defaultMealType || '',
+    calories: String(food.calories),
+    protein_g: String(food.protein_g),
+    carbs_g: String(food.carbs_g),
+    fat_g: String(food.fat_g),
+  };
 }
 
 function parseBulkUrlInput(raw: string): string[] {
@@ -485,6 +521,8 @@ export default function RecipesPage() {
   const [nextWeekPlanning, setNextWeekPlanning] = useState<WeeklyPlanningStatus | null>(null);
   const [planningLoading, setPlanningLoading] = useState(false);
   const [savedFoods, setSavedFoods] = useState<CommonFood[]>([]);
+  const [editingSavedFood, setEditingSavedFood] = useState<CommonFood | null>(null);
+  const [savedFoodForm, setSavedFoodForm] = useState<SavedFoodFormState | null>(null);
   const importStatusRef = useRef<Record<string, CookbookImportJob['status']>>({});
   const hasLoadedImportJobsRef = useRef(false);
   const hasHydratedDraftRef = useRef(false);
@@ -534,6 +572,57 @@ export default function RecipesPage() {
   const loadSavedFoods = useCallback(() => {
     setSavedFoods(getCommonFoods(user?.id));
   }, [user?.id]);
+
+  const openSavedFoodEditor = useCallback((food: CommonFood) => {
+    setEditingSavedFood(food);
+    setSavedFoodForm(toSavedFoodFormState(food));
+  }, []);
+
+  const closeSavedFoodEditor = useCallback(() => {
+    setEditingSavedFood(null);
+    setSavedFoodForm(null);
+  }, []);
+
+  const saveSavedFoodEdits = useCallback(() => {
+    if (!editingSavedFood || !savedFoodForm) return;
+
+    const trimmedName = savedFoodForm.name.trim();
+    if (!trimmedName) {
+      toast({
+        title: 'Name required',
+        description: 'Give this saved food a name before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const nextServings = Number(savedFoodForm.servings);
+    const nextCalories = Number(savedFoodForm.calories);
+    const nextProtein = Number(savedFoodForm.protein_g);
+    const nextCarbs = Number(savedFoodForm.carbs_g);
+    const nextFat = Number(savedFoodForm.fat_g);
+
+    addOrUpdateCommonFood(
+      {
+        id: editingSavedFood.id,
+        name: trimmedName,
+        defaultMealType: savedFoodForm.defaultMealType || null,
+        servings: Number.isFinite(nextServings) && nextServings > 0 ? nextServings : 1,
+        calories: Number.isFinite(nextCalories) ? nextCalories : 0,
+        protein_g: Number.isFinite(nextProtein) ? nextProtein : 0,
+        carbs_g: Number.isFinite(nextCarbs) ? nextCarbs : 0,
+        fat_g: Number.isFinite(nextFat) ? nextFat : 0,
+      },
+      user?.id,
+    );
+
+    loadSavedFoods();
+    closeSavedFoodEditor();
+    toast({
+      title: 'Saved food updated',
+      description: `${trimmedName} is ready to reuse with the new details.`,
+    });
+  }, [closeSavedFoodEditor, editingSavedFood, loadSavedFoods, savedFoodForm, toast, user?.id]);
 
   useEffect(() => {
     loadSavedFoods();
@@ -2036,7 +2125,7 @@ export default function RecipesPage() {
           ))}
         {libraryFilter !== 'recipes' &&
           filteredSavedFoods.map((food) => (
-            <SavedFoodCard key={food.id} food={food} />
+            <SavedFoodCard key={food.id} food={food} onEdit={() => openSavedFoodEditor(food)} />
           ))}
       </div>
 
@@ -2718,6 +2807,144 @@ export default function RecipesPage() {
           setRecipes(prev => prev.filter(r => r.id !== id));
         }}
       />
+
+      <Dialog open={!!editingSavedFood} onOpenChange={(open) => !open && closeSavedFoodEditor()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Saved Food</DialogTitle>
+            <DialogDescription>
+              Update the name, servings, meal type, and macros for this saved food.
+            </DialogDescription>
+          </DialogHeader>
+
+          {savedFoodForm ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Food name</label>
+                <Input
+                  value={savedFoodForm.name}
+                  onChange={(event) =>
+                    setSavedFoodForm((prev) => (prev ? { ...prev, name: event.target.value } : prev))
+                  }
+                  placeholder="Greek yogurt"
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Servings</label>
+                  <Input
+                    type="number"
+                    min="0.1"
+                    step="0.25"
+                    value={savedFoodForm.servings}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev ? { ...prev, servings: normalizeDecimalInput(event.target.value) } : prev,
+                      )
+                    }
+                    placeholder="1"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Default meal type</label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={savedFoodForm.defaultMealType}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              defaultMealType: event.target.value as SavedFoodFormState['defaultMealType'],
+                            }
+                          : prev,
+                      )
+                    }
+                  >
+                    <option value="">No default meal</option>
+                    <option value="breakfast">Breakfast</option>
+                    <option value="lunch">Lunch</option>
+                    <option value="dinner">Dinner</option>
+                    <option value="snack">Snack</option>
+                    <option value="dessert">Dessert</option>
+                    <option value="alcohol">Drink</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Calories</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={savedFoodForm.calories}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev ? { ...prev, calories: normalizeIntegerInput(event.target.value) } : prev,
+                      )
+                    }
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Protein (g)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={savedFoodForm.protein_g}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev ? { ...prev, protein_g: normalizeIntegerInput(event.target.value) } : prev,
+                      )
+                    }
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Carbs (g)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={savedFoodForm.carbs_g}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev ? { ...prev, carbs_g: normalizeIntegerInput(event.target.value) } : prev,
+                      )
+                    }
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Fat (g)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={savedFoodForm.fat_g}
+                    onChange={(event) =>
+                      setSavedFoodForm((prev) =>
+                        prev ? { ...prev, fat_g: normalizeIntegerInput(event.target.value) } : prev,
+                      )
+                    }
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={closeSavedFoodEditor}>
+                  Cancel
+                </Button>
+                <Button onClick={saveSavedFoodEdits}>
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
@@ -2824,7 +3051,7 @@ function RecipeCard({
   );
 }
 
-function SavedFoodCard({ food }: { food: CommonFood }) {
+function SavedFoodCard({ food, onEdit }: { food: CommonFood; onEdit: () => void }) {
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden card-hover">
       <div className="p-4 border-b border-border">
@@ -2870,6 +3097,12 @@ function SavedFoodCard({ food }: { food: CommonFood }) {
             <p className="mt-1 font-medium text-foreground">{food.fat_g}g</p>
           </div>
         </div>
+      </div>
+
+      <div className="flex gap-2 border-t border-border p-3">
+        <Button variant="outline" size="sm" className="flex-1" onClick={onEdit}>
+          Edit
+        </Button>
       </div>
     </div>
   );
