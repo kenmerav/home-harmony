@@ -66,7 +66,16 @@ export default function SeoResourcesPage() {
         ]}
       />
 
-      <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-2">
+      <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-3">
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Family Meal Planner</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            See how Home Harmony handles weekly family meal planning, grocery automation, and shared household coordination.
+          </p>
+          <Link to="/family-meal-planner" className="mt-4 inline-block">
+            <Button variant="outline">View Family Meal Planner</Button>
+          </Link>
+        </article>
         <article className="rounded-2xl border border-border/60 bg-card p-6">
           <h2 className="font-display text-2xl leading-tight">Comparison Guides</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">

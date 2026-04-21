@@ -34,6 +34,7 @@ function lazyWithReload<T extends { default: React.ComponentType<any> }>(
 }
 
 const LandingPage = lazyWithReload(() => import("./pages/LandingPage"));
+const FamilyMealPlannerPage = lazyWithReload(() => import("./pages/seo/FamilyMealPlannerPage"));
 const SeoResourcesPage = lazyWithReload(() => import("./pages/seo/SeoResourcesPage"));
 const AuthPage = lazyWithReload(() => import("./pages/AuthPage"));
 const ResetPasswordPage = lazyWithReload(() => import("./pages/ResetPasswordPage"));
@@ -118,6 +119,7 @@ const GOOGLE_ANALYTICS_ID = "G-PN5Y1S4WCL";
 
 const INDEXABLE_PUBLIC_PREFIXES = [
   "/resources",
+  "/family-meal-planner",
   "/meal-plans",
   "/grocery-lists",
   "/pantry-meals",
@@ -210,6 +212,7 @@ const App = () => (
             <Suspense fallback={<RouteFallback />}>
               <Routes>
               <Route path="/" element={<LandingPage />} />
+              <Route path="/family-meal-planner" element={<FamilyMealPlannerPage />} />
               <Route path="/resources" element={<SeoResourcesPage />} />
               <Route path="/meal-plans" element={<MealPlanHubPage />} />
               <Route path="/meal-plans/:slug" element={<MealPlanDetailPage />} />

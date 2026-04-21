@@ -19,6 +19,7 @@ const sources = {
 const staticRoutes = [
   '/',
   '/resources',
+  '/family-meal-planner',
   '/meal-plans',
   '/grocery-lists',
   '/pantry-meals',

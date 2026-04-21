@@ -32,12 +32,14 @@ export default function LandingPage() {
   }, [user?.id, isDemoUser]);
 
   useSeoMeta({
-    title: 'Home Harmony | Your Home, Finally Running Like Clockwork',
+    title: 'Home Harmony | Family Meal Planner App with Grocery, Calendar, Chores, and Tasks',
     description:
-      'Home Harmony combines meal planning, calorie and macro tracking, workout tracking, daily schedule SMS reminders, and preferred-store grocery quick-add in one family system.',
+      'Home Harmony is a family meal planner app that combines weekly meal planning, grocery automation, shared calendar scheduling, chores, tasks, and nutrition tracking in one family system.',
     keywords: [
+      'family meal planner',
       'family schedule app',
       'meal planning app for families',
+      'weekly meal planner for families',
       'shared grocery list app',
       'household routine app',
       'family organizer app',

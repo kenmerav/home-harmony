@@ -240,6 +240,7 @@ const seoFooterGroups = [
     title: 'Resources',
     links: [
       { label: 'All Resources', href: '/resources' },
+      { label: 'Family Meal Planner', href: '/family-meal-planner' },
       { label: 'Template Library', href: '/templates' },
       { label: 'Household Templates', href: '/household-templates' },
       { label: 'Recipe Collections', href: '/recipe-collections' },
@@ -289,9 +290,9 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
             like clockwork.
           </h1>
           <p className="mt-5 max-w-xl text-base text-muted-foreground md:text-lg md:leading-relaxed">
-            Home Harmony brings{' '}
-            <strong className="text-foreground">meals, calorie tracking, workouts, chores, shopping, and schedules</strong> into
-            one calm, beautiful hub. Less chaos. More together.
+            Home Harmony is a <strong className="text-foreground">family meal planner app</strong> that brings meals,
+            calorie tracking, workouts, chores, shopping, and schedules into one calm, beautiful hub. Less chaos. More
+            together.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {heroModules.map((module) => (
