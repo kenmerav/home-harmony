@@ -47,10 +47,11 @@ export function useSeoMeta(input: {
 }) {
   useEffect(() => {
     const canonicalHref = `${window.location.origin}${window.location.pathname}`;
+    const siteOrigin = window.location.origin;
     const imageUrl = input.image
       ? input.image.startsWith('http')
         ? input.image
-        : `${window.location.origin}${input.image}`
+        : `${siteOrigin}${input.image}`
       : undefined;
     const imageAlt = input.imageAlt || input.title;
 
@@ -140,15 +141,61 @@ export function useSeoMeta(input: {
     if (input.schemas && input.schemas.length > 0) {
       const payload =
         input.schemas.length === 1
-          ? input.schemas[0]
+          ? {
+              '@context': 'https://schema.org',
+              '@graph': [
+                {
+                  '@type': 'Organization',
+                  name: 'Home Harmony',
+                  url: siteOrigin,
+                  logo: `${siteOrigin}/landing/hero-family.jpg`,
+                },
+                {
+                  '@type': 'WebSite',
+                  name: 'Home Harmony',
+                  url: siteOrigin,
+                  description: 'Family meal planner app with grocery, calendar, chores, tasks, and routines.',
+                },
+                input.schemas[0],
+              ],
+            }
           : {
               '@context': 'https://schema.org',
-              '@graph': input.schemas,
+              '@graph': [
+                {
+                  '@type': 'Organization',
+                  name: 'Home Harmony',
+                  url: siteOrigin,
+                  logo: `${siteOrigin}/landing/hero-family.jpg`,
+                },
+                {
+                  '@type': 'WebSite',
+                  name: 'Home Harmony',
+                  url: siteOrigin,
+                  description: 'Family meal planner app with grocery, calendar, chores, tasks, and routines.',
+                },
+                ...input.schemas,
+              ],
             };
       upsertJsonLd('seo-custom-jsonld', payload);
     } else {
-      const customScript = document.getElementById('seo-custom-jsonld');
-      if (customScript) customScript.remove();
+      upsertJsonLd('seo-custom-jsonld', {
+        '@context': 'https://schema.org',
+        '@graph': [
+          {
+            '@type': 'Organization',
+            name: 'Home Harmony',
+            url: siteOrigin,
+            logo: `${siteOrigin}/landing/hero-family.jpg`,
+          },
+          {
+            '@type': 'WebSite',
+            name: 'Home Harmony',
+            url: siteOrigin,
+            description: 'Family meal planner app with grocery, calendar, chores, tasks, and routines.',
+          },
+        ],
+      });
     }
 
     return () => {

@@ -396,6 +396,21 @@ export function MealPlanHubPage() {
           },
         ]}
       />
+      <section className="mb-10 rounded-2xl border border-border/60 bg-card p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Start Here</p>
+            <h2 className="mt-2 font-display text-3xl leading-tight">Looking for a family meal planner app, not just meal ideas?</h2>
+            <p className="mt-3 text-sm leading-7 text-muted-foreground">
+              If your real problem is coordinating meals, grocery lists, calendar timing, and household ownership in one place,
+              start with the dedicated family meal planner page first. It is the clearest overview of how Home Harmony works as a full family system.
+            </p>
+          </div>
+          <Link to="/family-meal-planner" className="shrink-0">
+            <Button variant="outline">View Family Meal Planner</Button>
+          </Link>
+        </div>
+      </section>
       <div className="grid gap-5 md:grid-cols-2">
         {mealPlanPages.map((page) => {
           const meta = mealPlanMeta[page.slug];

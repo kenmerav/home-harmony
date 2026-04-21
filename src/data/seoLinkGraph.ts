@@ -7,6 +7,11 @@ export interface SeoCrossLink {
 export const seoCrossLinks: Record<string, SeoCrossLink[]> = {
   '/meal-plans': [
     {
+      href: '/family-meal-planner',
+      title: 'Family Meal Planner App',
+      description: 'See how weekly family meal planning, grocery automation, and shared scheduling work together in one system.',
+    },
+    {
       href: '/grocery-lists',
       title: 'Grocery List Rollups',
       description: 'Turn meal plans into consolidated shopping lists with cleaner quantity totals.',
@@ -28,6 +33,11 @@ export const seoCrossLinks: Record<string, SeoCrossLink[]> = {
     },
   ],
   '/grocery-lists': [
+    {
+      href: '/family-meal-planner',
+      title: 'Family Meal Planner App',
+      description: 'Start with the full family meal planning workflow, then connect it to grocery behavior.',
+    },
     {
       href: '/meal-plans',
       title: 'Meal Plan Frameworks',
@@ -72,6 +82,11 @@ export const seoCrossLinks: Record<string, SeoCrossLink[]> = {
     },
   ],
   '/recipe-collections': [
+    {
+      href: '/family-meal-planner',
+      title: 'Family Meal Planner App',
+      description: 'Use recipe collections inside a weekly family planning system instead of leaving them as inspiration only.',
+    },
     {
       href: '/meal-plans',
       title: 'Meal Plan Frameworks',
