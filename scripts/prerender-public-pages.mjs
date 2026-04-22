@@ -1,7 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import ts from "typescript";
-import vm from "node:vm";
 
 const SITE_ORIGIN = "https://www.homeharmonyhq.com";
 const repoRoot = resolve(process.cwd());
@@ -21,28 +19,151 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function loadLiteralExports(filePath, exportNames) {
-  const source = readFileSync(filePath, "utf8");
-  const transpiled = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2020,
-    },
-    fileName: filePath,
-  }).outputText;
-
-  const moduleExports = {};
-  const sandbox = {
-    exports: moduleExports,
-    module: { exports: moduleExports },
-  };
-  vm.runInNewContext(
-    `${transpiled}\n;globalThis.__exports = module.exports;`,
-    sandbox,
-    { filename: filePath },
+function extractArrayBody(source, constName) {
+  const marker = source.match(
+    new RegExp(`export const ${escapeRegExp(constName)}[\\s\\S]*?= \\[`, "m"),
   );
-  const loaded = sandbox.__exports || {};
-  return Object.fromEntries(exportNames.map((name) => [name, loaded[name]]));
+  if (!marker || marker.index == null) return "";
+
+  const startIndex = marker.index + marker[0].length;
+  let depth = 1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < source.length; i += 1) {
+    const char = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "'") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "'") {
+      inString = true;
+      continue;
+    }
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIndex, i);
+      }
+    }
+  }
+
+  return "";
+}
+
+function splitTopLevelObjects(arrayBody) {
+  const objects = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < arrayBody.length; i += 1) {
+    const char = arrayBody[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "'") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "'") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        objects.push(arrayBody.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
+function extractStringField(objectLiteral, field) {
+  const match = objectLiteral.match(
+    new RegExp(`${escapeRegExp(field)}:\\s*'((?:\\\\.|[^'])*)'`, "m"),
+  );
+  return match ? match[1].replaceAll("\\'", "'") : "";
+}
+
+function extractStringArrayField(objectLiteral, field) {
+  const fieldMatch = objectLiteral.match(new RegExp(`${escapeRegExp(field)}:\\s*\\[`, "m"));
+  if (!fieldMatch || fieldMatch.index == null) return [];
+
+  const startIndex = fieldMatch.index + fieldMatch[0].length;
+  let depth = 1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < objectLiteral.length; i += 1) {
+    const char = objectLiteral[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "'") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "'") {
+      inString = true;
+      continue;
+    }
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        const body = objectLiteral.slice(startIndex, i);
+        return [...body.matchAll(/'((?:\\.|[^'])*)'/g)].map((match) =>
+          match[1].replaceAll("\\'", "'"),
+        );
+      }
+    }
+  }
+
+  return [];
+}
+
+function parseLiteralCollection(filePath, constName, fields) {
+  const source = readFileSync(filePath, "utf8");
+  const arrayBody = extractArrayBody(source, constName);
+  const objects = splitTopLevelObjects(arrayBody);
+  return objects.map((objectLiteral) => {
+    const entry = {};
+    for (const field of fields) {
+      entry[field.name] =
+        field.kind === "array"
+          ? extractStringArrayField(objectLiteral, field.name)
+          : extractStringField(objectLiteral, field.name);
+    }
+    return entry;
+  });
 }
 
 function setTagContent(html, pattern, replacement) {
@@ -174,14 +295,6 @@ function renderRootMarkup(route) {
   `.trim();
 }
 
-function getArrayHighlights(page) {
-  return Object.entries(page)
-    .filter(([key, value]) => Array.isArray(value) && key !== "faq")
-    .flatMap(([, value]) => value)
-    .filter((item) => typeof item === "string")
-    .slice(0, 4);
-}
-
 function buildHtml(baseHtml, route) {
   const canonicalUrl = `${SITE_ORIGIN}${route.path}`;
   const imageUrl = route.image.startsWith("http") ? route.image : `${SITE_ORIGIN}${route.image}`;
@@ -213,22 +326,98 @@ function buildHtml(baseHtml, route) {
   return html;
 }
 
-const seoData = loadLiteralExports(resolve(repoRoot, "src/data/seoContent.ts"), [
-  "seoCategories",
-  "mealPlanPages",
-  "groceryListPages",
-  "pantryMealPages",
-  "recipeCollectionPages",
-  "householdTemplatePages",
-  "macroPlanPages",
-  "choreSystemPages",
-  "taskSystemPages",
-  "workoutTrackingPages",
-  "lifestyleTrackingPages",
-]);
+const seoDataPath = resolve(repoRoot, "src/data/seoContent.ts");
+const comparisonDataPath = resolve(repoRoot, "src/data/comparisonContent.ts");
+const templateDataPath = resolve(repoRoot, "src/data/templateGalleryContent.ts");
 
-const comparisonData = loadLiteralExports(resolve(repoRoot, "src/data/comparisonContent.ts"), ["comparisonPages"]);
-const templateData = loadLiteralExports(resolve(repoRoot, "src/data/templateGalleryContent.ts"), ["templatePacks"]);
+const seoData = {
+  seoCategories: parseLiteralCollection(seoDataPath, "seoCategories", [
+    { name: "slug" },
+    { name: "description" },
+    { name: "heroImage" },
+    { name: "keywords", kind: "array" },
+  ]),
+  mealPlanPages: parseLiteralCollection(seoDataPath, "mealPlanPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  groceryListPages: parseLiteralCollection(seoDataPath, "groceryListPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  pantryMealPages: parseLiteralCollection(seoDataPath, "pantryMealPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  recipeCollectionPages: parseLiteralCollection(seoDataPath, "recipeCollectionPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  householdTemplatePages: parseLiteralCollection(seoDataPath, "householdTemplatePages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  macroPlanPages: parseLiteralCollection(seoDataPath, "macroPlanPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  choreSystemPages: parseLiteralCollection(seoDataPath, "choreSystemPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  taskSystemPages: parseLiteralCollection(seoDataPath, "taskSystemPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  workoutTrackingPages: parseLiteralCollection(seoDataPath, "workoutTrackingPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+  lifestyleTrackingPages: parseLiteralCollection(seoDataPath, "lifestyleTrackingPages", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+};
+
+const comparisonData = {
+  comparisonPages: parseLiteralCollection(comparisonDataPath, "comparisonPages", [
+    { name: "slug" },
+    { name: "competitor" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
+};
+
+const templateData = {
+  templatePacks: parseLiteralCollection(templateDataPath, "templatePacks", [
+    { name: "slug" },
+    { name: "title" },
+    { name: "category" },
+    { name: "description" },
+    { name: "highlights", kind: "array" },
+  ]),
+};
 
 const baseHtml = readFileSync(distIndexPath, "utf8");
 
@@ -491,7 +680,7 @@ for (const category of seoData.seoCategories) {
     intro: `${category.description} Home Harmony uses these pages to show practical systems that can be implemented inside the app or adapted into an existing family routine.`,
     highlights: [
       ...category.keywords.map((keyword) => `Targeted topic: ${keyword}.`),
-      ...(collection?.pages.slice(0, 1).flatMap((page) => getArrayHighlights(page).slice(0, 1)) || []),
+      `Explore practical ${config.title.replace(" | Home Harmony", "").toLowerCase()} that fit real family routines.`,
     ].slice(0, 4),
     links: [
       ...(collection?.pages.slice(0, 3).map((page) => ({ href: `${config.path}/${page.slug}`, label: page.title })) || []),
@@ -518,7 +707,12 @@ for (const { base, pages } of collectionConfigs) {
         { name: page.title, url: `${base}/${page.slug}` },
       ],
       intro: `${page.description} Home Harmony uses this page to show a practical planning system that can be applied inside the app or adapted to a weekly family routine.`,
-      highlights: getArrayHighlights(page),
+      highlights: [
+        `Guided system: ${page.title}.`,
+        "Built for weekly family planning and follow-through.",
+        "Use this guide inside Home Harmony or adapt it into your household routine.",
+        "Pair it with grocery, calendar, chores, and task workflows.",
+      ],
       links: [
         { href: base, label: "More in this collection" },
         { href: "/family-meal-planner", label: "Family Meal Planner" },
@@ -546,7 +740,12 @@ for (const page of comparisonData.comparisonPages) {
       { name: page.title, url: `/compare/${page.slug}` },
     ],
     intro: `${page.description} This comparison is designed to help families choose between a specialized household operations system and a more narrow family tool.`,
-    highlights: [...page.bestForHomeHarmony, ...page.whereHomeHarmonyWins].slice(0, 4),
+    highlights: [
+      `Compare Home Harmony with ${page.competitor} for real family execution, not just feature count.`,
+      "See whether your biggest bottleneck is recipes, shopping, or full household coordination.",
+      "Use a one-week pilot before moving your whole household workflow.",
+      "Focus on meals, grocery, chores, tasks, and shared follow-through.",
+    ],
     links: [
       { href: "/compare", label: "More Comparisons" },
       { href: "/family-meal-planner", label: "Why Home Harmony" },
