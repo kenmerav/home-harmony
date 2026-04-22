@@ -210,6 +210,24 @@ export default function FamilyMealPlannerPage() {
         <section className="border-t border-border/60 py-10">
           <h2 className="font-display text-3xl leading-tight md:text-4xl">Related guides</h2>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <Link to="/family-grocery-list-app" className="rounded-2xl border border-border/60 bg-card p-6 transition hover:bg-muted/30">
+              <h3 className="font-display text-2xl leading-tight">Family Grocery List App</h3>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                See how planned meals, staples, and refill items roll into one shared grocery workflow.
+              </p>
+            </Link>
+            <Link to="/shared-family-calendar-app" className="rounded-2xl border border-border/60 bg-card p-6 transition hover:bg-muted/30">
+              <h3 className="font-display text-2xl leading-tight">Shared Family Calendar App</h3>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                See how dinner timing, pickups, reminders, and the rest of the family week stay aligned.
+              </p>
+            </Link>
+            <Link to="/family-chores-and-tasks-app" className="rounded-2xl border border-border/60 bg-card p-6 transition hover:bg-muted/30">
+              <h3 className="font-display text-2xl leading-tight">Family Chores + Tasks App</h3>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                Keep shopping, cooking, cleanup, and household ownership connected to the same weekly plan.
+              </p>
+            </Link>
             <Link to="/meal-plans" className="rounded-2xl border border-border/60 bg-card p-6 transition hover:bg-muted/30">
               <h3 className="font-display text-2xl leading-tight">Meal Plan Pages</h3>
               <p className="mt-2 text-sm leading-7 text-muted-foreground">

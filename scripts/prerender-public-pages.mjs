@@ -518,7 +518,7 @@ const routes = [
       { href: "/compare", label: "Compare Home Harmony" },
       { href: "/signin", label: "Sign In" },
     ],
-    modifiedAt: "2026-04-21",
+    modifiedAt: "2026-04-22",
   },
   {
     path: "/family-meal-planner",
@@ -547,12 +547,117 @@ const routes = [
       "A setup flow that supports owners and invited spouses differently.",
     ],
     links: [
-      { href: "/meal-plans", label: "Meal Plan Guides" },
-      { href: "/grocery-lists", label: "Grocery Guides" },
+      { href: "/family-grocery-list-app", label: "Family Grocery List App" },
+      { href: "/shared-family-calendar-app", label: "Shared Family Calendar" },
+      { href: "/family-chores-and-tasks-app", label: "Family Chores + Tasks" },
       { href: "/resources", label: "All Resources" },
+    ],
+    modifiedAt: "2026-04-22",
+  },
+  {
+    path: "/family-grocery-list-app",
+    title: "Family Grocery List App | Shared Shopping Lists That Start With Meals",
+    heading: "A family grocery list app that starts with the meal plan, not a random note",
+    description:
+      "Home Harmony helps families turn meal plans into shared grocery lists, layer staples into the same workflow, and keep the next grocery order organized.",
+    image: "/seo/meal-plans.jpg",
+    keywords: [
+      "family grocery list app",
+      "shared grocery list for families",
+      "meal plan grocery list app",
+      "family shopping list app",
+    ],
+    type: "website",
+    breadcrumbs: [
+      { name: "Home", url: "/" },
+      { name: "Resources", url: "/resources" },
+      { name: "Family Grocery List App", url: "/family-grocery-list-app" },
+    ],
+    intro:
+      "This page supports the broader family meal-planning cluster by showing how Home Harmony handles the grocery side of the week in the same shared system.",
+    highlights: [
+      "Meal plans roll directly into the active grocery workflow.",
+      "Staples, refill items, and manual additions live beside the planned meals.",
+      "The grocery list is shared across the family instead of trapped in one person's notes.",
+      "Completed orders roll forward into the next family grocery cycle.",
+    ],
+    links: [
+      { href: "/family-meal-planner", label: "Family Meal Planner" },
+      { href: "/grocery-lists", label: "Grocery Guides" },
+      { href: "/shared-family-calendar-app", label: "Shared Family Calendar" },
       { href: "/signin", label: "Open Home Harmony" },
     ],
-    modifiedAt: "2026-04-21",
+    modifiedAt: "2026-04-22",
+  },
+  {
+    path: "/shared-family-calendar-app",
+    title: "Shared Family Calendar App | Calendar, Meals, Tasks, and Reminders",
+    heading: "A shared family calendar app that actually connects dinner, errands, reminders, and pickups",
+    description:
+      "Home Harmony helps families manage a shared calendar with meal timing, tasks, reminders, and the rest of the household week in one schedule.",
+    image: "/landing/hero-family.jpg",
+    keywords: [
+      "shared family calendar app",
+      "family calendar and meal planner",
+      "family schedule app",
+      "shared family planner app",
+    ],
+    type: "website",
+    breadcrumbs: [
+      { name: "Home", url: "/" },
+      { name: "Resources", url: "/resources" },
+      { name: "Shared Family Calendar App", url: "/shared-family-calendar-app" },
+    ],
+    intro:
+      "This page supports the family operations cluster by showing how Home Harmony keeps events, meals, reminders, and household ownership in one shared timeline.",
+    highlights: [
+      "Meals, events, chores, tasks, and reminders live in one family timeline.",
+      "Joined family members see the same shared schedule instead of separate copies.",
+      "Daily schedule texts and reminder flows help the plan survive outside the browser.",
+      "Calendar timing works with grocery, chores, and meal execution instead of ignoring them.",
+    ],
+    links: [
+      { href: "/family-meal-planner", label: "Family Meal Planner" },
+      { href: "/family-grocery-list-app", label: "Family Grocery List App" },
+      { href: "/compare/home-harmony-vs-cozi", label: "Compare With Cozi" },
+      { href: "/signin", label: "Open Home Harmony" },
+    ],
+    modifiedAt: "2026-04-22",
+  },
+  {
+    path: "/family-chores-and-tasks-app",
+    title: "Family Chores and Tasks App | Shared Household Ownership for Families",
+    heading: "A family chores and tasks app that keeps the week moving without constant follow-up",
+    description:
+      "Home Harmony helps families manage chores, household tasks, recurring reminders, and kid responsibilities in one shared system connected to the calendar and meal plan.",
+    image: "/seo/task-systems.jpg",
+    keywords: [
+      "family chores and tasks app",
+      "family task management app",
+      "chore chart app for families",
+      "shared family to do app",
+    ],
+    type: "website",
+    breadcrumbs: [
+      { name: "Home", url: "/" },
+      { name: "Resources", url: "/resources" },
+      { name: "Family Chores and Tasks App", url: "/family-chores-and-tasks-app" },
+    ],
+    intro:
+      "This page supports the family meal-planning cluster by showing how Home Harmony turns recurring chores, one-off tasks, and kid responsibilities into visible weekly ownership.",
+    highlights: [
+      "Recurring chores and one-off household tasks live in the same family workflow.",
+      "Kid chores and skill-development items are visible inside the broader family system.",
+      "Spouses and invited adults can work from the same household task layer.",
+      "Task ownership makes more sense when it sits next to meals, reminders, and the calendar.",
+    ],
+    links: [
+      { href: "/family-meal-planner", label: "Family Meal Planner" },
+      { href: "/shared-family-calendar-app", label: "Shared Family Calendar" },
+      { href: "/chore-systems", label: "Chore Guides" },
+      { href: "/signin", label: "Open Home Harmony" },
+    ],
+    modifiedAt: "2026-04-22",
   },
   {
     path: "/resources",
@@ -582,9 +687,9 @@ const routes = [
     ],
     links: [
       { href: "/family-meal-planner", label: "Family Meal Planner" },
-      { href: "/compare", label: "Comparison Guides" },
-      { href: "/templates", label: "Template Gallery" },
-      { href: "/signin", label: "Open Home Harmony" },
+      { href: "/family-grocery-list-app", label: "Family Grocery List App" },
+      { href: "/shared-family-calendar-app", label: "Shared Family Calendar" },
+      { href: "/family-chores-and-tasks-app", label: "Family Chores + Tasks" },
     ],
     modifiedAt: "2026-04-21",
   },

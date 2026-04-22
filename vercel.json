@@ -226,6 +226,18 @@
       "destination": "/family-meal-planner/index.html"
     },
     {
+      "source": "/family-grocery-list-app",
+      "destination": "/family-grocery-list-app/index.html"
+    },
+    {
+      "source": "/shared-family-calendar-app",
+      "destination": "/shared-family-calendar-app/index.html"
+    },
+    {
+      "source": "/family-chores-and-tasks-app",
+      "destination": "/family-chores-and-tasks-app/index.html"
+    },
+    {
       "source": "/resources",
       "destination": "/resources/index.html"
     },

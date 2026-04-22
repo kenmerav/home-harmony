@@ -241,9 +241,9 @@ const seoFooterGroups = [
     links: [
       { label: 'All Resources', href: '/resources' },
       { label: 'Family Meal Planner', href: '/family-meal-planner' },
-      { label: 'Template Library', href: '/templates' },
-      { label: 'Household Templates', href: '/household-templates' },
-      { label: 'Recipe Collections', href: '/recipe-collections' },
+      { label: 'Family Grocery List App', href: '/family-grocery-list-app' },
+      { label: 'Shared Family Calendar App', href: '/shared-family-calendar-app' },
+      { label: 'Family Chores + Tasks App', href: '/family-chores-and-tasks-app' },
       { label: 'Compare Home Harmony', href: '/compare' },
     ],
   },

@@ -66,7 +66,7 @@ export default function SeoResourcesPage() {
         ]}
       />
 
-      <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-3">
+      <section className="mx-auto mb-12 grid max-w-5xl gap-4 md:grid-cols-2 xl:grid-cols-3">
         <article className="rounded-2xl border border-border/60 bg-card p-6">
           <h2 className="font-display text-2xl leading-tight">Family Meal Planner</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
@@ -74,6 +74,33 @@ export default function SeoResourcesPage() {
           </p>
           <Link to="/family-meal-planner" className="mt-4 inline-block">
             <Button variant="outline">View Family Meal Planner</Button>
+          </Link>
+        </article>
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Family Grocery List App</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            See how shared grocery lists, staples, and meal-driven shopping workflows stay tied to the same family plan.
+          </p>
+          <Link to="/family-grocery-list-app" className="mt-4 inline-block">
+            <Button variant="outline">View Grocery Page</Button>
+          </Link>
+        </article>
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Shared Family Calendar App</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            See how events, dinner timing, reminders, and the family schedule live together instead of in separate tools.
+          </p>
+          <Link to="/shared-family-calendar-app" className="mt-4 inline-block">
+            <Button variant="outline">View Calendar Page</Button>
+          </Link>
+        </article>
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Family Chores + Tasks App</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            See how chores, kid responsibilities, and household tasks stay visible in the same family execution system.
+          </p>
+          <Link to="/family-chores-and-tasks-app" className="mt-4 inline-block">
+            <Button variant="outline">View Chores + Tasks</Button>
           </Link>
         </article>
         <article className="rounded-2xl border border-border/60 bg-card p-6">

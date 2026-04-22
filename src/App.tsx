@@ -35,6 +35,15 @@ function lazyWithReload<T extends { default: React.ComponentType<any> }>(
 
 const LandingPage = lazyWithReload(() => import("./pages/LandingPage"));
 const FamilyMealPlannerPage = lazyWithReload(() => import("./pages/seo/FamilyMealPlannerPage"));
+const FamilyGroceryListAppPage = lazyWithReload(() =>
+  import("./pages/seo/FamilySystemPages").then((m) => ({ default: m.FamilyGroceryListAppPage })),
+);
+const SharedFamilyCalendarAppPage = lazyWithReload(() =>
+  import("./pages/seo/FamilySystemPages").then((m) => ({ default: m.SharedFamilyCalendarAppPage })),
+);
+const FamilyChoresAndTasksAppPage = lazyWithReload(() =>
+  import("./pages/seo/FamilySystemPages").then((m) => ({ default: m.FamilyChoresAndTasksAppPage })),
+);
 const SeoResourcesPage = lazyWithReload(() => import("./pages/seo/SeoResourcesPage"));
 const AuthPage = lazyWithReload(() => import("./pages/AuthPage"));
 const ResetPasswordPage = lazyWithReload(() => import("./pages/ResetPasswordPage"));
@@ -120,6 +129,9 @@ const GOOGLE_ANALYTICS_ID = "G-PN5Y1S4WCL";
 const INDEXABLE_PUBLIC_PREFIXES = [
   "/resources",
   "/family-meal-planner",
+  "/family-grocery-list-app",
+  "/shared-family-calendar-app",
+  "/family-chores-and-tasks-app",
   "/meal-plans",
   "/grocery-lists",
   "/pantry-meals",
@@ -213,6 +225,9 @@ const App = () => (
               <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/family-meal-planner" element={<FamilyMealPlannerPage />} />
+              <Route path="/family-grocery-list-app" element={<FamilyGroceryListAppPage />} />
+              <Route path="/shared-family-calendar-app" element={<SharedFamilyCalendarAppPage />} />
+              <Route path="/family-chores-and-tasks-app" element={<FamilyChoresAndTasksAppPage />} />
               <Route path="/resources" element={<SeoResourcesPage />} />
               <Route path="/meal-plans" element={<MealPlanHubPage />} />
               <Route path="/meal-plans/:slug" element={<MealPlanDetailPage />} />
