@@ -25,19 +25,23 @@ function loadLiteralExports(filePath, exportNames) {
   const source = readFileSync(filePath, "utf8");
   const transpiled = ts.transpileModule(source, {
     compilerOptions: {
-      module: ts.ModuleKind.ES2020,
+      module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2020,
     },
     fileName: filePath,
   }).outputText;
 
-  const sandbox = {};
+  const sandbox = {
+    exports: {},
+    module: { exports: {} },
+  };
   vm.runInNewContext(
-    `${transpiled}\n;globalThis.__exports = { ${exportNames.join(", ")} };`,
+    `${transpiled}\n;globalThis.__exports = module.exports;`,
     sandbox,
     { filename: filePath },
   );
-  return sandbox.__exports;
+  const loaded = sandbox.__exports || {};
+  return Object.fromEntries(exportNames.map((name) => [name, loaded[name]]));
 }
 
 function setTagContent(html, pattern, replacement) {
