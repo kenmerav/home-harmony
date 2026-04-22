@@ -1615,7 +1615,19 @@ export default function CalendarPlannerPage() {
       </div>
 
       <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent
+          className="sm:max-w-2xl"
+          onInteractOutside={(event) => {
+            if (isMobile) {
+              event.preventDefault();
+            }
+          }}
+          onPointerDownOutside={(event) => {
+            if (isMobile) {
+              event.preventDefault();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="font-display">{format(selectedDate, 'EEEE, MMMM d')}</DialogTitle>
             <DialogDescription>

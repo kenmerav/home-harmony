@@ -63,6 +63,7 @@ import {
 } from '@/lib/calendarStore';
 import { syncDerivedCalendarEvents } from '@/lib/calendarFeed';
 import { canDeleteCalendarEvent, deleteCalendarEventFromSource } from '@/lib/calendarEventActions';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   CalendarFilterPreset,
   CalendarFilterPresetColor,
@@ -407,6 +408,7 @@ function parseCalendarSetupMode(value: string | null): CalendarSetupMode | null 
 export default function CalendarPage() {
   const { user, sharedHouseholdOwnerId } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const { filters, setFilters, filterPresets, setFilterPresets } = useAccountCalendarPreferences(
     sharedHouseholdOwnerId || user?.id,
   );
@@ -2202,7 +2204,19 @@ export default function CalendarPage() {
       </Dialog>
 
       <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent
+          className="sm:max-w-2xl"
+          onInteractOutside={(event) => {
+            if (isMobile) {
+              event.preventDefault();
+            }
+          }}
+          onPointerDownOutside={(event) => {
+            if (isMobile) {
+              event.preventDefault();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="font-display">{format(selectedDate, 'EEEE, MMMM d')}</DialogTitle>
             <DialogDescription>
