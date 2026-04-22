@@ -31,9 +31,10 @@ function loadLiteralExports(filePath, exportNames) {
     fileName: filePath,
   }).outputText;
 
+  const moduleExports = {};
   const sandbox = {
-    exports: {},
-    module: { exports: {} },
+    exports: moduleExports,
+    module: { exports: moduleExports },
   };
   vm.runInNewContext(
     `${transpiled}\n;globalThis.__exports = module.exports;`,
