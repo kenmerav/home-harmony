@@ -279,7 +279,7 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
 
   return (
     <section className="border-b border-border/60">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 pb-14 pt-8 md:grid-cols-2 md:px-6 md:pb-20 md:pt-14">
+      <div className="mx-auto grid max-w-[1380px] gap-10 px-4 pb-14 pt-8 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:items-center md:gap-12 md:px-6 md:pb-20 md:pt-14 xl:gap-16">
         <div className="flex flex-col justify-center">
           <p className="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
             🏠 The complete household operating system
@@ -322,12 +322,12 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
         </div>
 
         <div className="relative hidden md:block">
-          <div className="absolute -left-4 -top-4 z-10 rounded-xl border border-primary/20 bg-card px-3 py-2 text-xs font-semibold text-primary shadow-sm">
+          <div className="absolute -left-5 -top-4 z-10 rounded-xl border border-primary/20 bg-card px-4 py-2.5 text-sm font-semibold text-primary shadow-sm">
             ✅ Grocery list auto-generated
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-            <div className="relative h-40 overflow-hidden border-b border-border">
+          <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-xl xl:shadow-2xl">
+            <div className="relative h-48 overflow-hidden border-b border-border lg:h-56 xl:h-64">
               <img
                 src="/landing/hero-family.jpg"
                 alt="Family playing a board game together in a cozy living room"
@@ -335,19 +335,19 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
                 loading="eager"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-background/70 via-background/10 to-transparent" />
-              <p className="absolute bottom-3 left-3 text-xs font-semibold text-foreground">
+              <p className="absolute bottom-4 left-4 text-sm font-semibold text-foreground">
                 Home Harmony dashboard preview
               </p>
             </div>
 
-            <div className="grid grid-cols-[148px_1fr]">
-              <aside className="space-y-1 border-r border-border bg-muted/40 p-3">
+            <div className="grid grid-cols-[176px_1fr] lg:grid-cols-[188px_1fr] xl:grid-cols-[208px_1fr]">
+              <aside className="space-y-1.5 border-r border-border bg-muted/40 p-4 lg:p-5">
                 {dashboardPanels.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setActivePanel(item.id)}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition ${
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                       item.id === activePanel
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:bg-card hover:text-foreground'
@@ -359,26 +359,26 @@ export function Hero({ startHref, onSeeHowItWorks, onExploreFeatures }: HeroProp
                 ))}
               </aside>
 
-              <div className="space-y-3 p-3">
+              <div className="space-y-4 p-4 lg:p-5 xl:p-6">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{panel.emoji} Active Module</p>
-                  <h3 className="mt-1 font-display text-lg leading-tight">{panel.title}</h3>
+                  <p className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">{panel.emoji} Active Module</p>
+                  <h3 className="mt-1.5 font-display text-2xl leading-tight xl:text-[2rem]">{panel.title}</h3>
                 </div>
 
-                <ul className="space-y-1.5">
+                <ul className="space-y-2">
                   {panel.rows.map((row) => (
-                    <li key={row} className="rounded-md border border-border/80 bg-background px-2 py-1.5 text-xs text-muted-foreground">
+                    <li key={row} className="rounded-lg border border-border/80 bg-background px-3 py-2 text-sm text-muted-foreground">
                       {row}
                     </li>
                   ))}
                 </ul>
 
-                <p className="text-xs font-medium text-primary">{panel.footer}</p>
+                <p className="text-sm font-medium text-primary">{panel.footer}</p>
               </div>
             </div>
           </div>
 
-          <div className="absolute -bottom-4 -right-4 z-10 rounded-xl border border-border bg-card px-3 py-2 text-xs shadow-sm">
+          <div className="absolute -bottom-5 -right-5 z-10 rounded-xl border border-border bg-card px-4 py-3 text-sm shadow-sm">
             <p className="font-semibold text-foreground">🏠 Home running smoothly</p>
             <p className="text-muted-foreground">4 of 6 modules active</p>
           </div>
