@@ -155,6 +155,13 @@ type CalendarAddDraft = {
   description?: string | null;
 };
 
+type CalendarDeleteIntent = {
+  title: string;
+  layer: string | null;
+  dateText: string | null;
+  timeText: string | null;
+};
+
 type CalendarFollowUpIntent = {
   layer?: string;
   reminderLeadMinutes?: number;
@@ -1839,6 +1846,86 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddDraf
   return null;
 }
 
+function parseCalendarDeleteIntent(body: string): CalendarDeleteIntent | null {
+  const normalized = trimTrailingPunctuation(body);
+  if (!/^(?:delete|remove|cancel)\b/i.test(normalized)) return null;
+  if (/^(?:delete that|remove that|delete it|remove it|cancel that event|delete that event)$/i.test(normalized)) {
+    return null;
+  }
+
+  const buildDeleteIntent = (
+    titleRaw: string,
+    layerRaw?: string | null,
+    dateTextRaw?: string | null,
+    timeTextRaw?: string | null,
+  ): CalendarDeleteIntent | null => {
+    const title = normalizeCalendarTitle(trimTrailingPunctuation(titleRaw || ""));
+    if (!title) return null;
+    const rawLayer = String(layerRaw || "").trim();
+    return {
+      title,
+      layer: rawLayer ? normalizeCalendarLayerName(rawLayer) : null,
+      dateText: dateTextRaw ? trimTrailingPunctuation(dateTextRaw) : null,
+      timeText: timeTextRaw ? trimTrailingPunctuation(timeTextRaw) : null,
+    };
+  };
+
+  const patterns: Array<{
+    pattern: RegExp;
+    groups: { title: number; layer?: number; date?: number; time?: number };
+  }> = [
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+(.+?)\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      groups: { title: 1, layer: 2, date: 3, time: 4 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      groups: { title: 1, date: 2, time: 3 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+(.+?)\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      groups: { title: 1, layer: 2, date: 3, time: 4 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      groups: { title: 1, date: 2, time: 3 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar\s+for\s+(.+?)\s+on\s+(.+?)\s+at\s+(.+)$/i,
+      groups: { title: 1, layer: 2, date: 3, time: 4 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar\s+for\s+(.+?)\s+(today|tomorrow)\s+at\s+(.+)$/i,
+      groups: { title: 1, layer: 2, date: 3, time: 4 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+(.+?)\s+calendar$/i,
+      groups: { title: 1, layer: 2 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar\s+for\s+(.+)$/i,
+      groups: { title: 1, layer: 2 },
+    },
+    {
+      pattern: /^(?:delete|remove|cancel)\s+(.+?)\s+from\s+calendar$/i,
+      groups: { title: 1 },
+    },
+  ];
+
+  for (const { pattern, groups } of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    return buildDeleteIntent(
+      match[groups.title] || "",
+      groups.layer ? match[groups.layer] || "" : null,
+      groups.date ? match[groups.date] || "" : null,
+      groups.time ? match[groups.time] || "" : null,
+    );
+  }
+
+  return null;
+}
+
 async function loadCalendarLayerChoices(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -2406,6 +2493,88 @@ async function addCalendarEventBySms(
   }
 
   throw lastError instanceof Error ? lastError : new Error("Could not save calendar event.");
+}
+
+function calendarEventTitleMatches(eventTitle: string, requestedTitle: string): boolean {
+  const eventKey = normalizeToken(eventTitle);
+  const requestedKey = normalizeToken(requestedTitle);
+  if (!eventKey || !requestedKey) return false;
+  return eventKey === requestedKey || eventKey.includes(requestedKey) || requestedKey.includes(eventKey);
+}
+
+async function deleteCalendarEventBySms(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: CalendarDeleteIntent,
+): Promise<string> {
+  const now = DateTime.now().setZone(timezone);
+  const parsedDate = intent.dateText ? parseUsDate(intent.dateText, timezone) : null;
+  const parsedTime = parsedDate && intent.timeText ? parseTimeForZone(intent.timeText, parsedDate, timezone) : null;
+
+  let query = supabase
+    .from("calendar_events")
+    .select("id,title,calendar_layer,starts_at,all_day,is_deleted")
+    .eq("owner_id", userId)
+    .eq("is_deleted", false)
+    .order("starts_at", { ascending: true })
+    .limit(50);
+
+  if (intent.layer) {
+    query = query.eq("calendar_layer", intent.layer);
+  }
+
+  if (parsedDate) {
+    const dayStartUtc = parsedDate.startOf("day").toUTC().toISO();
+    const dayEndUtc = parsedDate.endOf("day").toUTC().toISO();
+    if (dayStartUtc) query = query.gte("starts_at", dayStartUtc);
+    if (dayEndUtc) query = query.lte("starts_at", dayEndUtc);
+  } else {
+    const rangeStart = now.minus({ days: 7 }).toUTC().toISO();
+    const rangeEnd = now.plus({ days: 365 }).toUTC().toISO();
+    if (rangeStart) query = query.gte("starts_at", rangeStart);
+    if (rangeEnd) query = query.lte("starts_at", rangeEnd);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const matches = (data || []).filter((row) => {
+    if (!calendarEventTitleMatches(String(row.title || ""), intent.title)) return false;
+    if (intent.layer && normalizeCalendarLayerName(String(row.calendar_layer || "family")) !== intent.layer) return false;
+    const localStart = safeDateTime(String(row.starts_at || ""), "utc")?.setZone(timezone);
+    if (!localStart?.isValid) return false;
+    if (parsedDate && !localStart.hasSame(parsedDate, "day")) return false;
+    if (parsedTime) {
+      const diffMinutes = Math.abs(localStart.diff(parsedTime, "minutes").minutes);
+      if (diffMinutes > 10) return false;
+    }
+    return true;
+  });
+
+  if (!matches.length) {
+    return `I couldn't find an event matching ${intent.title}. Try including the date, time, or calendar name.`;
+  }
+
+  if (matches.length > 1) {
+    return `I found multiple events matching ${intent.title}. Reply with the date, time, or calendar name so I remove the right one.`;
+  }
+
+  const match = matches[0];
+  const { error: deleteError } = await supabase
+    .from("calendar_events")
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq("id", String(match.id))
+    .eq("owner_id", userId);
+
+  if (deleteError) throw deleteError;
+
+  const localStart = safeDateTime(String(match.starts_at || ""), "utc")?.setZone(timezone);
+  const whenText = localStart?.isValid
+    ? localStart.toFormat(localStart.year === now.year ? "LLL d 'at' h:mm a" : "LLL d, yyyy 'at' h:mm a")
+    : "the calendar";
+  const layerLabel = String(match.calendar_layer || intent.layer || "Family");
+  return `Deleted ${match.title} from ${layerLabel} for ${whenText}.`;
 }
 
 function parseCalendarFollowUpIntent(body: string, timezone: string): CalendarFollowUpIntent | null {
@@ -3643,7 +3812,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt to Katie calendar on 4/6 at 9:00 AM\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- remind me tomorrow at 3 PM to take the trash out\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony commands:\n- add dentist appt to Katie calendar on 4/6 at 9:00 AM\n- delete dentist appt from Katie calendar on 4/6 at 9:00 AM\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- remind me tomorrow at 3 PM to take the trash out\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
       );
     }
 
@@ -3942,6 +4111,49 @@ serve(async (req) => {
       }
     }
 
+    const followUpIntent = parseCalendarFollowUpIntent(body, timezone);
+    if (followUpIntent) {
+      try {
+        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
+        const recentSubject = mostRecentAssistantSubject(context, timezone);
+        if (followUpIntent.deleteEvent && recentSubject === "meal") {
+          return twiml("If you meant the meal you just logged, reply 'delete that meal'.");
+        }
+        const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, context, followUpIntent);
+        if (!reply) {
+          return twiml("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.");
+        }
+        await saveSmsAssistantContext(supabase, pref.user_id, document, {
+          ...context,
+          lastCalendarEvent: followUpIntent.deleteEvent
+            ? null
+            : context.lastCalendarEvent
+              ? {
+                  ...context.lastCalendarEvent,
+                  updatedAt: new Date().toISOString(),
+                }
+              : null,
+        });
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms calendar follow-up failed:", error);
+        const detail = describeUnknownError(error);
+        return twiml(`I could not update that calendar event right now: ${detail}`);
+      }
+    }
+
+    const calendarDeleteIntent = parseCalendarDeleteIntent(body);
+    if (calendarDeleteIntent) {
+      try {
+        const reply = await deleteCalendarEventBySms(supabase, pref.user_id, timezone, calendarDeleteIntent);
+        return twiml(reply);
+      } catch (error) {
+        console.error("sms direct calendar delete failed:", error);
+        const detail = describeUnknownError(error);
+        return twiml(`I could not delete that calendar event right now: ${detail}`);
+      }
+    }
+
     let calendarIntent = parseCalendarAddIntent(body, timezone);
     if (!calendarIntent && likelyCalendarAdd) {
       try {
@@ -3992,37 +4204,6 @@ serve(async (req) => {
     }
     if (likelyCalendarAdd) {
       return twiml("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.");
-    }
-
-    const followUpIntent = parseCalendarFollowUpIntent(body, timezone);
-    if (followUpIntent) {
-      try {
-        const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
-        const recentSubject = mostRecentAssistantSubject(context, timezone);
-        if (followUpIntent.deleteEvent && recentSubject === "meal") {
-          return twiml("If you meant the meal you just logged, reply 'delete that meal'.");
-        }
-        const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, context, followUpIntent);
-        if (!reply) {
-          return twiml("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.");
-        }
-        await saveSmsAssistantContext(supabase, pref.user_id, document, {
-          ...context,
-          lastCalendarEvent: followUpIntent.deleteEvent
-            ? null
-            : context.lastCalendarEvent
-              ? {
-                  ...context.lastCalendarEvent,
-                  updatedAt: new Date().toISOString(),
-                }
-              : null,
-        });
-        return twiml(reply);
-      } catch (error) {
-        console.error("sms calendar follow-up failed:", error);
-        const detail = describeUnknownError(error);
-        return twiml(`I could not update that calendar event right now: ${detail}`);
-      }
     }
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
