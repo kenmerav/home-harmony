@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import ts from "typescript";
 import vm from "node:vm";
 
 const SITE_ORIGIN = "https://www.homeharmonyhq.com";
@@ -21,15 +22,18 @@ function escapeRegExp(value) {
 }
 
 function loadLiteralExports(filePath, exportNames) {
-  let source = readFileSync(filePath, "utf8");
-  source = source
-    .replace(/export type[\s\S]*?;\n/g, "")
-    .replace(/export interface[\s\S]*?\n}\n/g, "")
-    .replace(/export const /g, "const ");
+  const source = readFileSync(filePath, "utf8");
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2020,
+      target: ts.ScriptTarget.ES2020,
+    },
+    fileName: filePath,
+  }).outputText;
 
   const sandbox = {};
   vm.runInNewContext(
-    `${source}\n;globalThis.__exports = { ${exportNames.join(", ")} };`,
+    `${transpiled}\n;globalThis.__exports = { ${exportNames.join(", ")} };`,
     sandbox,
     { filename: filePath },
   );
