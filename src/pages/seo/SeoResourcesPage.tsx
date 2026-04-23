@@ -104,9 +104,18 @@ export default function SeoResourcesPage() {
           </Link>
         </article>
         <article className="rounded-2xl border border-border/60 bg-card p-6">
+          <h2 className="font-display text-2xl leading-tight">Alternative Guides</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            See direct alternatives to Cozi, Nori, Ohai, and other family organizer tools with migration-focused guidance.
+          </p>
+          <Link to="/alternatives" className="mt-4 inline-block">
+            <Button variant="outline">View Alternatives</Button>
+          </Link>
+        </article>
+        <article className="rounded-2xl border border-border/60 bg-card p-6">
           <h2 className="font-display text-2xl leading-tight">Comparison Guides</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            Evaluate Home Harmony against Cozi, AnyList, and Todoist with migration-focused checklists.
+            Evaluate Home Harmony against Cozi, AnyList, Mealime, FamilyWall, FamCal, and Todoist with migration-focused checklists.
           </p>
           <Link to="/compare" className="mt-4 inline-block">
             <Button variant="outline">View Comparisons</Button>

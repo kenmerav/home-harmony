@@ -407,6 +407,13 @@ const comparisonData = {
     { name: "description" },
     { name: "heroImage" },
   ]),
+  alternativePages: parseLiteralCollection(comparisonDataPath, "alternativePages", [
+    { name: "path" },
+    { name: "competitor" },
+    { name: "title" },
+    { name: "description" },
+    { name: "heroImage" },
+  ]),
 };
 
 const templateData = {
@@ -734,6 +741,42 @@ const routes = [
     modifiedAt: "2026-04-21",
   },
   {
+    path: "/alternatives",
+    title: "Best Family Organizer App Alternatives | Cozi, Nori, Ohai, and More | Home Harmony",
+    heading: "Best alternatives to popular family organizer apps",
+    description:
+      "Looking for the best alternative to Cozi, Nori, or Ohai? Compare Home Harmony for family meals, grocery automation, calendar coordination, chores, tasks, and routines.",
+    image: "/seo/task-systems.jpg",
+    keywords: [
+      "cozi alternative",
+      "nori alternative",
+      "ohai alternative",
+      "family organizer alternative",
+      "best family organizer app",
+    ],
+    type: "website",
+    breadcrumbs: [
+      { name: "Home", url: "/" },
+      { name: "Resources", url: "/resources" },
+      { name: "Alternatives", url: "/alternatives" },
+    ],
+    intro:
+      "These alternative pages are built for families actively comparing Cozi, Nori, Ohai, and similar tools against a more complete household operating system.",
+    highlights: [
+      "See when Home Harmony is a better fit than Cozi, Nori, or Ohai for real weekly family execution.",
+      "Compare meal planning, grocery automation, chores, tasks, dashboards, and shared-family setup.",
+      "Use direct app-specific guides instead of generic roundups.",
+      "Choose by weekly follow-through, not just feature lists.",
+    ],
+    links: [
+      { href: "/cozi-alternative", label: "Cozi Alternative" },
+      { href: "/nori-alternative", label: "Nori Alternative" },
+      { href: "/ohai-alternative", label: "Ohai Alternative" },
+      { href: "/family-meal-planner", label: "Family Meal Planner" },
+    ],
+    modifiedAt: "2026-04-23",
+  },
+  {
     path: "/templates",
     title: "Household System Templates | Meals, Grocery, Chores, Tasks, Fitness, and Lifestyle | Home Harmony",
     heading: "Plug-and-play household templates for real weekly systems",
@@ -862,6 +905,43 @@ for (const page of comparisonData.comparisonPages) {
       { href: "/signin", label: "Open Home Harmony" },
     ],
     modifiedAt: "2026-04-21",
+  });
+}
+
+for (const page of comparisonData.alternativePages) {
+  routes.push({
+    path: page.path,
+    title: `${page.title} | Home Harmony`,
+    heading: page.title,
+    description: page.description,
+    image: page.heroImage,
+    keywords: [
+      `${page.competitor.toLowerCase()} alternative`,
+      `${page.competitor.toLowerCase()} alternative for families`,
+      `best ${page.competitor.toLowerCase()} alternative`,
+      "family organizer alternative",
+    ],
+    type: "article",
+    breadcrumbs: [
+      { name: "Home", url: "/" },
+      { name: "Resources", url: "/resources" },
+      { name: "Alternatives", url: "/alternatives" },
+      { name: page.title, url: page.path },
+    ],
+    intro: `${page.description} This page is designed for families comparing real weekly workflow tradeoffs, not just app features.`,
+    highlights: [
+      `See whether Home Harmony is a better ${page.competitor} alternative for your family.`,
+      "Compare the weekly system across meals, grocery, chores, tasks, and family coordination.",
+      "Use a staged migration instead of a full switch on day one.",
+      "Choose the app that the whole household will actually use.",
+    ],
+    links: [
+      { href: "/alternatives", label: "More Alternatives" },
+      { href: "/compare", label: "Comparison Guides" },
+      { href: "/family-meal-planner", label: "Family Meal Planner" },
+      { href: "/signin", label: "Open Home Harmony" },
+    ],
+    modifiedAt: "2026-04-23",
   });
 }
 

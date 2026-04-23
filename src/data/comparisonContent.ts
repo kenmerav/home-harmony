@@ -12,6 +12,22 @@ export interface ComparisonPage {
   faq: Array<{ question: string; answer: string }>;
 }
 
+export interface AlternativePage {
+  path: string;
+  competitor: string;
+  title: string;
+  description: string;
+  heroImage: string;
+  heroAlt: string;
+  bestFor: string;
+  outcomes: string[];
+  whyFamiliesSwitch: string[];
+  whereHomeHarmonyWins: string[];
+  whereCompetitorStillFits: string[];
+  migrationPlan: string[];
+  faq: Array<{ question: string; answer: string }>;
+}
+
 export const comparisonPages: ComparisonPage[] = [
   {
     slug: 'home-harmony-vs-mealime',
@@ -238,6 +254,141 @@ export const comparisonPages: ComparisonPage[] = [
       {
         question: 'Does Home Harmony support recurring routines?',
         answer: 'Yes. Recurring tasks, chores cadence, and reminder profiles are core setup layers.',
+      },
+    ],
+  },
+];
+
+export const alternativePages: AlternativePage[] = [
+  {
+    path: '/cozi-alternative',
+    competitor: 'Cozi',
+    title: 'Best Cozi Alternative for Families',
+    description:
+      'Looking for a Cozi alternative? Home Harmony is built for families who want shared calendar coordination plus meals, grocery automation, chores, tasks, and wellness in one system.',
+    heroImage: '/seo/unique/home-harmony-vs-cozi.jpg',
+    heroAlt: 'Best Cozi alternative for families comparing shared calendar, meals, grocery, and chores',
+    bestFor: 'Families who have outgrown calendar-first planning and want one household system for execution too.',
+    outcomes: [
+      'Calendar, dinner timing, grocery, chores, and tasks stay connected instead of living in separate apps.',
+      'Owners can set up the household once, then invite the second adult into a shared family workspace.',
+      'Adult dashboards and kid systems sit on top of the same weekly plan instead of breaking it apart.',
+    ],
+    whyFamiliesSwitch: [
+      'The shared calendar is helpful, but dinner, grocery, and task follow-through still happen outside the app.',
+      'Families want one weekly system instead of stitching together calendar, meals, and chores manually.',
+      'They want a modern family organizer that handles actual execution, not just visibility.',
+    ],
+    whereHomeHarmonyWins: [
+      'Meal planning and grocery generation are part of the same workflow as the calendar.',
+      'Chores, kid scoreboards, adult dashboards, and wellness routines are built in.',
+      'Invite-based households share the same family data instead of duplicating setup.',
+    ],
+    whereCompetitorStillFits: [
+      'Households that mainly want a shared family calendar and simple lists.',
+      'Families that do not need meal automation, nutrition, or chore systems yet.',
+    ],
+    migrationPlan: [
+      'Move over the recurring events and family schedule first.',
+      'Set dinner times, saved foods, and grocery preferences next.',
+      'Bring chores and recurring tasks in once the first shared week feels stable.',
+    ],
+    faq: [
+      {
+        question: 'What makes Home Harmony a strong Cozi alternative?',
+        answer: 'It connects the family calendar to meal planning, grocery automation, chores, tasks, and daily execution instead of stopping at shared scheduling.',
+      },
+      {
+        question: 'Should I switch from Cozi all at once?',
+        answer: 'No. The best move is calendar first, then meals and grocery, then chores and tasks after the first good week.',
+      },
+    ],
+  },
+  {
+    path: '/nori-alternative',
+    competitor: 'Nori',
+    title: 'Best Nori Alternative for Families',
+    description:
+      'Looking for a Nori alternative? Home Harmony is a better fit for families who want a calmer shared household system with meals, grocery, chores, tasks, and dashboards built into one weekly flow.',
+    heroImage: '/seo/unique/family-routine-builder.jpg',
+    heroAlt: 'Best Nori alternative for families comparing AI organizer apps and household systems',
+    bestFor: 'Families who want AI help, but still need a dependable shared system for meals, grocery, chores, and routines.',
+    outcomes: [
+      'Family planning lives in one place instead of staying dependent on capture and follow-up prompts.',
+      'Meals, grocery, chores, and calendar become one weekly operating system.',
+      'Each adult gets a personal dashboard without breaking the shared family plan underneath.',
+    ],
+    whyFamiliesSwitch: [
+      'They like AI capture, but still need a system the whole family can actually run every week.',
+      'They want more structure around meals, grocery, chores, and household follow-through.',
+      'They need a stronger shared-family model after onboarding, not just smart input.',
+    ],
+    whereHomeHarmonyWins: [
+      'Meal planning, grocery rollups, chores, tasks, and dashboards are all first-class modules.',
+      'Shared family setup is stronger for households with multiple adults and kids.',
+      'Saved foods, macro tracking, and calendar-linked dinner routines make food planning more actionable.',
+    ],
+    whereCompetitorStillFits: [
+      'Families who mainly want faster AI capture from voice, email, or screenshots.',
+      'Users who care more about input convenience than a deeper family operating system.',
+    ],
+    migrationPlan: [
+      'Set up the household roles and shared family first.',
+      'Import or rebuild the first week of meals and grocery so the system becomes useful immediately.',
+      'Move recurring tasks and chore ownership in after the meal workflow is steady.',
+    ],
+    faq: [
+      {
+        question: 'Why choose Home Harmony over Nori?',
+        answer: 'Choose Home Harmony when your main need is not just AI input, but a household system that keeps meals, grocery, chores, tasks, and routines running together.',
+      },
+      {
+        question: 'Is Home Harmony less AI-driven than Nori?',
+        answer: 'It uses AI where helpful, but the bigger difference is that the family workflow stays usable even when no one is actively prompting it.',
+      },
+    ],
+  },
+  {
+    path: '/ohai-alternative',
+    competitor: 'Ohai',
+    title: 'Best Ohai Alternative for Families',
+    description:
+      'Looking for an Ohai alternative? Home Harmony is a stronger fit for families who want meal planning, grocery automation, chores, tasks, and the calendar in one shared weekly system.',
+    heroImage: '/seo/unique/shared-household-task-priority-planner.jpg',
+    heroAlt: 'Best Ohai alternative for families comparing household manager apps',
+    bestFor: 'Families who want a hands-on household operating system, not just a family assistant layer.',
+    outcomes: [
+      'The calendar, meals, grocery list, chores, and tasks stay in one shared family plan.',
+      'Adults can have personal dashboards while still sharing the same family setup.',
+      'Household execution becomes visible and repeatable from one app.',
+    ],
+    whyFamiliesSwitch: [
+      'They want stronger weekly structure around food, chores, and recurring household work.',
+      'They need a better family-facing system after tasks or requests are captured.',
+      'They want one app the whole household can open, not only an assistant-style interface.',
+    ],
+    whereHomeHarmonyWins: [
+      'Meal planning and grocery automation are deeper and directly tied to family execution.',
+      'Kid chores, skill development, points, and adult dashboards are built in.',
+      'Shared family setup is clearer for owners, spouses, and children.',
+    ],
+    whereCompetitorStillFits: [
+      'Families who prefer a more assistant-like or delegation-heavy workflow.',
+      'Users focused more on household admin help than on shared meal/grocery/chore systems.',
+    ],
+    migrationPlan: [
+      'Start by setting up the shared family and core calendar rhythm.',
+      'Add meals, grocery stores, and saved foods so the first week has immediate value.',
+      'Move household chores and recurring tasks in once everyone is using the same plan.',
+    ],
+    faq: [
+      {
+        question: 'What makes Home Harmony a good Ohai alternative?',
+        answer: 'It gives families a more complete weekly operating system with meals, grocery, chores, tasks, and shared dashboards instead of only a household assistant layer.',
+      },
+      {
+        question: 'Should I switch from Ohai if I mainly need help organizing the family?',
+        answer: 'Yes, especially if your biggest friction is actually running the week, not just capturing requests or household admin tasks.',
       },
     ],
   },

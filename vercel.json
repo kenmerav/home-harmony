@@ -330,6 +330,14 @@
       "destination": "/compare/:slug/index.html"
     },
     {
+      "source": "/alternatives",
+      "destination": "/alternatives/index.html"
+    },
+    {
+      "source": "/:slug-alternative",
+      "destination": "/:slug-alternative/index.html"
+    },
+    {
       "source": "/templates",
       "destination": "/templates/index.html"
     },

@@ -116,6 +116,12 @@ const ComparisonHubPage = lazyWithReload(() =>
 const ComparisonDetailPage = lazyWithReload(() =>
   import("./pages/seo/ComparisonSeoPages").then((m) => ({ default: m.ComparisonDetailPage })),
 );
+const AlternativesHubPage = lazyWithReload(() =>
+  import("./pages/seo/AlternativeSeoPages").then((m) => ({ default: m.AlternativesHubPage })),
+);
+const AlternativeDetailPage = lazyWithReload(() =>
+  import("./pages/seo/AlternativeSeoPages").then((m) => ({ default: m.AlternativeDetailPage })),
+);
 const TemplatesHubPage = lazyWithReload(() =>
   import("./pages/seo/TemplatesGalleryPages").then((m) => ({ default: m.TemplatesHubPage })),
 );
@@ -143,6 +149,10 @@ const INDEXABLE_PUBLIC_PREFIXES = [
   "/workout-tracking",
   "/lifestyle-tracking",
   "/compare",
+  "/alternatives",
+  "/cozi-alternative",
+  "/nori-alternative",
+  "/ohai-alternative",
   "/templates",
 ];
 
@@ -251,6 +261,10 @@ const App = () => (
               <Route path="/lifestyle-tracking/:slug" element={<LifestyleTrackingDetailPage />} />
               <Route path="/compare" element={<ComparisonHubPage />} />
               <Route path="/compare/:slug" element={<ComparisonDetailPage />} />
+              <Route path="/alternatives" element={<AlternativesHubPage />} />
+              <Route path="/cozi-alternative" element={<AlternativeDetailPage />} />
+              <Route path="/nori-alternative" element={<AlternativeDetailPage />} />
+              <Route path="/ohai-alternative" element={<AlternativeDetailPage />} />
               <Route path="/templates" element={<TemplatesHubPage />} />
               <Route path="/templates/:slug" element={<TemplateDetailPage />} />
               <Route path="/signin" element={<AuthPage />} />

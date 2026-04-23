@@ -34,6 +34,10 @@ const staticRoutes = [
   '/workout-tracking',
   '/lifestyle-tracking',
   '/compare',
+  '/alternatives',
+  '/cozi-alternative',
+  '/nori-alternative',
+  '/ohai-alternative',
   '/templates',
 ];
 
@@ -63,6 +67,12 @@ for (const collection of collections) {
     const slug = slugMatch[1];
     allRoutes.add(`${collection.base}/${slug}`);
   }
+}
+
+const alternativeBodyMatch = sources.comparison.match(/export const alternativePages[\s\S]*?= \[(?<body>[\s\S]*?)\n\];/);
+const alternativeBody = alternativeBodyMatch?.groups?.body || '';
+for (const pathMatch of alternativeBody.matchAll(/path:\s*'([^']+)'/g)) {
+  allRoutes.add(pathMatch[1]);
 }
 
 const urls = [...allRoutes]
