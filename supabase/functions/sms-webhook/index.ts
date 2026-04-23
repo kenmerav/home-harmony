@@ -1860,7 +1860,7 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddDraf
   return null;
 }
 
-function parseCalendarDeleteIntent(body: string): CalendarDeleteIntent | null {
+function parseCalendarDeleteIntent(body: string, timezone: string): CalendarDeleteIntent | null {
   const normalized = trimTrailingPunctuation(body);
   if (!/^(?:delete|remove|cancel)\b/i.test(normalized)) return null;
   if (/^(?:delete that|remove that|delete it|remove it|cancel that event|delete that event)$/i.test(normalized)) {
@@ -4181,7 +4181,7 @@ serve(async (req) => {
       }
     }
 
-    const calendarDeleteIntent = parseCalendarDeleteIntent(body);
+    const calendarDeleteIntent = parseCalendarDeleteIntent(body, timezone);
     if (calendarDeleteIntent) {
       try {
         const reply = await deleteCalendarEventBySms(supabase, pref.user_id, timezone, calendarDeleteIntent);
