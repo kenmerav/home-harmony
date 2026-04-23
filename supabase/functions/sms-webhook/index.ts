@@ -1876,11 +1876,36 @@ function parseCalendarDeleteIntent(body: string): CalendarDeleteIntent | null {
     const title = normalizeCalendarTitle(trimTrailingPunctuation(titleRaw || ""));
     if (!title) return null;
     const rawLayer = String(layerRaw || "").trim();
+    let dateText = dateTextRaw ? trimTrailingPunctuation(dateTextRaw) : null;
+    let timeText = timeTextRaw ? trimTrailingPunctuation(timeTextRaw) : null;
+    let normalizedLayer: string | null = rawLayer ? normalizeCalendarLayerName(rawLayer) : null;
+
+    // Support natural delete phrasing like:
+    // "remove dentist appt from calendar for today"
+    // "remove dentist appt from calendar for tomorrow at 9 am"
+    // where an older fallback pattern may have captured the date phrase as the layer.
+    if (!dateText && rawLayer) {
+      const rawLayerWithoutFor = trimTrailingPunctuation(rawLayer.replace(/^for\s+/i, "").replace(/^on\s+/i, ""));
+      const layerWithTime = rawLayerWithoutFor.match(/^(.+?)\s+at\s+(.+)$/i);
+      if (layerWithTime) {
+        const possibleDateText = trimTrailingPunctuation(layerWithTime[1] || "");
+        const possibleTimeText = trimTrailingPunctuation(layerWithTime[2] || "");
+        if (parseUsDate(possibleDateText, timezone) && possibleTimeText) {
+          dateText = possibleDateText;
+          timeText = possibleTimeText;
+          normalizedLayer = null;
+        }
+      } else if (parseUsDate(rawLayerWithoutFor, timezone)) {
+        dateText = rawLayerWithoutFor;
+        normalizedLayer = null;
+      }
+    }
+
     return {
       title,
-      layer: rawLayer ? normalizeCalendarLayerName(rawLayer) : null,
-      dateText: dateTextRaw ? trimTrailingPunctuation(dateTextRaw) : null,
-      timeText: timeTextRaw ? trimTrailingPunctuation(timeTextRaw) : null,
+      layer: normalizedLayer,
+      dateText,
+      timeText,
     };
   };
 
