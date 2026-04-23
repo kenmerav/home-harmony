@@ -16,9 +16,9 @@ export const comparisonPages: ComparisonPage[] = [
   {
     slug: 'home-harmony-vs-mealime',
     competitor: 'Mealime',
-    title: 'Home Harmony vs Mealime for Family Meal Planning and Grocery',
+    title: 'Best Mealime Alternative for Families | Home Harmony vs Mealime',
     description:
-      'Compare Home Harmony and Mealime for family meal planning, grocery automation, shared calendar coordination, chores, tasks, and household follow-through.',
+      'Looking for a Mealime alternative? Compare Home Harmony and Mealime for family meal planning, grocery automation, shared calendar coordination, chores, tasks, and household follow-through.',
     heroImage: '/seo/unique/meal-plans.jpg',
     heroAlt: 'Home Harmony and Mealime comparison for family meal planning and grocery workflows',
     bestForHomeHarmony: [
@@ -54,9 +54,9 @@ export const comparisonPages: ComparisonPage[] = [
   {
     slug: 'home-harmony-vs-cozi',
     competitor: 'Cozi',
-    title: 'Home Harmony vs Cozi for Family Operations',
+    title: 'Best Cozi Alternative for Families | Home Harmony vs Cozi',
     description:
-      'Compare Home Harmony and Cozi for meal planning, grocery automation, chores, task ownership, and fitness-nutrition workflows.',
+      'Looking for a Cozi alternative? Compare Home Harmony and Cozi for meal planning, grocery automation, chores, task ownership, calendar workflows, and fitness-nutrition routines.',
     heroImage: '/seo/unique/home-harmony-vs-cozi.jpg',
     heroAlt: 'Comparison table of Home Harmony and Cozi features',
     bestForHomeHarmony: [
@@ -92,9 +92,9 @@ export const comparisonPages: ComparisonPage[] = [
   {
     slug: 'home-harmony-vs-anylist',
     competitor: 'AnyList',
-    title: 'Home Harmony vs AnyList for Meal and Grocery Execution',
+    title: 'Best AnyList Alternative for Families | Home Harmony vs AnyList',
     description:
-      'Compare Home Harmony and AnyList for grocery quality, weekly planning workflows, and household coordination beyond shopping.',
+      'Looking for an AnyList alternative? Compare Home Harmony and AnyList for grocery quality, weekly planning workflows, and household coordination beyond shopping.',
     heroImage: '/seo/unique/home-harmony-vs-anylist.jpg',
     heroAlt: 'Home Harmony and AnyList grocery planning comparison',
     bestForHomeHarmony: [
@@ -124,6 +124,82 @@ export const comparisonPages: ComparisonPage[] = [
       {
         question: 'Will this add too much complexity?',
         answer: 'Not if rolled out in phases. Start with meals plus grocery, then layer in tasks.',
+      },
+    ],
+  },
+  {
+    slug: 'home-harmony-vs-familywall',
+    competitor: 'FamilyWall',
+    title: 'Best FamilyWall Alternative for Families | Home Harmony vs FamilyWall',
+    description:
+      'Looking for a FamilyWall alternative? Compare Home Harmony and FamilyWall for family calendar coordination, meal planning, grocery automation, chores, tasks, and household execution.',
+    heroImage: '/seo/unique/family-routine-builder.jpg',
+    heroAlt: 'Home Harmony and FamilyWall comparison for family organizer workflows',
+    bestForHomeHarmony: [
+      'Families who want meals, grocery, tasks, chores, and wellness in one shared system instead of a lighter family hub.',
+      'Households where dinner planning and execution matter as much as the shared calendar.',
+    ],
+    whereHomeHarmonyWins: [
+      'Meal planner and grocery rollups are built into the same system as chores, tasks, workouts, and reminders.',
+      'Saved foods, macro tracking, and adult dashboards make food planning more realistic than a calendar-only workflow.',
+      'One household setup with personal dashboards for each adult after invite acceptance.',
+    ],
+    whereCompetitorWins: [
+      'Families who are primarily shopping for a shared calendar, messaging, and general family hub features.',
+      'Lower setup expectations if meal automation and nutrition are not part of the decision.',
+    ],
+    switchChecklist: [
+      'Move your shared calendar rhythm and top recurring events first so the household timeline stays familiar.',
+      'Set dinner cadence, grocery preferences, and saved foods before migrating chores and task ownership.',
+      'Invite the second adult after the owner finishes setup so family data stays shared under one household.',
+      'Layer in workouts or nutrition only after calendar and meal routines feel steady.',
+    ],
+    faq: [
+      {
+        question: 'Is Home Harmony a FamilyWall replacement?',
+        answer: 'It can be, especially for families who need the family calendar connected to meal planning, grocery, chores, tasks, and wellness routines.',
+      },
+      {
+        question: 'Should I switch if FamilyWall already handles scheduling?',
+        answer: 'Switch when your problem is no longer just seeing the family schedule, but actually getting dinner, shopping, chores, and routines to happen from that plan.',
+      },
+    ],
+  },
+  {
+    slug: 'home-harmony-vs-famcal',
+    competitor: 'FamCal',
+    title: 'Best FamCal Alternative for Families | Home Harmony vs FamCal',
+    description:
+      'Looking for a FamCal alternative? Compare Home Harmony and FamCal for shared family calendar planning, shopping lists, meal workflows, chores, tasks, and daily follow-through.',
+    heroImage: '/seo/unique/shared-household-task-priority-planner.jpg',
+    heroAlt: 'Home Harmony and FamCal comparison for family scheduling and planning',
+    bestForHomeHarmony: [
+      'Families that want shared scheduling plus meal planning, grocery automation, chores, and task execution in one app.',
+      'Households where a shared calendar is important but not enough on its own.',
+    ],
+    whereHomeHarmonyWins: [
+      'Weekly meal planning, saved foods, and grocery generation sit inside the same household workflow as the calendar.',
+      'Adult dashboards, nutrition goals, and kid chores/skills all connect to the same family system.',
+      'Better fit for families who want one place to run the week instead of a calendar with attached lists.',
+    ],
+    whereCompetitorWins: [
+      'Users who mainly want a shared family calendar with lists, notes, and light planning.',
+      'A simpler option when the household does not need deeper meal/grocery execution or wellness tracking.',
+    ],
+    switchChecklist: [
+      'Bring over the shared events and key recurring routines first so everyone lands in a familiar calendar flow.',
+      'Set up meals, grocery stores, and saved foods next so the new system solves a second weekly bottleneck immediately.',
+      'Move chores and family tasks in after your first full week runs successfully.',
+      'Use leaderboards and personal dashboards only after the shared family system is adopted.',
+    ],
+    faq: [
+      {
+        question: 'Is Home Harmony a good FamCal alternative?',
+        answer: 'Yes, especially if you like the shared family calendar idea but need a stronger system for meals, grocery, chores, and wellness routines too.',
+      },
+      {
+        question: 'Can Home Harmony replace FamCal without making setup too heavy?',
+        answer: 'Yes. The safest migration is calendar first, then meals and grocery, then chores and tasks once the first week feels stable.',
       },
     ],
   },

@@ -11,16 +11,24 @@ import { ResourcePageLayout } from './ResourcePageLayout';
 
 const comparisonNarrative: Record<string, { intro: string; closing: string }> = {
   'home-harmony-vs-mealime': {
-    intro: 'This comparison is for families deciding between a recipe-first meal planner and a broader family execution system.',
-    closing: 'If meals are the entry point but follow-through is the real problem, test the full household workflow instead of only the recipe engine.',
+    intro: 'This comparison is for families looking for a Mealime alternative that goes beyond recipe suggestions and grocery basics.',
+    closing: 'If meals are the entry point but follow-through is the real problem, test the fuller household workflow instead of only the recipe engine.',
   },
   'home-harmony-vs-cozi': {
-    intro: 'This comparison focuses on households deciding between calendar-first coordination and a fuller operations system.',
-    closing: 'Migrate one workflow first so you can test operational fit before a full switch.',
+    intro: 'This comparison focuses on households looking for a Cozi alternative that handles more than shared calendar coordination.',
+    closing: 'Migrate one workflow first so you can test whether the broader operations system improves weekly follow-through.',
   },
   'home-harmony-vs-anylist': {
-    intro: 'This page is for families weighing list-centric shopping power against broader home coordination needs.',
-    closing: 'If meal and grocery are your core bottleneck, pilot there before moving chores and tasks.',
+    intro: 'This page is for families looking for an AnyList alternative with more household coordination built in.',
+    closing: 'If meal and grocery are your core bottleneck, pilot there first and then expand into chores and tasks.',
+  },
+  'home-harmony-vs-familywall': {
+    intro: 'This comparison is for families looking for a FamilyWall alternative that reaches deeper into meals, grocery, and weekly execution.',
+    closing: 'If the calendar is only one part of the family load, test the full operations stack before deciding.',
+  },
+  'home-harmony-vs-famcal': {
+    intro: 'This comparison is for families looking for a FamCal alternative that does more than shared calendar and light list coordination.',
+    closing: 'If your family needs one place to actually run the week, compare the whole system instead of the calendar alone.',
   },
   'home-harmony-vs-todoist-for-families': {
     intro: 'This comparison is built for households choosing between a productivity-first tool and family-specific workflows.',
@@ -48,14 +56,18 @@ function buildComparisonFaq(page: (typeof comparisonPages)[number]) {
 
 export function ComparisonHubPage() {
   useSeoMeta({
-    title: 'Home Harmony Comparisons | Mealime, Cozi, AnyList, and Todoist Alternatives',
+    title: 'Best Cozi, FamilyWall, FamCal, AnyList, and Mealime Alternatives | Home Harmony',
     description:
-      'Compare Home Harmony against Mealime, Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, and routines.',
+      'Looking for the best Cozi, FamilyWall, FamCal, AnyList, or Mealime alternative? Compare Home Harmony for family operations, meal planning, grocery automation, chores, and routines.',
     keywords: [
+      'cozi alternative',
+      'familywall alternative',
+      'famcal alternative',
+      'anylist alternative',
+      'mealime alternative',
       'home harmony vs mealime',
       'home harmony vs cozi',
       'home harmony vs anylist',
-      'home harmony vs todoist',
       'best family organizer app',
     ],
     image: '/seo/task-systems.jpg',
@@ -71,10 +83,10 @@ export function ComparisonHubPage() {
     <SeoShell>
       <div className="mb-8">
         <p className="text-xs uppercase tracking-[0.16em] text-primary">Comparisons</p>
-        <h1 className="mt-2 font-display text-4xl">Home Harmony vs Popular Family Tools</h1>
+        <h1 className="mt-2 font-display text-4xl">Best Alternatives to Popular Family Organizer Apps</h1>
         <p className="mt-3 max-w-3xl text-muted-foreground">
-          Honest, implementation-focused comparisons to help families choose the right operating system for meals,
-          grocery, chores, tasks, and routines.
+          Honest, implementation-focused comparison articles for families considering alternatives to Cozi, FamilyWall,
+          FamCal, AnyList, Mealime, and other household planning tools.
         </p>
       </div>
 
@@ -247,6 +259,7 @@ export function ComparisonDetailPage() {
         secondary: { label: 'More Resources', href: '/resources', variant: 'outline' },
       }}
       advancedSections={[
+        { title: `Why families search for a ${page.competitor} alternative`, items: detailedFaq.map((item) => item.answer) },
         { title: 'Best fit for Home Harmony', items: page.bestForHomeHarmony },
         { title: 'Where Home Harmony wins', items: page.whereHomeHarmonyWins },
       ]}

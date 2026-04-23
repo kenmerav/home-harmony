@@ -695,16 +695,20 @@ const routes = [
   },
   {
     path: "/compare",
-    title: "Home Harmony Comparisons | Mealime, Cozi, AnyList, and Todoist Alternatives",
-    heading: "Home Harmony vs popular family tools",
+    title: "Best Cozi, FamilyWall, FamCal, AnyList, and Mealime Alternatives | Home Harmony",
+    heading: "Best alternatives to popular family organizer apps",
     description:
-      "Compare Home Harmony with Mealime, Cozi, AnyList, and Todoist for family operations, meal planning, grocery automation, chores, tasks, and routines.",
+      "Looking for the best Cozi, FamilyWall, FamCal, AnyList, or Mealime alternative? Compare Home Harmony for family operations, meal planning, grocery automation, chores, tasks, and routines.",
     image: "/seo/task-systems.jpg",
     keywords: [
+      "cozi alternative",
+      "familywall alternative",
+      "famcal alternative",
+      "anylist alternative",
+      "mealime alternative",
       "home harmony vs mealime",
       "home harmony vs cozi",
       "home harmony vs anylist",
-      "home harmony vs todoist",
       "best family organizer app",
     ],
     type: "website",
@@ -714,9 +718,9 @@ const routes = [
       { name: "Comparisons", url: "/compare" },
     ],
     intro:
-      "These comparison pages are written for families choosing between calendar-first, shopping-first, and generic productivity tools versus a more connected home-operations system.",
+      "These comparison pages are written for families comparing Cozi, FamilyWall, FamCal, AnyList, Mealime, and other popular tools against a more connected home-operations system.",
     highlights: [
-      "Compare Home Harmony against Cozi, AnyList, and Todoist with migration checklists.",
+      "Compare Home Harmony against Cozi, FamilyWall, FamCal, AnyList, and Mealime with migration checklists.",
       "See where Home Harmony is strongest for meals, grocery, chores, and task ownership.",
       "Use one-week pilots instead of static feature checklists to choose the right fit.",
       "Map your core bottleneck first so you pick the system that solves the real weekly problem.",
