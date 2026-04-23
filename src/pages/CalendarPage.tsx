@@ -2205,7 +2205,10 @@ export default function CalendarPage() {
 
       <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
         <DialogContent
-          className="sm:max-w-2xl"
+          className={cn(
+            'sm:max-w-2xl',
+            isMobile && 'top-auto bottom-0 translate-x-[-50%] translate-y-0 rounded-b-none rounded-t-3xl border-b-0 px-4 pb-6 pt-5 sm:rounded-lg sm:border sm:px-6 sm:pb-6 sm:pt-6',
+          )}
           onInteractOutside={(event) => {
             if (isMobile) {
               event.preventDefault();
@@ -2223,7 +2226,7 @@ export default function CalendarPage() {
               {selectedDayEvents.length} item{selectedDayEvents.length === 1 ? '' : 's'} based on your current filters.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto pr-1">
+          <div className={cn('max-h-[60vh] overflow-y-auto pr-1', isMobile && 'max-h-[70vh] pr-0')}>
             {selectedDayEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground">No events scheduled for this day.</p>
             ) : (

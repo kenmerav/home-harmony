@@ -991,7 +991,10 @@ function titleCaseWords(value: string): string {
 }
 
 function normalizeCalendarTitle(value: string): string {
-  const trimmed = value.trim().replace(/\s+/g, " ");
+  const trimmed = value
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s+to\s+(?:[a-z][\w'&-]*(?:\s+[a-z][\w'&-]*)*\s+)?calendar$/i, "");
   if (!trimmed) return "";
 
   const letters = trimmed.replace(/[^A-Za-z]/g, "");
@@ -1747,6 +1750,17 @@ function parseCalendarAddIntent(body: string, timezone: string): CalendarAddDraf
     const match = normalized.match(pattern);
     if (!match) continue;
     return buildCalendarIntent(match[1] || "", match[2] || "", match[3] || "", match[4] || "");
+  }
+
+  const explicitLayerTimeFirstPatterns = [
+    /^add\s+(?:an?\s+)?event\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+at\s+(.+?)\s+on\s+(.+)$/i,
+    /^add\s+(.+?)\s+to\s+calendar\s+for\s+(.+?)\s+at\s+(.+?)\s+on\s+(.+)$/i,
+  ];
+
+  for (const pattern of explicitLayerTimeFirstPatterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    return buildCalendarIntent(match[1] || "", match[2] || "", match[4] || "", match[3] || "");
   }
 
   const calendarPatterns = [
