@@ -2,631 +2,757 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.homeharmonyhq.com/</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://www.homeharmonyhq.com/family-meal-planner</loc>
-    <lastmod>2026-04-21</lastmod>
+    <loc>https://www.homeharmonyhq.com/alternatives</loc>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems/chore-system-for-blended-family-schedules</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems/chore-system-for-families-with-young-kids</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems/small-home-high-efficiency-chore-system</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems/teen-accountability-chore-system-with-scorecard</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/chore-systems/weekly-family-chore-system-for-two-working-parents</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-anylist</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-cozi</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-famcal</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-familywall</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-mealime</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/compare/home-harmony-vs-todoist-for-families</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/cozi-alternative</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/family-chores-and-tasks-app</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/family-grocery-list-app</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/family-meal-planner</loc>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/aldi-budget-grocery-list-for-7-family-dinners</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/anti-waste-weekly-grocery-list-for-families</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/budget-grocery-rollup-for-mixed-breakfast-and-dinner-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/costco-weekly-grocery-list-for-family-meal-prep</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/double-recipe-grocery-list-for-large-batch-weeks</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/gluten-free-weekly-shopping-list-with-substitutions</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/high-protein-meal-prep-shopping-list</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/instacart-family-grocery-list-with-substitution-logic</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/minimal-fridge-space-weekly-grocery-list</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/postpartum-support-grocery-list-for-easy-family-meals</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/summer-no-cook-lunch-and-dinner-grocery-list</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/grocery-lists/weekly-grocery-list-kid-friendly-dinners-family-of-4</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/adhd-friendly-household-task-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/blended-family-household-routine-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/family-of-4-weekly-chore-chart-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/homeschool-family-daily-routine-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/meal-planning-and-chore-sync-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/multigenerational-household-roles-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/newborn-and-toddler-household-routine-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/single-parent-weekly-household-system-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/small-apartment-family-routine-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/teen-and-parent-shared-task-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/travel-heavy-family-home-reset-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/household-templates/two-working-parents-night-routine-template</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking/alcohol-habit-tracking-system-with-weekly-review</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking/family-sleep-tracking-system-for-better-routines</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking/family-wellness-dashboard-with-sleep-workout-nutrition</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking/habit-streak-tracking-system-for-household-consistency</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/lifestyle-tracking/period-and-cycle-tracking-for-household-planning</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/1700-calorie-high-satiety-macro-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/2200-calorie-high-protein-3-meal-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/2400-calorie-body-recomposition-macro-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/2600-calorie-active-parent-macro-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/2800-calorie-muscle-gain-macro-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/family-recomp-macro-plan-with-weekend-flex</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/fat-loss-macro-plan-with-family-dinners</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/high-protein-fat-loss-plan-under-2000-calories</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/high-protein-vegetarian-family-macro-plan</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/maintenance-macro-plan-for-busy-parents</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/perimenopause-macro-plan-for-energy-and-compliance</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/macro-plans/postpartum-high-protein-macro-plan-framework</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/air-fryer-family-meal-plan-under-25-minutes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/athlete-family-meal-plan-with-double-recipe-flow</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/budget-family-dinner-plan-under-45-minutes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/dairy-free-family-meal-plan-under-35-minutes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/family-meal-plan-for-sports-practice-nights</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/gluten-free-family-meal-plan-with-macro-balance</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/high-iron-family-meal-plan-for-growing-kids</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/high-protein-kid-friendly-family-of-4-under-30-minutes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/low-carb-family-dinner-plan-with-shared-base-meals</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/mediterranean-family-meal-plan-for-busy-weeknights</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/picky-eater-family-meal-plan-with-hidden-veggie-swaps</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/meal-plans/slow-cooker-weeknight-plan-for-busy-parents</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/nori-alternative</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/ohai-alternative</loc>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-black-beans-corn-tortillas-salsa</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-canned-tuna-rice-frozen-peas</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-chicken-pasta-yogurt</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-chicken-rice-onion</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-chickpeas-tomatoes-spinach-pasta</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-eggs-potatoes-yogurt</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-frozen-shrimp-rice-broccoli</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-ground-beef-pasta</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-ground-turkey-potatoes-frozen-corn</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-oats-eggs-banana-peanut-butter</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-rotisserie-chicken-bagged-salad-wraps</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/pantry-meals/meals-with-turkey-rice-frozen-veggies</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/budget-meal-prep-bowl-recipe-collection</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/dairy-free-family-dinner-recipe-collection</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/family-breakfast-meal-prep-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/family-sunday-batch-cook-recipe-collection</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/freezer-friendly-family-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/high-protein-meal-prep-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/kid-friendly-high-iron-dinner-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/kid-friendly-one-pan-dinner-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/kid-friendly-slow-cooker-recipes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/low-mess-slow-cooker-freezer-dump-meals</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/post-workout-family-dinner-recipe-collection</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/recipe-collections/under-30-minute-family-dinners</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/resources</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/shared-family-calendar-app</loc>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems/adhd-friendly-household-task-system</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems/family-task-management-system-with-priority-lanes</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems/family-task-system-for-travel-heavy-weeks</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems/shared-to-do-system-for-couples-and-kids</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/task-systems/weekly-household-admin-task-system</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/busy-family-weeknight-system</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/family-weekly-reset-board</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/kids-chores-points-loop</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/lean-grocery-budget-mode</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/protein-water-consistency</loc>
+    <lastmod>2026-04-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.homeharmonyhq.com/templates/three-day-family-fitness</loc>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking/beginner-strength-training-tracker-for-busy-parents</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking/couples-workout-planner-and-tracker</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking/fat-loss-cardio-and-strength-tracking-system</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking/home-gym-workout-tracking-system</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.homeharmonyhq.com/workout-tracking/hypertrophy-workout-tracker-with-family-schedule</loc>
-    <lastmod>2026-02-24</lastmod>
+    <lastmod>2026-04-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>

@@ -47,8 +47,11 @@ type AgendaEvent = {
   title: string;
   startsAtUtc: DateTime;
   startsAtLocal: DateTime;
-  source: "meal" | "manual";
+  source: "meal" | "manual" | "task" | "chore" | "workout" | "reminder";
+  allDay?: boolean;
 };
+
+const CALENDAR_AGENDA_MODULES = ["meals", "manual", "tasks", "chores", "workouts", "reminders"];
 
 type RecipeRow = {
   id: string;
@@ -395,10 +398,14 @@ function normalizeNameForMatch(value: string | null | undefined): string {
     .trim();
 }
 
+function agendaTimeLabel(event: AgendaEvent): string {
+  return event.allDay ? "All day" : timeLabel(event.startsAtLocal);
+}
+
 function formatAgendaList(label: string, date: DateTime, events: AgendaEvent[]): string {
   const heading = `${label} (${date.toFormat("EEE, LLL d")})`;
   if (!events.length) return `${heading}: no events found.`;
-  const rows = events.slice(0, 8).map((event) => `- ${timeLabel(event.startsAtLocal)} ${event.title}`);
+  const rows = events.slice(0, 8).map((event) => `- ${agendaTimeLabel(event)} ${event.title}`);
   const more = events.length > rows.length ? `\n+${events.length - rows.length} more` : "";
   return `${heading}:\n${rows.join("\n")}${more}`;
 }
@@ -423,7 +430,7 @@ function formatRangeAgenda(label: string, grouped: Array<{ date: DateTime; event
   const lines: string[] = [];
   for (const item of grouped) {
     if (!item.events.length) continue;
-    const preview = item.events.slice(0, 2).map((event) => `${timeLabel(event.startsAtLocal)} ${event.title}`).join(", ");
+    const preview = item.events.slice(0, 2).map((event) => `${agendaTimeLabel(event)} ${event.title}`).join(", ");
     const suffix = item.events.length > 2 ? ` +${item.events.length - 2}` : "";
     lines.push(`${item.date.toFormat("EEE LLL d")}: ${preview}${suffix}`);
   }
@@ -3582,15 +3589,16 @@ async function fetchAgendaForDate(
   if (!dateIso) return events;
 
   const includeMeals = includeModules.includes("meals") || includeModules.length === 0;
-  const includeManual = includeModules.includes("manual") || includeModules.length === 0;
+  const includeSet = new Set(includeModules.length ? includeModules : CALENDAR_AGENDA_MODULES);
+  const includeCalendarRows = CALENDAR_AGENDA_MODULES.some((moduleName) => moduleName !== "meals" && includeSet.has(moduleName));
   const dayStartUtc = localDate.startOf("day").toUTC().toISO();
   const dayEndUtc = localDate.plus({ days: 1 }).startOf("day").toUTC().toISO();
-  const syncedMealEvents: AgendaEvent[] = [];
+  const syncedMealsByRelatedId = new Map<string, { startsAtLocal: DateTime; startsAtUtc: DateTime; updatedAtMillis: number }>();
 
-  if (includeMeals || includeManual) {
+  if (includeCalendarRows || includeMeals) {
     const { data } = await supabase
       .from("calendar_events")
-      .select("id,title,starts_at,module,source")
+      .select("id,title,starts_at,all_day,module,source,related_id,updated_at")
       .eq("owner_id", userId)
       .eq("is_deleted", false)
       .gte("starts_at", dayStartUtc)
@@ -3600,58 +3608,80 @@ async function fetchAgendaForDate(
       const startsAtUtc = safeDateTime(String(row.starts_at || ""), "utc");
       if (!startsAtUtc) continue;
       const moduleName = String(row.module || "manual").toLowerCase();
-
-      if (includeManual && moduleName === "manual") {
-        events.push({
-          id: `manual-${row.id}`,
-          title: String(row.title || "Event"),
-          startsAtUtc,
-          startsAtLocal: startsAtUtc.setZone(timezone),
-          source: "manual",
-        });
+      const sourceName = String(row.source || moduleName || "manual").toLowerCase();
+      if (moduleName === "meals" || sourceName === "meal") {
+        const startsAtLocal = startsAtUtc.setZone(timezone);
+        const relatedId = String(row.related_id || "").trim();
+        const updatedAtMillis = safeDateTime(String(row.updated_at || ""), "utc")?.toMillis() || startsAtUtc.toMillis();
+        const rememberSyncedMeal = (key: string) => {
+          if (!key) return;
+          const existing = syncedMealsByRelatedId.get(key);
+          if (existing && existing.updatedAtMillis > updatedAtMillis) return;
+          syncedMealsByRelatedId.set(key, { startsAtLocal, startsAtUtc, updatedAtMillis });
+        };
+        if (relatedId) {
+          rememberSyncedMeal(relatedId);
+          if (relatedId.startsWith("meal:")) {
+            rememberSyncedMeal(relatedId.slice("meal:".length));
+          } else {
+            rememberSyncedMeal(`meal:${relatedId}`);
+          }
+        }
+        continue;
       }
 
-      if (includeMeals && moduleName === "meals") {
-        syncedMealEvents.push({
-          id: `meal-sync-${row.id}`,
-          title: String(row.title || "Dinner"),
-          startsAtUtc,
-          startsAtLocal: startsAtUtc.setZone(timezone),
-          source: "meal",
-        });
-      }
+      if (!includeCalendarRows) continue;
+
+      const agendaModule = CALENDAR_AGENDA_MODULES.includes(moduleName) ? moduleName : sourceName;
+      if (!includeSet.has(agendaModule)) continue;
+
+      events.push({
+        id: `${agendaModule}-${row.id}`,
+        title: String(row.title || "Event"),
+        startsAtUtc,
+        startsAtLocal: startsAtUtc.setZone(timezone),
+        source:
+          agendaModule === "tasks"
+            ? "task"
+            : agendaModule === "chores"
+            ? "chore"
+            : agendaModule === "workouts"
+            ? "workout"
+            : agendaModule === "reminders"
+            ? "reminder"
+            : "manual",
+        allDay: !!row.all_day,
+      });
     }
   }
 
   if (includeMeals) {
-    if (syncedMealEvents.length > 0) {
-      events.push(...syncedMealEvents);
-    } else {
-      const weekOf = weekOfIso(localDate);
-      const day = DAY_NAME_BY_WEEKDAY[localDate.weekday];
-      const { data } = await supabase
-        .from("planned_meals")
-        .select("id, recipes(name)")
-        .eq("owner_id", userId)
-        .eq("week_of", weekOf)
-        .eq("day", day)
-        .eq("is_skipped", false);
+    const weekOf = weekOfIso(localDate);
+    const day = DAY_NAME_BY_WEEKDAY[localDate.weekday];
+    const { data } = await supabase
+      .from("planned_meals")
+      .select("id, recipes(name)")
+      .eq("owner_id", userId)
+      .eq("week_of", weekOf)
+      .eq("day", day)
+      .eq("is_skipped", false);
 
-      const { hour, minute } = parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument));
-      for (const row of data || []) {
-        const mealName =
-          typeof row.recipes === "object" && row.recipes && "name" in row.recipes
-            ? String((row.recipes as { name?: string }).name || "Dinner")
-            : "Dinner";
-        const startsAtLocal = DateTime.fromISO(`${dateIso}T00:00:00`, { zone: timezone }).set({ hour, minute });
-        events.push({
-          id: `meal-${row.id}`,
-          title: mealName,
-          startsAtLocal,
-          startsAtUtc: startsAtLocal.toUTC(),
-          source: "meal",
-        });
-      }
+    const { hour, minute } = parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument));
+    for (const row of data || []) {
+      const mealName =
+        typeof row.recipes === "object" && row.recipes && "name" in row.recipes
+          ? String((row.recipes as { name?: string }).name || "Dinner")
+          : "Dinner";
+      const rowId = String(row.id || "").trim();
+      const syncedMeal = syncedMealsByRelatedId.get(`meal:${rowId}`) || syncedMealsByRelatedId.get(rowId) || null;
+      const startsAtLocal = syncedMeal?.startsAtLocal || DateTime.fromISO(`${dateIso}T00:00:00`, { zone: timezone }).set({ hour, minute });
+      events.push({
+        id: `meal-${row.id}`,
+        title: mealName,
+        startsAtLocal,
+        startsAtUtc: syncedMeal?.startsAtUtc || startsAtLocal.toUTC(),
+        source: "meal",
+      });
     }
   }
 
@@ -3856,9 +3886,6 @@ serve(async (req) => {
     }
 
     const timezone = String(pref.timezone || "America/New_York");
-    const includeModules = Array.isArray(pref.include_modules)
-      ? pref.include_modules.map((value: unknown) => String(value).toLowerCase())
-      : ["meals", "manual"];
     const profileSettingsDocument = await loadProfileSettingsDocument(supabase, pref.user_id).catch((error) => {
       console.error("Failed loading profile settings document for SMS webhook:", error);
       return {};
@@ -4323,7 +4350,7 @@ serve(async (req) => {
         pref.user_id,
         requestedScheduleDate,
         timezone,
-        includeModules,
+        CALENDAR_AGENDA_MODULES,
         pref,
         profileSettingsDocument,
       );
@@ -4335,7 +4362,7 @@ serve(async (req) => {
         supabase,
         pref.user_id,
         timezone,
-        includeModules,
+        CALENDAR_AGENDA_MODULES,
         pref,
         profileSettingsDocument,
       );
@@ -4347,7 +4374,7 @@ serve(async (req) => {
         supabase,
         pref.user_id,
         timezone,
-        includeModules,
+        CALENDAR_AGENDA_MODULES,
         pref,
         profileSettingsDocument,
       );
@@ -4359,7 +4386,7 @@ serve(async (req) => {
         supabase,
         pref.user_id,
         timezone,
-        includeModules,
+        CALENDAR_AGENDA_MODULES,
         pref,
         profileSettingsDocument,
       );

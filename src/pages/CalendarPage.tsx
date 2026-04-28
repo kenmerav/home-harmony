@@ -38,7 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { DbPlannedMeal, fetchMealsForWeek } from '@/lib/api/meals';
 import { getOrderReminderSettings } from '@/lib/groceryPrefs';
-import { getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
+import { getDinnerReminderPrefs, getDinnerTimeForDay, getMenuRejuvenatePrefs } from '@/lib/mealPrefs';
 import { listTaskDatesInRange, loadTasks, updateTaskFromCalendarRelatedId } from '@/lib/taskStore';
 import { estimateCommuteEta } from '@/lib/api/commute';
 import {
@@ -564,6 +564,7 @@ export default function CalendarPage() {
     setIsLoading(true);
     try {
       const nextEvents: CalendarEvent[] = [];
+      const dinnerPrefs = getDinnerReminderPrefs();
 
       const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
       const weekOffsets: number[] = [];
