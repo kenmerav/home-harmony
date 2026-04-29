@@ -174,6 +174,24 @@ type CalendarFollowUpIntent = {
   deleteEvent?: boolean;
 };
 
+type SmsReferenceType = "recipe" | "meal_plan" | "meal_log" | "calendar" | "grocery" | "task" | "chore" | "skill";
+
+type SmsLastReference = {
+  type: SmsReferenceType;
+  title: string;
+  recipeId?: string | null;
+  recipeName?: string | null;
+  recipeOptions?: Array<{
+    recipeId?: string | null;
+    recipeName: string;
+  }>;
+  mealPlanId?: string | null;
+  day?: string | null;
+  weekOf?: string | null;
+  date?: string | null;
+  updatedAt: string;
+};
+
 type SmsAssistantContext = {
   lastCalendarEvent?: {
     eventId: string;
@@ -197,6 +215,7 @@ type SmsAssistantContext = {
     servings: number;
     updatedAt: string;
   } | null;
+  lastReference?: SmsLastReference | null;
   pendingAgentAction?: {
     action: SmsAgentIntent["action"];
     intent: Record<string, unknown>;
@@ -340,6 +359,14 @@ type RecipeLookupRow = {
   carbs_g: number | null;
   fat_g: number | null;
   fiber_g: number | null;
+};
+
+type RecipeDetailRow = RecipeLookupRow & {
+  servings: number | null;
+  ingredients: unknown;
+  instructions: string | null;
+  meal_type: string | null;
+  course_type: string | null;
 };
 
 type InboundSmsPreferenceRow = {
@@ -1217,6 +1244,7 @@ async function parseSmsAgentIntentWithAi(
     options.context.lastCalendarEvent?.title ? `recent calendar event: ${options.context.lastCalendarEvent.title}` : "",
     options.context.pendingCalendarAdd?.title ? `pending calendar add: ${options.context.pendingCalendarAdd.title}` : "",
     options.context.lastMealLog?.title ? `recent meal log: ${options.context.lastMealLog.title} for ${options.context.lastMealLog.personName}` : "",
+    options.context.lastReference?.title ? `recent reference: ${options.context.lastReference.type} ${options.context.lastReference.title}` : "",
   ].filter(Boolean).join("; ") || "none";
 
   const systemPrompt = `You are the Home Harmony SMS intent router. Classify one text into one safe app action.
@@ -1278,6 +1306,7 @@ Rules:
 - Use chore_add/chore_update/chore_delete/chore_complete for kid chores. Use personName for the child, title for the chore, frequency/days/rewardAmount/rewardType for setup.
 - Use skill_add/skill_update/skill_delete/skill_complete for kid Skill Development. Use personName for the child, title for the skill, minutes/points/frequency/days for setup.
 - Use account_question for conversational questions about the user's stored Home Harmony data, like family setup, saved recipes, saved foods, grocery staples, logged meals, chores, skills, tasks, settings, reminders, or account status.
+- Follow-up words like "it", "that", "this", "the recipe", "ingredients", or "how do I make it" should refer to the recent reference when one is present.
 - For account_question, put the user's question in "question"; do not answer it here.
 - If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
 - If the text is unrelated to Home Harmony app actions, use "unsupported".`;
@@ -1501,6 +1530,7 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
   const rawLast = record.lastCalendarEvent;
   const rawPendingCalendarAdd = record.pendingCalendarAdd;
   const rawMeal = record.lastMealLog;
+  const rawLastReference = record.lastReference;
   const rawPendingAgentAction = record.pendingAgentAction;
   const context: SmsAssistantContext = {};
 
@@ -1555,6 +1585,43 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
         personId: personId || "me",
         personName: personName || "your dashboard",
         servings: Number.isFinite(servings) && servings > 0 ? servings : 1,
+        updatedAt,
+      };
+    }
+  }
+
+  if (rawLastReference && typeof rawLastReference === "object" && !Array.isArray(rawLastReference)) {
+    const reference = rawLastReference as Record<string, unknown>;
+    const allowedTypes = new Set<SmsReferenceType>(["recipe", "meal_plan", "meal_log", "calendar", "grocery", "task", "chore", "skill"]);
+    const type = String(reference.type || "").trim().toLowerCase().replace(/-/g, "_") as SmsReferenceType;
+    const title = typeof reference.title === "string" ? reference.title.trim() : "";
+    const updatedAt = typeof reference.updatedAt === "string" ? reference.updatedAt.trim() : "";
+    if (allowedTypes.has(type) && title && updatedAt) {
+      const optionalString = (key: string) => {
+        const value = reference[key];
+        return typeof value === "string" && value.trim() ? value.trim() : null;
+      };
+      const recipeOptions = Array.isArray(reference.recipeOptions)
+        ? reference.recipeOptions
+            .map((option) => option && typeof option === "object" && !Array.isArray(option) ? option as Record<string, unknown> : null)
+            .filter((option): option is Record<string, unknown> => !!option)
+            .map((option) => ({
+              recipeId: typeof option.recipeId === "string" && option.recipeId.trim() ? option.recipeId.trim() : null,
+              recipeName: typeof option.recipeName === "string" ? option.recipeName.trim() : "",
+            }))
+            .filter((option) => option.recipeName)
+            .slice(0, 6)
+        : [];
+      context.lastReference = {
+        type,
+        title,
+        recipeId: optionalString("recipeId"),
+        recipeName: optionalString("recipeName"),
+        recipeOptions,
+        mealPlanId: optionalString("mealPlanId"),
+        day: optionalString("day"),
+        weekOf: optionalString("weekOf"),
+        date: optionalString("date"),
         updatedAt,
       };
     }
@@ -1646,7 +1713,15 @@ async function saveSmsAssistantContext(
   document: Record<string, unknown>,
   context: SmsAssistantContext,
 ): Promise<void> {
-  const nextDocument = setDocumentValue(document, ["appPreferences", "smsAssistant"], context);
+  const existing = getDocumentValue(document, ["appPreferences", "smsAssistant"]);
+  const existingRecord =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? existing as Record<string, unknown>
+      : {};
+  const nextDocument = setDocumentValue(document, ["appPreferences", "smsAssistant"], {
+    ...existingRecord,
+    ...context,
+  });
   await saveProfileSettingsDocument(supabase, userId, nextDocument);
 }
 
@@ -3619,6 +3694,225 @@ async function addMealLogBySms(
   return { logId };
 }
 
+function recipeReferenceFromRecipe(
+  recipe: { id?: string | null; name?: string | null },
+  extra?: Partial<SmsLastReference>,
+): SmsLastReference | null {
+  const recipeName = String(recipe.name || extra?.recipeName || extra?.title || "").trim();
+  if (!recipeName) return null;
+  return {
+    type: extra?.type || "recipe",
+    title: extra?.title || recipeName,
+    recipeId: recipe.id ? String(recipe.id) : extra?.recipeId || null,
+    recipeName,
+    recipeOptions: extra?.recipeOptions || [{
+      recipeId: recipe.id ? String(recipe.id) : null,
+      recipeName,
+    }],
+    mealPlanId: extra?.mealPlanId || null,
+    day: extra?.day || null,
+    weekOf: extra?.weekOf || null,
+    date: extra?.date || null,
+    updatedAt: extra?.updatedAt || new Date().toISOString(),
+  };
+}
+
+function isFreshLastReference(context: SmsAssistantContext, timezone: string, maxHours = 24): boolean {
+  const updatedAt = context.lastReference?.updatedAt
+    ? DateTime.fromISO(context.lastReference.updatedAt, { zone: timezone })
+    : null;
+  return !!updatedAt?.isValid && updatedAt >= DateTime.now().setZone(timezone).minus({ hours: maxHours });
+}
+
+function isRecipeFollowUpText(text: string): boolean {
+  const normalized = normalizeToken(String(text || "").toLowerCase().replace(/what['’]s/g, "whats"));
+  if (!normalized) return false;
+  if (/^(add|log|delete|remove|change|update|edit|set|schedule)\b/.test(normalized)) return false;
+  if (/\b(recipe|ingredients?|instructions?|directions?|steps|macros?|nutrition|calories|protein|carbs?|fat)\b/.test(normalized)) {
+    return true;
+  }
+  return /\b(how do i make|how to make|how do you make|make it|cook it|prepare it|what is in it|what s in it|whats in it)\b/.test(normalized);
+}
+
+function recipeFollowUpMode(text: string): "ingredients" | "instructions" | "macros" | "full" {
+  const normalized = normalizeToken(String(text || "").toLowerCase().replace(/what['’]s/g, "whats"));
+  if (/\b(macros?|nutrition|calories|protein|carbs?|fat)\b/.test(normalized)) return "macros";
+  if (/\bingredients?\b|what is in it|what s in it|whats in it/.test(normalized)) return "ingredients";
+  if (/\b(instructions?|directions?|steps|how do i make|how to make|cook|prepare|make it)\b/.test(normalized)) return "instructions";
+  return "full";
+}
+
+function normalizeRecipeIngredientLines(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\n|;/)
+      .map((item) => item.replace(/^[-*•\s]+/, "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function formatRecipeMacroLine(recipe: RecipeDetailRow): string {
+  const pieces = [
+    `${Math.round(Number(recipe.calories || 0))} cal`,
+    `${Math.round(Number(recipe.protein_g || 0))}g protein`,
+    `${Math.round(Number(recipe.carbs_g || 0))}g carbs`,
+    `${Math.round(Number(recipe.fat_g || 0))}g fat`,
+  ];
+  return pieces.join(" • ");
+}
+
+function buildRecipeFollowUpReply(question: string, recipe: RecipeDetailRow): string {
+  const mode = recipeFollowUpMode(question);
+  const servings = Math.max(1, Math.round(Number(recipe.servings || 1)));
+  const ingredientLines = normalizeRecipeIngredientLines(recipe.ingredients);
+  const ingredientPreview = ingredientLines.slice(0, mode === "ingredients" ? 10 : 6);
+  const ingredientText = ingredientPreview.length
+    ? ingredientPreview.map((line) => `- ${line}`).join("\n")
+    : "No ingredients are saved yet.";
+  const ingredientMore = ingredientLines.length > ingredientPreview.length
+    ? `\n+${ingredientLines.length - ingredientPreview.length} more ingredients saved in the app.`
+    : "";
+  const instructions = truncateForSmsAgent(String(recipe.instructions || "").trim(), mode === "instructions" ? 1200 : 750);
+  const macros = formatRecipeMacroLine(recipe);
+  const heading = `${recipe.name} (${servings} servings)`;
+
+  if (mode === "macros") {
+    return `${heading}: ${macros} per serving.`;
+  }
+  if (mode === "ingredients") {
+    return `${heading} ingredients:\n${ingredientText}${ingredientMore}`;
+  }
+  if (mode === "instructions") {
+    return instructions
+      ? `${heading} instructions:\n${instructions}`
+      : `${heading} is saved, but I don't see instructions saved for it yet.`;
+  }
+
+  if (!instructions) {
+    return `${heading}: ${macros} per serving.\nIngredients:\n${ingredientText}${ingredientMore}\n\nI don't see instructions saved for it yet.`;
+  }
+  return `${heading}: ${macros} per serving.\nIngredients:\n${ingredientText}${ingredientMore}\n\nInstructions:\n${instructions}`;
+}
+
+function recipeOptionForQuestion(reference: SmsLastReference, question: string): SmsLastReference | null {
+  const options = (reference.recipeOptions || []).filter((option) => option.recipeName);
+  if (!options.length) return reference;
+  if (options.length === 1) {
+    return {
+      ...reference,
+      recipeId: options[0].recipeId || reference.recipeId || null,
+      recipeName: options[0].recipeName,
+      title: options[0].recipeName,
+      recipeOptions: options,
+    };
+  }
+  const { item } = findBestNamedMatch(options, question, (option) => option.recipeName);
+  if (!item) return null;
+  return {
+    ...reference,
+    recipeId: item.recipeId || null,
+    recipeName: item.recipeName,
+    title: item.recipeName,
+    recipeOptions: [{
+      recipeId: item.recipeId || null,
+      recipeName: item.recipeName,
+    }],
+  };
+}
+
+async function fetchRecipeDetailForReference(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  reference: SmsLastReference,
+): Promise<RecipeDetailRow | null> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const selectFields = "id,name,servings,ingredients,instructions,calories,protein_g,carbs_g,fat_g,fiber_g,meal_type,course_type";
+  const recipeId = String(reference.recipeId || "").trim();
+  if (recipeId) {
+    const { data, error } = await supabase
+      .from("recipes")
+      .select(selectFields)
+      .eq("owner_id", ownerId)
+      .eq("id", recipeId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data as RecipeDetailRow;
+  }
+
+  const query = String(reference.recipeName || reference.title || "").trim();
+  if (!query) return null;
+  const { data, error } = await supabase
+    .from("recipes")
+    .select(selectFields)
+    .eq("owner_id", ownerId)
+    .limit(250);
+  if (error) throw error;
+  const recipes = (data || []) as RecipeDetailRow[];
+  const { item } = findBestNamedMatch(recipes, query, (recipe) => recipe.name);
+  return item || null;
+}
+
+async function maybeAnswerRecipeFollowUp(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  question: string,
+  document: Record<string, unknown>,
+  context: SmsAssistantContext,
+): Promise<string | null> {
+  if (!isRecipeFollowUpText(question)) return null;
+
+  const lastMealLogAt = context.lastMealLog?.updatedAt
+    ? DateTime.fromISO(context.lastMealLog.updatedAt, { zone: timezone })
+    : null;
+  const fallbackMealReference = context.lastMealLog &&
+    !!lastMealLogAt?.isValid &&
+    lastMealLogAt >= DateTime.now().setZone(timezone).minus({ hours: 24 })
+    ? recipeReferenceFromRecipe(
+        { id: null, name: context.lastMealLog.title },
+        {
+          type: "meal_log",
+          title: context.lastMealLog.title,
+          updatedAt: context.lastMealLog.updatedAt,
+        },
+      )
+    : null;
+  const reference = isFreshLastReference(context, timezone, 24)
+    ? context.lastReference || null
+    : fallbackMealReference;
+  if (!reference) return null;
+  if (!["recipe", "meal_plan", "meal_log"].includes(reference.type)) return null;
+
+  const selectedReference = recipeOptionForQuestion(reference, question);
+  if (!selectedReference) {
+    const options = (reference.recipeOptions || []).map((option) => option.recipeName).filter(Boolean).slice(0, 5);
+    return options.length
+      ? `Which recipe do you want? ${options.join(", ")}`
+      : null;
+  }
+
+  const recipe = await fetchRecipeDetailForReference(supabase, userId, selectedReference);
+  if (!recipe) {
+    return `I remember ${selectedReference.title}, but I couldn't find the saved recipe details yet.`;
+  }
+
+  await saveSmsAssistantContext(supabase, userId, document, {
+    ...context,
+    lastReference: recipeReferenceFromRecipe(recipe, {
+      ...selectedReference,
+      type: "recipe",
+      updatedAt: new Date().toISOString(),
+    }),
+  });
+  return buildRecipeFollowUpReply(question, recipe);
+}
+
 function mostRecentAssistantSubject(context: SmsAssistantContext, timezone: string): "meal" | "calendar" | null {
   const calendarAt = context.lastCalendarEvent?.updatedAt
     ? DateTime.fromISO(context.lastCalendarEvent.updatedAt, { zone: timezone })
@@ -3693,10 +3987,11 @@ async function findRecipeForMealLog(
   userId: string,
   recipeName: string,
 ): Promise<{ recipe: RecipeLookupRow | null; ambiguousMatches: string[] }> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
   const { data, error } = await supabase
     .from("recipes")
     .select("id,name,calories,protein_g,carbs_g,fat_g,fiber_g")
-    .eq("owner_id", userId);
+    .eq("owner_id", ownerId);
   if (error) throw error;
 
   const recipes = (data || []) as RecipeLookupRow[];
@@ -3943,10 +4238,11 @@ async function fetchMealsForWeek(
   userId: string,
   weekOf: string,
 ): Promise<Array<{ day: string; meal: string }>> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
   const { data } = await supabase
     .from("planned_meals")
     .select("day, recipes(name)")
-    .eq("owner_id", userId)
+    .eq("owner_id", ownerId)
     .eq("week_of", weekOf)
     .eq("is_skipped", false);
 
@@ -4154,38 +4450,75 @@ async function buildTonightDinnerReply(
   smsPreference: InboundSmsPreferenceRow,
   profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<string> {
+  const result = await buildTonightDinnerReplyWithReference(supabase, userId, timezone, smsPreference, profileSettingsDocument);
+  return result.reply;
+}
+
+async function buildTonightDinnerReplyWithReference(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): Promise<{ reply: string; reference: SmsLastReference | null }> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
   const today = DateTime.now().setZone(timezone).startOf("day");
   const weekOf = weekOfIso(today);
   const day = DAY_NAME_BY_WEEKDAY[today.weekday];
   const { data, error } = await supabase
     .from("planned_meals")
-    .select("id, recipes(name)")
-    .eq("owner_id", userId)
+    .select("id,week_of,day,recipe_id,recipes(id,name,servings,ingredients,instructions,calories,protein_g,carbs_g,fat_g,fiber_g,meal_type,course_type)")
+    .eq("owner_id", ownerId)
     .eq("week_of", weekOf)
     .eq("day", day)
     .eq("is_skipped", false);
 
   if (error) throw error;
 
-  const dinnerNames = (data || [])
-    .map((row) =>
-      typeof row.recipes === "object" && row.recipes && "name" in row.recipes
-        ? String((row.recipes as { name?: string }).name || "").trim()
-        : "",
-    )
-    .filter(Boolean);
+  const dinnerRecipes = (data || [])
+    .map((row) => {
+      const recipeRecord =
+        row.recipes && typeof row.recipes === "object" && !Array.isArray(row.recipes)
+          ? row.recipes as Record<string, unknown>
+          : {};
+      const name = String(recipeRecord.name || "").trim();
+      if (!name) return null;
+      return {
+        mealPlanId: String(row.id || "").trim(),
+        recipeId: String(row.recipe_id || recipeRecord.id || "").trim(),
+        recipeName: name,
+      };
+    })
+    .filter((row): row is { mealPlanId: string; recipeId: string; recipeName: string } => !!row);
+  const dinnerNames = dinnerRecipes.map((recipe) => recipe.recipeName);
 
   if (!dinnerNames.length) {
-    return "No dinner is planned for tonight yet.";
+    return { reply: "No dinner is planned for tonight yet.", reference: null };
   }
 
   const dinnerTime = DateTime.fromISO(`${today.toISODate()}T00:00:00`, { zone: timezone }).set(
     parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument)),
   );
   const names = dinnerNames.join(" and ");
-  return dinnerNames.length === 1
+  const reply = dinnerNames.length === 1
     ? `Tonight's dinner is ${names} at ${timeLabel(dinnerTime)}.`
     : `Tonight's dinners are ${names} at ${timeLabel(dinnerTime)}.`;
+  const reference: SmsLastReference = {
+    type: "meal_plan",
+    title: dinnerNames.length === 1 ? dinnerNames[0] : `Tonight's dinners: ${dinnerNames.join(", ")}`,
+    recipeId: dinnerRecipes.length === 1 ? dinnerRecipes[0].recipeId || null : null,
+    recipeName: dinnerRecipes.length === 1 ? dinnerRecipes[0].recipeName : null,
+    recipeOptions: dinnerRecipes.map((recipe) => ({
+      recipeId: recipe.recipeId || null,
+      recipeName: recipe.recipeName,
+    })),
+    mealPlanId: dinnerRecipes.length === 1 ? dinnerRecipes[0].mealPlanId || null : null,
+    day,
+    weekOf,
+    date: today.toISODate(),
+    updatedAt: new Date().toISOString(),
+  };
+  return { reply, reference };
 }
 
 async function buildScheduleRangeReply(
@@ -4384,6 +4717,11 @@ async function logMealIntentFromAgent(
       servings,
       updatedAt: new Date().toISOString(),
     },
+    lastReference: recipeReferenceFromRecipe(recipe, {
+      type: "meal_log",
+      title: recipe.name,
+      updatedAt: new Date().toISOString(),
+    }),
   });
 
   const servingsLabel = servings === 1 ? "1 serving" : `${servings} servings`;
@@ -5767,6 +6105,16 @@ async function tryHandleSmsAgentFallback(
     loadProfileSettingsContext(supabase, pref.user_id),
     loadCalendarLayerChoices(supabase, pref.user_id),
   ]);
+  const recipeFollowUpReply = await maybeAnswerRecipeFollowUp(
+    supabase,
+    pref.user_id,
+    timezone,
+    textForAi,
+    smsAssistantDocument,
+    smsAssistantContext,
+  );
+  if (recipeFollowUpReply) return recipeFollowUpReply;
+
   const macroProfiles = macroProfilesFromDocument(profileDocument, { accountFullName: fullName });
   const intent = await parseSmsAgentIntentWithAi(textForAi, timezone, pref.user_id, {
     calendarLayers: layerChoices,
@@ -5936,7 +6284,14 @@ async function tryHandleSmsAgentFallback(
       return await buildMealsReply(supabase, pref.user_id, timezone, true);
     }
     if (intent.range === "tonight" || intent.range === "today") {
-      return await buildTonightDinnerReply(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
+      const result = await buildTonightDinnerReplyWithReference(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
+      if (result.reference) {
+        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+          ...smsAssistantContext,
+          lastReference: result.reference,
+        });
+      }
+      return result.reply;
     }
     return await buildMealsReply(supabase, pref.user_id, timezone, false);
   }
@@ -6180,6 +6535,7 @@ serve(async (req) => {
 
         const loggedLabels: string[] = [];
         let lastLoggedMealContext: SmsAssistantContext["lastMealLog"] = null;
+        let lastReferenceContext: SmsAssistantContext["lastReference"] = null;
         for (const mealLogIntent of mealLogIntents) {
           const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
           if (!recipe && ambiguousMatches.length > 0) {
@@ -6200,6 +6556,11 @@ serve(async (req) => {
             servings: mealLogIntent.servings,
             updatedAt: new Date().toISOString(),
           };
+          lastReferenceContext = recipeReferenceFromRecipe(recipe, {
+            type: "meal_log",
+            title: recipe.name,
+            updatedAt: new Date().toISOString(),
+          });
         }
 
         if (lastLoggedMealContext) {
@@ -6207,6 +6568,7 @@ serve(async (req) => {
           await saveSmsAssistantContext(supabase, pref.user_id, latestDocument, {
             ...normalizeSmsAssistantContext(getDocumentValue(latestDocument, ["appPreferences", "smsAssistant"])),
             lastMealLog: lastLoggedMealContext,
+            lastReference: lastReferenceContext,
           });
         }
 
@@ -6280,6 +6642,14 @@ serve(async (req) => {
                       updatedAt: new Date().toISOString(),
                     }
                   : null,
+              lastReference: mealFollowUpIntent.deleteLog
+                ? null
+                : context.lastReference
+                  ? {
+                      ...context.lastReference,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : null,
             });
             return twiml(reply);
           }
@@ -6292,6 +6662,16 @@ serve(async (req) => {
 
     const likelyCalendarAdd = looksLikeCalendarAddRequest(body);
     const { document: smsAssistantDocument, context: smsAssistantContext } = await loadSmsAssistantContext(supabase, pref.user_id);
+    const recipeFollowUpReply = await maybeAnswerRecipeFollowUp(
+      supabase,
+      pref.user_id,
+      timezone,
+      incomingBody || body,
+      smsAssistantDocument,
+      smsAssistantContext,
+    );
+    if (recipeFollowUpReply) return twiml(recipeFollowUpReply);
+
     const pendingCalendarAdd = smsAssistantContext.pendingCalendarAdd;
     const pendingCalendarAddUpdatedAt = pendingCalendarAdd?.updatedAt
       ? DateTime.fromISO(pendingCalendarAdd.updatedAt, { zone: timezone })
@@ -6549,8 +6929,14 @@ serve(async (req) => {
     }
 
     if (asksMeals && (wantsTonight || body.includes("for dinner"))) {
-      const reply = await buildTonightDinnerReply(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
-      return twiml(reply);
+      const result = await buildTonightDinnerReplyWithReference(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
+      if (result.reference) {
+        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+          ...smsAssistantContext,
+          lastReference: result.reference,
+        });
+      }
+      return twiml(result.reply);
     }
 
     if (asksMeals && (wantsThisWeek || body.includes("week"))) {
