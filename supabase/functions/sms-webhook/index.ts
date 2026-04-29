@@ -3904,6 +3904,24 @@ function freshReferenceTitleForDomain(
   return null;
 }
 
+function shouldUseSmsAgentFirst(text: string, context: SmsAssistantContext, timezone: string): boolean {
+  const normalized = normalizeToken(text);
+  if (!normalized) return false;
+  if (/^(yes|y|yeah|yep|no|n|nope)$/i.test(trimTrailingPunctuation(text))) return false;
+  if (/^\d+(?:\.\d+)?$/.test(normalized)) return false;
+
+  if (isGenericReferenceMutationText(text) || isGenericConversationFollowUpText(text) || isGenericContextualDateFollowUp(text)) {
+    return hasFreshReferenceContext(context, timezone);
+  }
+
+  const homeHarmonyKeywords =
+    /\b(calendar|schedule|event|events|appointment|appointments|grocery|groceries|shopping|costco|walmart|sprouts|trader joe|remind|reminder|task|tasks|chore|chores|skill|skills|practice|meal|meals|dinner|breakfast|lunch|snack|snacks|recipe|recipes|ingredients|instructions|macros|calories|protein|carbs|fat|water|alcohol|family|wife|spouse|kid|kids|child|children|trial|billing|subscription|cancelled|canceled)\b/.test(normalized);
+  const naturalLanguageAction =
+    /^(add|remove|delete|cancel|create|put|schedule|move|change|update|edit|set|make|mark|complete|finish|log|track|show|tell|what|whats|what s|when|who|how|do i|am i|is|are|can you|please)\b/.test(normalized);
+
+  return homeHarmonyKeywords || naturalLanguageAction;
+}
+
 function isGenericContextualDateFollowUp(text: string): boolean {
   const normalized = normalizeToken(text);
   if (!normalized) return false;
@@ -6680,7 +6698,7 @@ async function tryHandleSmsAgentFallback(
   if (intent.action === "schedule_lookup") {
     const parsedDate = parseAgentDateText(intent.dateText, timezone);
     if (parsedDate) {
-      return await buildScheduleReplyForDate(
+      const reply = await buildScheduleReplyForDate(
         supabase,
         pref.user_id,
         parsedDate,
@@ -6689,23 +6707,83 @@ async function tryHandleSmsAgentFallback(
         pref,
         profileSettingsDocument,
       );
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "calendar",
+          title: `Schedule for ${parsedDate.toISODate()}`,
+          date: parsedDate.toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
     const localToday = DateTime.now().setZone(timezone).startOf("day");
     if (intent.range === "tomorrow") {
-      return await buildTomorrowScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      const reply = await buildTomorrowScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "calendar",
+          title: "Tomorrow's schedule",
+          date: localToday.plus({ days: 1 }).toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
     if (intent.range === "next_week") {
       const nextMonday = localToday.plus({ weeks: 1 }).minus({ days: localToday.weekday - 1 }).startOf("day");
-      return await buildScheduleRangeReply(supabase, pref.user_id, timezone, "Next week", nextMonday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      const reply = await buildScheduleRangeReply(supabase, pref.user_id, timezone, "Next week", nextMonday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "calendar",
+          title: "Next week schedule",
+          weekOf: weekOfIso(nextMonday),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
     if (intent.range === "this_week") {
       const monday = localToday.minus({ days: localToday.weekday - 1 }).startOf("day");
-      return await buildScheduleRangeReply(supabase, pref.user_id, timezone, "This week", monday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      const reply = await buildScheduleRangeReply(supabase, pref.user_id, timezone, "This week", monday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "calendar",
+          title: "This week schedule",
+          weekOf: weekOfIso(monday),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
     if (intent.range === "next_7_days") {
-      return await buildNextWeekScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      const reply = await buildNextWeekScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "calendar",
+          title: "Next 7 days schedule",
+          date: localToday.toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
-    return await buildTodayScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    const reply = await buildTodayScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "calendar",
+        title: "Today's schedule",
+        date: localToday.toISODate(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "grocery_add") {
@@ -6743,7 +6821,16 @@ async function tryHandleSmsAgentFallback(
   }
 
   if (intent.action === "grocery_list") {
-    return await buildGroceryListReply(supabase, pref.user_id, timezone);
+    const reply = await buildGroceryListReply(supabase, pref.user_id, timezone);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "grocery",
+        title: "Grocery list",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "grocery_ordered" || intent.action === "grocery_not_ordered") {
@@ -6805,7 +6892,16 @@ async function tryHandleSmsAgentFallback(
   }
 
   if (intent.action === "open_tasks") {
-    return await buildOpenTasksReply(supabase, pref.user_id, timezone);
+    const reply = await buildOpenTasksReply(supabase, pref.user_id, timezone);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "task",
+        title: "Open tasks",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "water_log") {
@@ -6832,7 +6928,17 @@ async function tryHandleSmsAgentFallback(
 
   if (intent.action === "meal_lookup") {
     if (intent.range === "next_week") {
-      return await buildMealsReply(supabase, pref.user_id, timezone, true);
+      const reply = await buildMealsReply(supabase, pref.user_id, timezone, true);
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastReference: {
+          type: "meal_plan",
+          title: "Meals next week",
+          weekOf: weekOfIso(DateTime.now().setZone(timezone).plus({ weeks: 1 })),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return reply;
     }
     const mealLookupDate = intent.dateText
       ? parseAgentDateText(intent.dateText, timezone)
@@ -6851,7 +6957,17 @@ async function tryHandleSmsAgentFallback(
       }
       return result.reply;
     }
-    return await buildMealsReply(supabase, pref.user_id, timezone, false);
+    const reply = await buildMealsReply(supabase, pref.user_id, timezone, false);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "meal_plan",
+        title: "Meals this week",
+        weekOf: weekOfIso(DateTime.now().setZone(timezone)),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "meal_plan_run") {
@@ -6860,6 +6976,15 @@ async function tryHandleSmsAgentFallback(
       ? weekOfIso(localNow)
       : weekOfIso(localNow.plus({ weeks: 1 }));
     const result = await generateMealsForWeekBySms(supabase, pref.user_id, targetWeekOf);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "meal_plan",
+        title: `Meals for week of ${targetWeekOf}`,
+        weekOf: targetWeekOf,
+        updatedAt: new Date().toISOString(),
+      },
+    });
     return `Done. I generated ${result.inserted} meals${result.lockedKept ? ` and kept ${result.lockedKept} locked` : ""} for week of ${targetWeekOf}. Your grocery list is ready in Home Harmony.`;
   }
 
@@ -7041,6 +7166,128 @@ serve(async (req) => {
         console.error("sms screenshot calendar add failed:", error);
         const detail = describeUnknownError(error);
         return await replyWithMemory(`I could not read that screenshot right now: ${detail}`, null, "calendar_screenshot_error");
+      }
+    }
+
+    const likelyCalendarAdd = looksLikeCalendarAddRequest(body);
+    const { document: smsAssistantDocument, context: smsAssistantContext } = await loadSmsAssistantContext(supabase, pref.user_id);
+    const pendingCalendarAdd = smsAssistantContext.pendingCalendarAdd;
+    const pendingCalendarAddUpdatedAt = pendingCalendarAdd?.updatedAt
+      ? DateTime.fromISO(pendingCalendarAdd.updatedAt, { zone: timezone })
+      : null;
+    const hasFreshPendingCalendarAdd =
+      !!pendingCalendarAdd &&
+      !!pendingCalendarAddUpdatedAt?.isValid &&
+      pendingCalendarAddUpdatedAt >= DateTime.now().setZone(timezone).minus({ hours: 24 });
+    const tryAgentFallbackReply = () =>
+      tryHandleSmsAgentFallback(
+        supabase,
+        pref,
+        timezone,
+        incomingBody,
+        body,
+        profileSettingsDocument,
+        smsAssistantDocument,
+        smsAssistantContext,
+        from,
+      );
+
+    if (isFreshPendingAgentAction(smsAssistantContext, timezone)) {
+      if (isNegativeText(body)) {
+        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+          ...smsAssistantContext,
+          pendingAgentAction: null,
+        });
+        return await replyWithMemory("Okay, I canceled that pending change.", { pendingAgentAction: null }, "pending_cancel");
+      }
+      if (isAffirmativeText(body)) {
+        try {
+          const pendingIntent = normalizeSmsAgentIntent(smsAssistantContext.pendingAgentAction?.intent || null);
+          if (!pendingIntent) {
+            await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+              ...smsAssistantContext,
+              pendingAgentAction: null,
+            });
+            return await replyWithMemory("I couldn't reload that pending change. Please send it again.", { pendingAgentAction: null }, "pending_error");
+          }
+          const reply = await handleAdvancedSmsAgentAction(supabase, pref, timezone, pendingIntent, {
+            confirmed: true,
+            smsAssistantDocument,
+            smsAssistantContext: {
+              ...smsAssistantContext,
+              pendingAgentAction: null,
+            },
+          });
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingAgentAction: null,
+          });
+          return await replyWithMemory(reply || "Done.", { pendingAgentAction: null }, pendingIntent.action);
+        } catch (error) {
+          console.error("sms pending agent action failed:", error);
+          const detail = describeUnknownError(error);
+          return await replyWithMemory(`I could not finish that pending change: ${detail}`, null, "pending_error");
+        }
+      }
+    }
+
+    if (hasFreshPendingCalendarAdd) {
+      try {
+        const layerChoices = await loadCalendarLayerChoices(supabase, pref.user_id);
+        if (/^(cancel|never mind|nevermind|stop)$/i.test(trimTrailingPunctuation(body))) {
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingCalendarAdd: null,
+          });
+          return await replyWithMemory("Okay, I dropped that pending calendar event.", { pendingCalendarAdd: null }, "calendar_add_cancel");
+        }
+
+        const resolvedLayer = resolveCalendarLayerChoice(body, layerChoices);
+        if (resolvedLayer && pendingCalendarAdd) {
+          const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, {
+            ...pendingCalendarAdd,
+            layer: resolvedLayer,
+          });
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingCalendarAdd: null,
+            lastCalendarEvent: {
+              eventId: result.eventId,
+              title: pendingCalendarAdd.title,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+          return await replyWithMemory(result.reply, {
+            pendingCalendarAdd: null,
+            lastCalendarEvent: {
+              eventId: result.eventId,
+              title: pendingCalendarAdd.title,
+              updatedAt: new Date().toISOString(),
+            },
+            lastReference: {
+              type: "calendar",
+              title: pendingCalendarAdd.title,
+              date: pendingCalendarAdd.startsAt,
+              updatedAt: new Date().toISOString(),
+            },
+          }, "calendar_add");
+        }
+
+        const shortReply = trimTrailingPunctuation(body).split(/\s+/).filter(Boolean).length <= 4;
+        if (shortReply && !likelyCalendarAdd) {
+          return await replyWithMemory(formatCalendarLayerQuestion(layerChoices), null, "calendar_add_clarify");
+        }
+      } catch (error) {
+        console.error("sms pending calendar layer resolution failed:", error);
+      }
+    }
+
+    if (shouldUseSmsAgentFirst(incomingBody || body, smsAssistantContext, timezone)) {
+      try {
+        const agentReply = await tryAgentFallbackReply();
+        if (agentReply) return await replyWithMemory(agentReply, null, "sms_agent");
+      } catch (error) {
+        console.error("sms primary agent failed; falling back to deterministic handlers:", error);
       }
     }
 
@@ -7342,8 +7589,6 @@ serve(async (req) => {
       }
     }
 
-    const likelyCalendarAdd = looksLikeCalendarAddRequest(body);
-    const { document: smsAssistantDocument, context: smsAssistantContext } = await loadSmsAssistantContext(supabase, pref.user_id);
     const recipeFollowUpReply = await maybeAnswerRecipeFollowUp(
       supabase,
       pref.user_id,
@@ -7353,117 +7598,6 @@ serve(async (req) => {
       smsAssistantContext,
     );
     if (recipeFollowUpReply) return await replyWithMemory(recipeFollowUpReply, null, "recipe_follow_up");
-
-    const pendingCalendarAdd = smsAssistantContext.pendingCalendarAdd;
-    const pendingCalendarAddUpdatedAt = pendingCalendarAdd?.updatedAt
-      ? DateTime.fromISO(pendingCalendarAdd.updatedAt, { zone: timezone })
-      : null;
-    const hasFreshPendingCalendarAdd =
-      !!pendingCalendarAdd &&
-      !!pendingCalendarAddUpdatedAt?.isValid &&
-      pendingCalendarAddUpdatedAt >= DateTime.now().setZone(timezone).minus({ hours: 24 });
-    const tryAgentFallbackReply = () =>
-      tryHandleSmsAgentFallback(
-        supabase,
-        pref,
-        timezone,
-        incomingBody,
-        body,
-        profileSettingsDocument,
-        smsAssistantDocument,
-        smsAssistantContext,
-        from,
-      );
-
-    if (isFreshPendingAgentAction(smsAssistantContext, timezone)) {
-      if (isNegativeText(body)) {
-        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
-          ...smsAssistantContext,
-          pendingAgentAction: null,
-        });
-        return await replyWithMemory("Okay, I canceled that pending change.", { pendingAgentAction: null }, "pending_cancel");
-      }
-      if (isAffirmativeText(body)) {
-        try {
-          const pendingIntent = normalizeSmsAgentIntent(smsAssistantContext.pendingAgentAction?.intent || null);
-          if (!pendingIntent) {
-            await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
-              ...smsAssistantContext,
-              pendingAgentAction: null,
-            });
-            return await replyWithMemory("I couldn't reload that pending change. Please send it again.", { pendingAgentAction: null }, "pending_error");
-          }
-          const reply = await handleAdvancedSmsAgentAction(supabase, pref, timezone, pendingIntent, {
-            confirmed: true,
-            smsAssistantDocument,
-            smsAssistantContext: {
-              ...smsAssistantContext,
-              pendingAgentAction: null,
-            },
-          });
-          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
-            ...smsAssistantContext,
-            pendingAgentAction: null,
-          });
-          return await replyWithMemory(reply || "Done.", { pendingAgentAction: null }, pendingIntent.action);
-        } catch (error) {
-          console.error("sms pending agent action failed:", error);
-          const detail = describeUnknownError(error);
-          return await replyWithMemory(`I could not finish that pending change: ${detail}`, null, "pending_error");
-        }
-      }
-    }
-
-    if (hasFreshPendingCalendarAdd) {
-      try {
-        const layerChoices = await loadCalendarLayerChoices(supabase, pref.user_id);
-        if (/^(cancel|never mind|nevermind|stop)$/i.test(trimTrailingPunctuation(body))) {
-          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
-            ...smsAssistantContext,
-            pendingCalendarAdd: null,
-          });
-          return await replyWithMemory("Okay, I dropped that pending calendar event.", { pendingCalendarAdd: null }, "calendar_add_cancel");
-        }
-
-        const resolvedLayer = resolveCalendarLayerChoice(body, layerChoices);
-        if (resolvedLayer && pendingCalendarAdd) {
-          const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, {
-            ...pendingCalendarAdd,
-            layer: resolvedLayer,
-          });
-          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
-            ...smsAssistantContext,
-            pendingCalendarAdd: null,
-            lastCalendarEvent: {
-              eventId: result.eventId,
-              title: pendingCalendarAdd.title,
-              updatedAt: new Date().toISOString(),
-            },
-          });
-          return await replyWithMemory(result.reply, {
-            pendingCalendarAdd: null,
-            lastCalendarEvent: {
-              eventId: result.eventId,
-              title: pendingCalendarAdd.title,
-              updatedAt: new Date().toISOString(),
-            },
-            lastReference: {
-              type: "calendar",
-              title: pendingCalendarAdd.title,
-              date: pendingCalendarAdd.startsAt,
-              updatedAt: new Date().toISOString(),
-            },
-          }, "calendar_add");
-        }
-
-        const shortReply = trimTrailingPunctuation(body).split(/\s+/).filter(Boolean).length <= 4;
-        if (shortReply && !likelyCalendarAdd) {
-          return await replyWithMemory(formatCalendarLayerQuestion(layerChoices), null, "calendar_add_clarify");
-        }
-      } catch (error) {
-        console.error("sms pending calendar layer resolution failed:", error);
-      }
-    }
 
     const followUpIntent = parseCalendarFollowUpIntent(body, timezone);
     if (followUpIntent) {

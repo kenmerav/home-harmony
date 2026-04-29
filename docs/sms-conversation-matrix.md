@@ -2,6 +2,14 @@
 
 This is the first-pass coverage map for Home Harmony SMS conversations. The goal is that a user can text naturally, then follow up with short context-dependent replies without restating every detail.
 
+## Routing Approach
+
+- Let the AI intent router take the first pass for normal Home Harmony texts so wording variations like "Add Girls Soccer Game at 11 AM for tomorrow to calendar for family" and "add girls soccer game to calendar for tomorrow at 11 am for family" resolve the same way.
+- Keep deterministic handlers as a fallback for cost, reliability, and simple known commands when AI is unavailable or returns unsupported.
+- Keep STOP, START, HELP, Twilio status callbacks, and image/media handling outside the AI route for safety and compliance.
+- Store the last referenced calendar event, meal, grocery item, task, reminder, chore, skill, or nutrition item so follow-ups like "delete that", "make that weekly", "what about tomorrow", and "what's the recipe" can resolve without repeating the full request.
+- Ask one short clarification question when an action is missing a required detail or has multiple possible matches.
+
 ## Calendar
 
 - "What's on my schedule today?" -> return today's calendar, meals, tasks, chores, workouts, and reminders.
