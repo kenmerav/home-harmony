@@ -174,7 +174,7 @@ type CalendarFollowUpIntent = {
   deleteEvent?: boolean;
 };
 
-type SmsReferenceType = "recipe" | "meal_plan" | "meal_log" | "calendar" | "grocery" | "task" | "chore" | "skill";
+type SmsReferenceType = "recipe" | "meal_plan" | "meal_log" | "calendar" | "grocery" | "task" | "reminder" | "chore" | "skill" | "nutrition";
 
 type SmsLastReference = {
   type: SmsReferenceType;
@@ -190,6 +190,13 @@ type SmsLastReference = {
   weekOf?: string | null;
   date?: string | null;
   updatedAt: string;
+};
+
+type SmsConversationTurn = {
+  userText: string;
+  assistantText: string;
+  action?: string | null;
+  createdAt: string;
 };
 
 type SmsAssistantContext = {
@@ -216,6 +223,7 @@ type SmsAssistantContext = {
     updatedAt: string;
   } | null;
   lastReference?: SmsLastReference | null;
+  recentTurns?: SmsConversationTurn[];
   pendingAgentAction?: {
     action: SmsAgentIntent["action"];
     intent: Record<string, unknown>;
@@ -1246,6 +1254,7 @@ async function parseSmsAgentIntentWithAi(
     options.context.lastMealLog?.title ? `recent meal log: ${options.context.lastMealLog.title} for ${options.context.lastMealLog.personName}` : "",
     options.context.lastReference?.title ? `recent reference: ${options.context.lastReference.type} ${options.context.lastReference.title}` : "",
   ].filter(Boolean).join("; ") || "none";
+  const recentConversation = formatSmsConversationContext(options.context);
 
   const systemPrompt = `You are the Home Harmony SMS intent router. Classify one text into one safe app action.
 Return JSON only. Do not write prose.
@@ -1306,7 +1315,8 @@ Rules:
 - Use chore_add/chore_update/chore_delete/chore_complete for kid chores. Use personName for the child, title for the chore, frequency/days/rewardAmount/rewardType for setup.
 - Use skill_add/skill_update/skill_delete/skill_complete for kid Skill Development. Use personName for the child, title for the skill, minutes/points/frequency/days for setup.
 - Use account_question for conversational questions about the user's stored Home Harmony data, like family setup, saved recipes, saved foods, grocery staples, logged meals, chores, skills, tasks, settings, reminders, or account status.
-- Follow-up words like "it", "that", "this", "the recipe", "ingredients", or "how do I make it" should refer to the recent reference when one is present.
+- Use recent context and recent conversation for follow-up texts. Words like "it", "that", "this", "those", "the recipe", "what about tomorrow", "make that weekly", or "delete that" should refer to the most recent relevant Home Harmony subject when fresh.
+- If a follow-up can be safely resolved from recent conversation, fill the missing title/item/date/person/layer fields from that context.
 - For account_question, put the user's question in "question"; do not answer it here.
 - If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
 - If the text is unrelated to Home Harmony app actions, use "unsupported".`;
@@ -1331,6 +1341,7 @@ Rules:
             `Calendar layers: ${calendarLayerText}\n` +
             `Macro profiles/dashboards: ${profileText}\n` +
             `Recent context: ${recentContext}\n` +
+            `Recent conversation:\n${recentConversation}\n` +
             `SMS: ${body}`,
         },
       ],
@@ -1531,6 +1542,7 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
   const rawPendingCalendarAdd = record.pendingCalendarAdd;
   const rawMeal = record.lastMealLog;
   const rawLastReference = record.lastReference;
+  const rawRecentTurns = record.recentTurns;
   const rawPendingAgentAction = record.pendingAgentAction;
   const context: SmsAssistantContext = {};
 
@@ -1592,7 +1604,7 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
 
   if (rawLastReference && typeof rawLastReference === "object" && !Array.isArray(rawLastReference)) {
     const reference = rawLastReference as Record<string, unknown>;
-    const allowedTypes = new Set<SmsReferenceType>(["recipe", "meal_plan", "meal_log", "calendar", "grocery", "task", "chore", "skill"]);
+    const allowedTypes = new Set<SmsReferenceType>(["recipe", "meal_plan", "meal_log", "calendar", "grocery", "task", "reminder", "chore", "skill", "nutrition"]);
     const type = String(reference.type || "").trim().toLowerCase().replace(/-/g, "_") as SmsReferenceType;
     const title = typeof reference.title === "string" ? reference.title.trim() : "";
     const updatedAt = typeof reference.updatedAt === "string" ? reference.updatedAt.trim() : "";
@@ -1625,6 +1637,26 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
         updatedAt,
       };
     }
+  }
+
+  if (Array.isArray(rawRecentTurns)) {
+    context.recentTurns = rawRecentTurns
+      .map((turn) => turn && typeof turn === "object" && !Array.isArray(turn) ? turn as Record<string, unknown> : null)
+      .filter((turn): turn is Record<string, unknown> => !!turn)
+      .map((turn) => {
+        const userText = typeof turn.userText === "string" ? turn.userText.trim() : "";
+        const assistantText = typeof turn.assistantText === "string" ? turn.assistantText.trim() : "";
+        const action = typeof turn.action === "string" && turn.action.trim() ? turn.action.trim() : null;
+        const createdAt = typeof turn.createdAt === "string" ? turn.createdAt.trim() : "";
+        return {
+          userText: truncateForSmsAgent(userText, 320),
+          assistantText: truncateForSmsAgent(assistantText, 700),
+          action,
+          createdAt,
+        };
+      })
+      .filter((turn) => turn.userText && turn.assistantText && turn.createdAt)
+      .slice(-8);
   }
 
   if (rawPendingAgentAction && typeof rawPendingAgentAction === "object" && !Array.isArray(rawPendingAgentAction)) {
@@ -1723,6 +1755,65 @@ async function saveSmsAssistantContext(
     ...context,
   });
   await saveProfileSettingsDocument(supabase, userId, nextDocument);
+}
+
+function appendSmsConversationTurn(
+  context: SmsAssistantContext,
+  turn: Omit<SmsConversationTurn, "createdAt"> & { createdAt?: string },
+): SmsAssistantContext {
+  const userText = truncateForSmsAgent(turn.userText, 320);
+  const assistantText = truncateForSmsAgent(turn.assistantText, 700);
+  if (!userText || !assistantText) return context;
+  const nextTurn: SmsConversationTurn = {
+    userText,
+    assistantText,
+    action: turn.action || null,
+    createdAt: turn.createdAt || new Date().toISOString(),
+  };
+  return {
+    ...context,
+    recentTurns: [...(context.recentTurns || []), nextTurn].slice(-8),
+  };
+}
+
+function formatSmsConversationContext(context: SmsAssistantContext): string {
+  const turns = (context.recentTurns || []).slice(-6);
+  const pieces = turns.map((turn) => {
+    const action = turn.action ? ` (${turn.action})` : "";
+    return `User${action}: ${turn.userText}\nAssistant: ${turn.assistantText}`;
+  });
+  return pieces.length ? pieces.join("\n---\n") : "none";
+}
+
+async function rememberSmsConversationTurn(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  userText: string,
+  assistantText: string,
+  contextPatch?: Partial<SmsAssistantContext> | null,
+  action?: string | null,
+): Promise<void> {
+  try {
+    const { document, context } = await loadSmsAssistantContext(supabase, userId);
+    await saveSmsAssistantContext(
+      supabase,
+      userId,
+      document,
+      appendSmsConversationTurn(
+        {
+          ...context,
+          ...(contextPatch || {}),
+        },
+        {
+          userText,
+          assistantText,
+          action: action || null,
+        },
+      ),
+    );
+  } catch (error) {
+    console.error("sms conversation memory save failed:", error);
+  }
 }
 
 function firstNameFromFullName(fullName: string | null | undefined): string | null {
@@ -5267,6 +5358,7 @@ async function answerAccountQuestionWithAi(
     : snapshotJson;
   const systemPrompt = `You are the Home Harmony SMS account assistant.
 Answer the user's question using only the account_snapshot JSON.
+Use account_snapshot.conversation to resolve follow-up questions and pronouns like "it", "that", "those", "what about tomorrow", or "who has that".
 Be concise enough for a text message, usually under 900 characters.
 If the snapshot does not contain the answer, say what you can see and what is missing.
 Do not invent stored data. Do not mention internal IDs unless the user asks for technical detail.
@@ -6130,6 +6222,14 @@ async function tryHandleSmsAgentFallback(
   if (intent.action === "account_question") {
     const question = String(intent.question || textForAi).trim();
     const snapshot = await buildSmsAccountSnapshot(supabase, pref.user_id, timezone, question, pref);
+    snapshot.conversation = {
+      recentContext: [
+        smsAssistantContext.lastCalendarEvent?.title ? `recent calendar event: ${smsAssistantContext.lastCalendarEvent.title}` : "",
+        smsAssistantContext.lastMealLog?.title ? `recent meal log: ${smsAssistantContext.lastMealLog.title} for ${smsAssistantContext.lastMealLog.personName}` : "",
+        smsAssistantContext.lastReference?.title ? `recent reference: ${smsAssistantContext.lastReference.type} ${smsAssistantContext.lastReference.title}` : "",
+      ].filter(Boolean),
+      recentTurns: smsAssistantContext.recentTurns || [],
+    };
     const reply = await answerAccountQuestionWithAi(question, snapshot, pref.user_id);
     return reply || "I could not answer that from your Home Harmony data yet.";
   }
@@ -6410,6 +6510,21 @@ serve(async (req) => {
     const numMedia = Number.parseInt(params.get("NumMedia") || "0", 10);
     const mediaUrl = params.get("MediaUrl0")?.trim() || "";
     const mediaContentType = params.get("MediaContentType0")?.trim() || "";
+    const replyWithMemory = async (
+      message: string,
+      contextPatch?: Partial<SmsAssistantContext> | null,
+      action?: string | null,
+    ) => {
+      await rememberSmsConversationTurn(
+        supabase,
+        pref.user_id,
+        incomingBody || body,
+        message,
+        contextPatch,
+        action || null,
+      );
+      return twiml(message);
+    };
 
     await logUsageCostEvent({
       userId: pref.user_id,
@@ -6427,7 +6542,7 @@ serve(async (req) => {
 
     if (Number.isFinite(numMedia) && numMedia > 0) {
       if (!mediaUrl || !mediaContentType.toLowerCase().startsWith("image/")) {
-        return twiml("I can only read image screenshots right now. Send an image and say 'add this to calendar'.");
+        return await replyWithMemory("I can only read image screenshots right now. Send an image and say 'add this to calendar'.", null, "media_help");
       }
 
       try {
@@ -6435,10 +6550,10 @@ serve(async (req) => {
         const imageDataUrl = await fetchTwilioImageAsDataUrl(mediaUrl, mediaContentType);
         const { intent, clarification } = await parseCalendarScreenshotIntent(imageDataUrl, fileName, timezone, pref.user_id);
         if (clarification) {
-          return twiml(clarification);
+          return await replyWithMemory(clarification, null, "calendar_screenshot_clarify");
         }
         if (!intent) {
-          return twiml("I couldn't pull one clear event from that screenshot. Try a tighter screenshot of the event details.");
+          return await replyWithMemory("I couldn't pull one clear event from that screenshot. Try a tighter screenshot of the event details.", null, "calendar_screenshot_clarify");
         }
 
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
@@ -6451,11 +6566,23 @@ serve(async (req) => {
             updatedAt: new Date().toISOString(),
           },
         });
-        return twiml(result.reply);
+        return await replyWithMemory(result.reply, {
+          lastCalendarEvent: {
+            eventId: result.eventId,
+            title: intent.title,
+            updatedAt: new Date().toISOString(),
+          },
+          lastReference: {
+            type: "calendar",
+            title: intent.title,
+            date: intent.startsAt,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "calendar_add");
       } catch (error) {
         console.error("sms screenshot calendar add failed:", error);
         const detail = describeUnknownError(error);
-        return twiml(`I could not read that screenshot right now: ${detail}`);
+        return await replyWithMemory(`I could not read that screenshot right now: ${detail}`, null, "calendar_screenshot_error");
       }
     }
 
@@ -6466,14 +6593,20 @@ serve(async (req) => {
         const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
         const person = resolvePersonByName(profiles, waterIntent.personName);
         if (!person) {
-          return twiml(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+          return await replyWithMemory(`I couldn't find ${waterIntent.personName}. Reply with the exact dashboard name, like Ken or Katie.`, null, "water_log_clarify");
         }
 
         await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, waterIntent.ounces);
-        return twiml(`Logged ${waterIntent.ounces} oz of water for ${person.name}.`);
+        return await replyWithMemory(`Logged ${waterIntent.ounces} oz of water for ${person.name}.`, {
+          lastReference: {
+            type: "nutrition",
+            title: `${person.name} water`,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "water_log");
       } catch (error) {
         console.error("sms water log failed:", error);
-        return twiml("I could not save that water log right now. Please try again in a moment.");
+        return await replyWithMemory("I could not save that water log right now. Please try again in a moment.", null, "water_log_error");
       }
     }
 
@@ -6481,10 +6614,17 @@ serve(async (req) => {
     if (textReminderIntent) {
       try {
         const reply = await addTextReminderBySms(supabase, pref.user_id, timezone, from, textReminderIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "reminder",
+            title: textReminderIntent.title,
+            date: textReminderIntent.sendAt,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "reminder_add");
       } catch (error) {
         console.error("sms text reminder failed:", error);
-        return twiml("I could not save that reminder right now. Please try again in a moment.");
+        return await replyWithMemory("I could not save that reminder right now. Please try again in a moment.", null, "reminder_add_error");
       }
     }
 
@@ -6492,10 +6632,17 @@ serve(async (req) => {
     if (taskAddIntent) {
       try {
         const reply = await addTaskBySms(supabase, pref.user_id, timezone, taskAddIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "task",
+            title: taskAddIntent.title,
+            date: taskAddIntent.dueDate || null,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "task_add");
       } catch (error) {
         console.error("sms task add failed:", error);
-        return twiml("I could not add that task right now. Please try again in a moment.");
+        return await replyWithMemory("I could not add that task right now. Please try again in a moment.", null, "task_add_error");
       }
     }
 
@@ -6503,20 +6650,26 @@ serve(async (req) => {
     if (taskCompleteIntent) {
       try {
         const reply = await completeTaskBySms(supabase, pref.user_id, taskCompleteIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "task",
+            title: taskCompleteIntent.title,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "task_complete");
       } catch (error) {
         console.error("sms task complete failed:", error);
-        return twiml("I could not update that task right now. Please try again in a moment.");
+        return await replyWithMemory("I could not update that task right now. Please try again in a moment.", null, "task_complete_error");
       }
     }
 
     if (asksForOpenTasks(body)) {
       try {
         const reply = await buildOpenTasksReply(supabase, pref.user_id, timezone);
-        return twiml(reply);
+        return await replyWithMemory(reply, null, "open_tasks");
       } catch (error) {
         console.error("sms task reply failed:", error);
-        return twiml("I could not read your tasks right now. Please try again in a moment.");
+        return await replyWithMemory("I could not read your tasks right now. Please try again in a moment.", null, "open_tasks_error");
       }
     }
 
@@ -6530,7 +6683,7 @@ serve(async (req) => {
         const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
         const person = resolvePersonByName(profiles, mealLogIntents[0].personName);
         if (!person) {
-          return twiml(`I couldn't find ${mealLogIntents[0].personName}. Reply with the exact dashboard name, like Ken or Katie.`);
+          return await replyWithMemory(`I couldn't find ${mealLogIntents[0].personName}. Reply with the exact dashboard name, like Ken or Katie.`, null, "meal_log_clarify");
         }
 
         const loggedLabels: string[] = [];
@@ -6539,10 +6692,10 @@ serve(async (req) => {
         for (const mealLogIntent of mealLogIntents) {
           const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, pref.user_id, mealLogIntent.recipeName);
           if (!recipe && ambiguousMatches.length > 0) {
-            return twiml(`I found a few recipes that could match ${mealLogIntent.recipeName}: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`);
+            return await replyWithMemory(`I found a few recipes that could match ${mealLogIntent.recipeName}: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`, null, "meal_log_clarify");
           }
           if (!recipe) {
-            return twiml(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`);
+            return await replyWithMemory(`I couldn't find a saved recipe named ${mealLogIntent.recipeName}. It has to already be in your recipe library before I can log it.`, null, "meal_log_clarify");
           }
 
           const { logId } = await addMealLogBySms(supabase, pref.user_id, timezone, person.id, recipe, mealLogIntent.servings);
@@ -6572,10 +6725,13 @@ serve(async (req) => {
           });
         }
 
-        return twiml(`Logged ${loggedLabels.join(" and ")} for ${person.name}.`);
+        return await replyWithMemory(`Logged ${loggedLabels.join(" and ")} for ${person.name}.`, {
+          lastMealLog: lastLoggedMealContext,
+          lastReference: lastReferenceContext,
+        }, "meal_log");
       } catch (error) {
         console.error("sms meal log failed:", error);
-        return twiml("I could not save that meal log right now. Please try again in a moment.");
+        return await replyWithMemory("I could not save that meal log right now. Please try again in a moment.", null, "meal_log_error");
       }
     }
 
@@ -6583,10 +6739,16 @@ serve(async (req) => {
     if (groceryRemoveIntent) {
       try {
         const reply = await removeGroceryItemBySms(supabase, pref.user_id, timezone, groceryRemoveIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "grocery",
+            title: groceryRemoveIntent.name,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "grocery_remove");
       } catch (error) {
         console.error("sms grocery remove failed:", error);
-        return twiml("I could not remove that grocery item right now. Please try again in a moment.");
+        return await replyWithMemory("I could not remove that grocery item right now. Please try again in a moment.", null, "grocery_remove_error");
       }
     }
 
@@ -6594,20 +6756,20 @@ serve(async (req) => {
     if (groceryOrderAction) {
       try {
         const reply = await updateGroceryOrderBySms(supabase, pref.user_id, timezone, groceryOrderAction);
-        return twiml(reply);
+        return await replyWithMemory(reply, null, groceryOrderAction === "ordered" ? "grocery_ordered" : "grocery_not_ordered");
       } catch (error) {
         console.error("sms grocery order update failed:", error);
-        return twiml("I could not update your grocery order status right now. Please try again in a moment.");
+        return await replyWithMemory("I could not update your grocery order status right now. Please try again in a moment.", null, "grocery_order_error");
       }
     }
 
     if (asksForGroceryList(body)) {
       try {
         const reply = await buildGroceryListReply(supabase, pref.user_id, timezone);
-        return twiml(reply);
+        return await replyWithMemory(reply, null, "grocery_list");
       } catch (error) {
         console.error("sms grocery list reply failed:", error);
-        return twiml("I could not read your grocery list right now. Please try again in a moment.");
+        return await replyWithMemory("I could not read your grocery list right now. Please try again in a moment.", null, "grocery_list_error");
       }
     }
 
@@ -6615,10 +6777,16 @@ serve(async (req) => {
     if (groceryIntent) {
       try {
         const reply = await addGroceryItemBySms(supabase, pref.user_id, timezone, groceryIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "grocery",
+            title: groceryIntent.name,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "grocery_add");
       } catch (error) {
         console.error("sms grocery add failed:", error);
-        return twiml("I could not add that grocery item right now. Please try again in a moment.");
+        return await replyWithMemory("I could not add that grocery item right now. Please try again in a moment.", null, "grocery_add_error");
       }
     }
 
@@ -6651,12 +6819,30 @@ serve(async (req) => {
                     }
                   : null,
             });
-            return twiml(reply);
+            return await replyWithMemory(reply, {
+              lastMealLog: mealFollowUpIntent.deleteLog
+                ? null
+                : context.lastMealLog
+                  ? {
+                      ...context.lastMealLog,
+                      servings: mealFollowUpIntent.servings ?? context.lastMealLog.servings,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : null,
+              lastReference: mealFollowUpIntent.deleteLog
+                ? null
+                : context.lastReference
+                  ? {
+                      ...context.lastReference,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : null,
+            }, mealFollowUpIntent.deleteLog ? "meal_log_delete" : "meal_log_update");
           }
         }
       } catch (error) {
         console.error("sms meal follow-up failed:", error);
-        return twiml("I could not update that meal log right now. Please try again in a moment.");
+        return await replyWithMemory("I could not update that meal log right now. Please try again in a moment.", null, "meal_log_update_error");
       }
     }
 
@@ -6670,7 +6856,7 @@ serve(async (req) => {
       smsAssistantDocument,
       smsAssistantContext,
     );
-    if (recipeFollowUpReply) return twiml(recipeFollowUpReply);
+    if (recipeFollowUpReply) return await replyWithMemory(recipeFollowUpReply, null, "recipe_follow_up");
 
     const pendingCalendarAdd = smsAssistantContext.pendingCalendarAdd;
     const pendingCalendarAddUpdatedAt = pendingCalendarAdd?.updatedAt
@@ -6699,7 +6885,7 @@ serve(async (req) => {
           ...smsAssistantContext,
           pendingAgentAction: null,
         });
-        return twiml("Okay, I canceled that pending change.");
+        return await replyWithMemory("Okay, I canceled that pending change.", { pendingAgentAction: null }, "pending_cancel");
       }
       if (isAffirmativeText(body)) {
         try {
@@ -6709,7 +6895,7 @@ serve(async (req) => {
               ...smsAssistantContext,
               pendingAgentAction: null,
             });
-            return twiml("I couldn't reload that pending change. Please send it again.");
+            return await replyWithMemory("I couldn't reload that pending change. Please send it again.", { pendingAgentAction: null }, "pending_error");
           }
           const reply = await handleAdvancedSmsAgentAction(supabase, pref, timezone, pendingIntent, {
             confirmed: true,
@@ -6723,11 +6909,11 @@ serve(async (req) => {
             ...smsAssistantContext,
             pendingAgentAction: null,
           });
-          return twiml(reply || "Done.");
+          return await replyWithMemory(reply || "Done.", { pendingAgentAction: null }, pendingIntent.action);
         } catch (error) {
           console.error("sms pending agent action failed:", error);
           const detail = describeUnknownError(error);
-          return twiml(`I could not finish that pending change: ${detail}`);
+          return await replyWithMemory(`I could not finish that pending change: ${detail}`, null, "pending_error");
         }
       }
     }
@@ -6740,7 +6926,7 @@ serve(async (req) => {
             ...smsAssistantContext,
             pendingCalendarAdd: null,
           });
-          return twiml("Okay, I dropped that pending calendar event.");
+          return await replyWithMemory("Okay, I dropped that pending calendar event.", { pendingCalendarAdd: null }, "calendar_add_cancel");
         }
 
         const resolvedLayer = resolveCalendarLayerChoice(body, layerChoices);
@@ -6758,12 +6944,25 @@ serve(async (req) => {
               updatedAt: new Date().toISOString(),
             },
           });
-          return twiml(result.reply);
+          return await replyWithMemory(result.reply, {
+            pendingCalendarAdd: null,
+            lastCalendarEvent: {
+              eventId: result.eventId,
+              title: pendingCalendarAdd.title,
+              updatedAt: new Date().toISOString(),
+            },
+            lastReference: {
+              type: "calendar",
+              title: pendingCalendarAdd.title,
+              date: pendingCalendarAdd.startsAt,
+              updatedAt: new Date().toISOString(),
+            },
+          }, "calendar_add");
         }
 
         const shortReply = trimTrailingPunctuation(body).split(/\s+/).filter(Boolean).length <= 4;
         if (shortReply && !likelyCalendarAdd) {
-          return twiml(formatCalendarLayerQuestion(layerChoices));
+          return await replyWithMemory(formatCalendarLayerQuestion(layerChoices), null, "calendar_add_clarify");
         }
       } catch (error) {
         console.error("sms pending calendar layer resolution failed:", error);
@@ -6776,11 +6975,11 @@ serve(async (req) => {
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
         const recentSubject = mostRecentAssistantSubject(context, timezone);
         if (followUpIntent.deleteEvent && recentSubject === "meal") {
-          return twiml("If you meant the meal you just logged, reply 'delete that meal'.");
+          return await replyWithMemory("If you meant the meal you just logged, reply 'delete that meal'.", null, "calendar_follow_up_clarify");
         }
         const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, context, followUpIntent);
         if (!reply) {
-          return twiml("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.");
+          return await replyWithMemory("I don't have a recent calendar event to update. Add or screenshot an event first, then send the follow-up change.", null, "calendar_follow_up_clarify");
         }
         await saveSmsAssistantContext(supabase, pref.user_id, document, {
           ...context,
@@ -6793,11 +6992,29 @@ serve(async (req) => {
                 }
               : null,
         });
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastCalendarEvent: followUpIntent.deleteEvent
+            ? null
+            : context.lastCalendarEvent
+              ? {
+                  ...context.lastCalendarEvent,
+                  updatedAt: new Date().toISOString(),
+                }
+              : null,
+          lastReference: followUpIntent.deleteEvent
+            ? null
+            : context.lastCalendarEvent
+              ? {
+                  type: "calendar",
+                  title: context.lastCalendarEvent.title,
+                  updatedAt: new Date().toISOString(),
+                }
+              : context.lastReference || null,
+        }, followUpIntent.deleteEvent ? "calendar_delete" : "calendar_update");
       } catch (error) {
         console.error("sms calendar follow-up failed:", error);
         const detail = describeUnknownError(error);
-        return twiml(`I could not update that calendar event right now: ${detail}`);
+        return await replyWithMemory(`I could not update that calendar event right now: ${detail}`, null, "calendar_follow_up_error");
       }
     }
 
@@ -6805,11 +7022,18 @@ serve(async (req) => {
     if (calendarDeleteIntent) {
       try {
         const reply = await deleteCalendarEventBySms(supabase, pref.user_id, timezone, calendarDeleteIntent);
-        return twiml(reply);
+        return await replyWithMemory(reply, {
+          lastReference: {
+            type: "calendar",
+            title: calendarDeleteIntent.title,
+            date: calendarDeleteIntent.dateText,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "calendar_delete");
       } catch (error) {
         console.error("sms direct calendar delete failed:", error);
         const detail = describeUnknownError(error);
-        return twiml(`I could not delete that calendar event right now: ${detail}`);
+        return await replyWithMemory(`I could not delete that calendar event right now: ${detail}`, null, "calendar_delete_error");
       }
     }
 
@@ -6837,10 +7061,20 @@ serve(async (req) => {
               updatedAt: new Date().toISOString(),
             },
           });
-          return twiml(formatCalendarLayerQuestion(layerChoices));
+          return await replyWithMemory(formatCalendarLayerQuestion(layerChoices), {
+            pendingCalendarAdd: {
+              title: calendarIntent.title,
+              startsAt: calendarIntent.startsAt,
+              endsAt: calendarIntent.endsAt,
+              allDay: calendarIntent.allDay,
+              locationText: calendarIntent.locationText || null,
+              description: calendarIntent.description || null,
+              updatedAt: new Date().toISOString(),
+            },
+          }, "calendar_add_clarify");
         } catch (error) {
           console.error("sms pending calendar add save failed:", error);
-          return twiml("I understood the event, but I couldn't ask the calendar follow-up right now. Please try again in a moment.");
+          return await replyWithMemory("I understood the event, but I couldn't ask the calendar follow-up right now. Please try again in a moment.", null, "calendar_add_error");
         }
       }
       try {
@@ -6854,23 +7088,36 @@ serve(async (req) => {
             updatedAt: new Date().toISOString(),
           },
         });
-        return twiml(result.reply);
+        return await replyWithMemory(result.reply, {
+          pendingCalendarAdd: null,
+          lastCalendarEvent: {
+            eventId: result.eventId,
+            title: calendarIntent.title,
+            updatedAt: new Date().toISOString(),
+          },
+          lastReference: {
+            type: "calendar",
+            title: calendarIntent.title,
+            date: calendarIntent.startsAt,
+            updatedAt: new Date().toISOString(),
+          },
+        }, "calendar_add");
       } catch (error) {
         console.error("sms calendar add failed:", error);
         const detail = describeUnknownError(error);
-        return twiml(`I could not add that calendar event right now: ${detail}`);
+        return await replyWithMemory(`I could not add that calendar event right now: ${detail}`, null, "calendar_add_error");
       }
     }
     if (likelyCalendarAdd) {
       try {
         const agentReply = await tryAgentFallbackReply();
-        if (agentReply) return twiml(agentReply);
+        if (agentReply) return await replyWithMemory(agentReply, null, "agent_fallback");
       } catch (error) {
         console.error("sms agent fallback failed:", error);
         const detail = describeUnknownError(error);
-        return twiml(`I hit an error while thinking through that text: ${detail}`);
+        return await replyWithMemory(`I hit an error while thinking through that text: ${detail}`, null, "agent_fallback_error");
       }
-      return twiml("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.");
+      return await replyWithMemory("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.", null, "calendar_add_clarify");
     }
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
@@ -6909,23 +7156,39 @@ serve(async (req) => {
           : recentNudgeWeek || fallbackWeek;
 
       if (!targetWeekOf) {
-        return twiml("I couldn't determine which week to plan. Reply RUN MEALS NEXT WEEK.");
+        return await replyWithMemory("I couldn't determine which week to plan. Reply RUN MEALS NEXT WEEK.", null, "meal_plan_run_clarify");
       }
 
       try {
         const result = await generateMealsForWeekBySms(supabase, pref.user_id, targetWeekOf);
-        return twiml(
+        return await replyWithMemory(
           `Done. I generated ${result.inserted} meals${result.lockedKept ? ` and kept ${result.lockedKept} locked` : ""} for week of ${targetWeekOf}. Your grocery list is ready in Home Harmony.`,
+          {
+            lastReference: {
+              type: "meal_plan",
+              title: `Meals for week of ${targetWeekOf}`,
+              weekOf: targetWeekOf,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+          "meal_plan_run",
         );
       } catch (generationError) {
         const message = generationError instanceof Error ? generationError.message : "Could not generate meals.";
-        return twiml(`Could not run meal generation: ${message}`);
+        return await replyWithMemory(`Could not run meal generation: ${message}`, null, "meal_plan_run_error");
       }
     }
 
     if (asksMeals && wantsNextWeek) {
       const reply = await buildMealsReply(supabase, pref.user_id, timezone, true);
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "meal_plan",
+          title: "Meals next week",
+          weekOf: weekOfIso(DateTime.now().setZone(timezone).plus({ weeks: 1 })),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "meal_lookup");
     }
 
     if (asksMeals && (wantsTonight || body.includes("for dinner"))) {
@@ -6936,12 +7199,21 @@ serve(async (req) => {
           lastReference: result.reference,
         });
       }
-      return twiml(result.reply);
+      return await replyWithMemory(result.reply, {
+        lastReference: result.reference,
+      }, "meal_lookup");
     }
 
     if (asksMeals && (wantsThisWeek || body.includes("week"))) {
       const reply = await buildMealsReply(supabase, pref.user_id, timezone, false);
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "meal_plan",
+          title: "Meals this week",
+          weekOf: weekOfIso(DateTime.now().setZone(timezone)),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "meal_lookup");
     }
 
     if (requestedScheduleDate) {
@@ -6954,7 +7226,14 @@ serve(async (req) => {
         pref,
         profileSettingsDocument,
       );
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "calendar",
+          title: `Schedule for ${requestedScheduleDate.toISODate()}`,
+          date: requestedScheduleDate.toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "schedule_lookup");
     }
 
     if (wantsToday || (asksSchedule && body.includes("today"))) {
@@ -6966,7 +7245,14 @@ serve(async (req) => {
         pref,
         profileSettingsDocument,
       );
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "calendar",
+          title: "Today's schedule",
+          date: DateTime.now().setZone(timezone).toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "schedule_lookup");
     }
 
     if (wantsTomorrow || (asksSchedule && body.includes("tomorrow"))) {
@@ -6978,7 +7264,14 @@ serve(async (req) => {
         pref,
         profileSettingsDocument,
       );
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "calendar",
+          title: "Tomorrow's schedule",
+          date: DateTime.now().setZone(timezone).plus({ days: 1 }).toISODate(),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "schedule_lookup");
     }
 
     if (wantsNextWeek || (asksSchedule && body.includes("week"))) {
@@ -6990,19 +7283,26 @@ serve(async (req) => {
         pref,
         profileSettingsDocument,
       );
-      return twiml(reply);
+      return await replyWithMemory(reply, {
+        lastReference: {
+          type: "calendar",
+          title: "Next week schedule",
+          weekOf: weekOfIso(DateTime.now().setZone(timezone).plus({ weeks: 1 })),
+          updatedAt: new Date().toISOString(),
+        },
+      }, "schedule_lookup");
     }
 
     try {
       const agentReply = await tryAgentFallbackReply();
-      if (agentReply) return twiml(agentReply);
+      if (agentReply) return await replyWithMemory(agentReply, null, "agent_fallback");
     } catch (error) {
       console.error("sms agent fallback failed:", error);
       const detail = describeUnknownError(error);
-      return twiml(`I hit an error while thinking through that text: ${detail}`);
+      return await replyWithMemory(`I hit an error while thinking through that text: ${detail}`, null, "agent_fallback_error");
     }
 
-    return twiml("I didn't catch that. Reply HELP for examples.");
+    return await replyWithMemory("I didn't catch that. Reply HELP for examples.", null, "unsupported");
   } catch (error) {
     console.error("sms-webhook error:", error);
     const detail = describeUnknownError(error);
