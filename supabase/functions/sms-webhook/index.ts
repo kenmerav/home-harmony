@@ -252,6 +252,45 @@ type TextReminderIntent = {
   sendAt: string;
 };
 
+type SmsAgentIntent = {
+  action:
+    | "calendar_add"
+    | "calendar_delete"
+    | "schedule_lookup"
+    | "grocery_add"
+    | "grocery_remove"
+    | "grocery_list"
+    | "grocery_ordered"
+    | "grocery_not_ordered"
+    | "reminder_add"
+    | "task_add"
+    | "task_complete"
+    | "open_tasks"
+    | "water_log"
+    | "meal_log"
+    | "meal_lookup"
+    | "meal_plan_run"
+    | "clarify"
+    | "unsupported";
+  title?: string;
+  itemName?: string;
+  recipeName?: string;
+  personName?: string;
+  layer?: string;
+  dateText?: string;
+  timeText?: string;
+  endTimeText?: string;
+  allDay?: boolean;
+  locationText?: string;
+  description?: string;
+  quantity?: string;
+  weekly?: boolean;
+  servings?: number;
+  ounces?: number;
+  range?: "today" | "tomorrow" | "tonight" | "this_week" | "next_week" | "next_7_days" | "";
+  question?: string;
+};
+
 type RecipeLookupRow = {
   id: string;
   name: string;
@@ -973,6 +1012,210 @@ Rules:
     locationText,
     description,
   };
+}
+
+function parseJsonObjectFromAi(content: string): Record<string, unknown> | null {
+  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSmsAgentIntent(input: Record<string, unknown> | null): SmsAgentIntent | null {
+  if (!input) return null;
+  const allowedActions = new Set<SmsAgentIntent["action"]>([
+    "calendar_add",
+    "calendar_delete",
+    "schedule_lookup",
+    "grocery_add",
+    "grocery_remove",
+    "grocery_list",
+    "grocery_ordered",
+    "grocery_not_ordered",
+    "reminder_add",
+    "task_add",
+    "task_complete",
+    "open_tasks",
+    "water_log",
+    "meal_log",
+    "meal_lookup",
+    "meal_plan_run",
+    "clarify",
+    "unsupported",
+  ]);
+  const rawAction = String(input.action || input.intent || "").trim().toLowerCase().replace(/-/g, "_");
+  if (!allowedActions.has(rawAction as SmsAgentIntent["action"])) return null;
+
+  const stringField = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = input[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return undefined;
+  };
+  const numberField = (...keys: string[]): number | undefined => {
+    for (const key of keys) {
+      const value = input[key];
+      const parsed = typeof value === "number" ? value : Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return undefined;
+  };
+  const range = String(input.range || "").trim().toLowerCase().replace(/-/g, "_");
+  const allowedRanges = new Set(["today", "tomorrow", "tonight", "this_week", "next_week", "next_7_days", ""]);
+
+  return {
+    action: rawAction as SmsAgentIntent["action"],
+    title: stringField("title", "eventTitle", "taskTitle", "reminderTitle"),
+    itemName: stringField("itemName", "groceryItem", "name"),
+    recipeName: stringField("recipeName", "mealName"),
+    personName: stringField("personName", "person", "recipient"),
+    layer: stringField("layer", "calendar", "calendarLayer"),
+    dateText: stringField("dateText", "date", "day"),
+    timeText: stringField("timeText", "time", "startTime"),
+    endTimeText: stringField("endTimeText", "endTime"),
+    allDay: parseBoolean(input.allDay),
+    locationText: stringField("locationText", "location"),
+    description: stringField("description", "notes"),
+    quantity: stringField("quantity"),
+    weekly: parseBoolean(input.weekly),
+    servings: numberField("servings"),
+    ounces: numberField("ounces", "waterOz"),
+    range: allowedRanges.has(range) ? range as SmsAgentIntent["range"] : "",
+    question: stringField("question", "clarification"),
+  };
+}
+
+async function parseSmsAgentIntentWithAi(
+  body: string,
+  timezone: string,
+  userId: string | null,
+  options: {
+    calendarLayers: string[];
+    macroProfiles: MacroProfile[];
+    context: SmsAssistantContext;
+  },
+): Promise<SmsAgentIntent | null> {
+  const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openAiApiKey) return null;
+
+  const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const calendarLayerText = options.calendarLayers.length ? options.calendarLayers.join(", ") : "Family";
+  const profileText = options.macroProfiles.length
+    ? options.macroProfiles.map((profile) => `${profile.name} (${profile.id})`).join(", ")
+    : "Me";
+  const recentContext = [
+    options.context.lastCalendarEvent?.title ? `recent calendar event: ${options.context.lastCalendarEvent.title}` : "",
+    options.context.pendingCalendarAdd?.title ? `pending calendar add: ${options.context.pendingCalendarAdd.title}` : "",
+    options.context.lastMealLog?.title ? `recent meal log: ${options.context.lastMealLog.title} for ${options.context.lastMealLog.personName}` : "",
+  ].filter(Boolean).join("; ") || "none";
+
+  const systemPrompt = `You are the Home Harmony SMS intent router. Classify one text into one safe app action.
+Return JSON only. Do not write prose.
+
+Schema:
+{
+  "action": "calendar_add" | "calendar_delete" | "schedule_lookup" | "grocery_add" | "grocery_remove" | "grocery_list" | "grocery_ordered" | "grocery_not_ordered" | "reminder_add" | "task_add" | "task_complete" | "open_tasks" | "water_log" | "meal_log" | "meal_lookup" | "meal_plan_run" | "clarify" | "unsupported",
+  "title": "calendar/task/reminder title, or empty",
+  "itemName": "grocery item only, or empty",
+  "recipeName": "saved recipe or food name, or empty",
+  "personName": "person/dashboard name, or empty",
+  "layer": "calendar layer, or empty",
+  "dateText": "YYYY-MM-DD, today, tomorrow, this Monday, next Friday, or empty",
+  "timeText": "h:mm AM/PM, or empty",
+  "endTimeText": "h:mm AM/PM, or empty",
+  "allDay": false,
+  "locationText": "",
+  "description": "",
+  "quantity": "quantity for grocery item, or 1x",
+  "weekly": false,
+  "servings": 1,
+  "ounces": 0,
+  "range": "today | tomorrow | tonight | this_week | next_week | next_7_days | empty",
+  "question": "only for clarify"
+}
+
+Rules:
+- Use the user's exact event/item names when possible, but remove command words like "to calendar", "from calendar", "to grocery list", "for family", dates, and times from titles.
+- Calendar add requires a title and date. If the calendar layer is missing, leave layer empty so the app can ask which calendar.
+- Only set allDay true when the user clearly says all day or the event is naturally an all-day thing.
+- Calendar delete should include title and any date/time/layer the user provided.
+- Schedule lookup is for questions like "what is on my calendar Friday" or "what is my schedule tomorrow"; include a dateText when a specific day is mentioned.
+- Grocery add itemName must be only the item, e.g. "yogurt", not "yogurt to my grocery list".
+- Reminder add is for texts like "remind Ken at 11 AM to get trash bags"; title is only what to do.
+- Task add is for creating app tasks, not text reminders.
+- Meal log only logs saved recipes/foods; include personName if the user says who ate it.
+- If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
+- If the text is unrelated to Home Harmony app actions, use "unsupported".`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0,
+      max_tokens: 700,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content:
+            `Timezone: ${timezone}\n` +
+            `Today: ${localToday.toISODate()} (${localToday.toFormat("cccc")})\n` +
+            `Calendar layers: ${calendarLayerText}\n` +
+            `Macro profiles/dashboards: ${profileText}\n` +
+            `Recent context: ${recentContext}\n` +
+            `SMS: ${body}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `AI SMS agent parsing failed (${response.status}).`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    }
+    | null;
+
+  await logUsageCostEvent({
+    userId,
+    category: "ai",
+    provider: "openai",
+    meter: "sms_agent_text_parse",
+    estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResponse?.usage),
+    quantity: 1,
+    metadata: {
+      model: openAiModel,
+      promptTokens: aiResponse?.usage?.prompt_tokens ?? 0,
+      completionTokens: aiResponse?.usage?.completion_tokens ?? 0,
+      cachedPromptTokens: aiResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+  });
+
+  const parsed = parseJsonObjectFromAi(aiResponse?.choices?.[0]?.message?.content || "");
+  return normalizeSmsAgentIntent(parsed);
 }
 
 function normalizeRecipientMap(input: unknown): Record<string, string[]> {
@@ -2896,7 +3139,7 @@ async function removeGroceryItemBySms(
     ...currentWeek,
     manualItems: currentWeek.manualItems.filter((item) => !groceryItemMatchesName(item.name, intent.name)),
   };
-  groceryState.weekStates[weekOf] = nextWeekState;
+  groceryState.weekStates[activeWeekOf] = nextWeekState;
 
   const removedCount = (recurringBefore - groceryState.recurringItems.length) + (currentBefore - nextWeekState.manualItems.length);
   if (removedCount === 0) {
@@ -3799,6 +4042,405 @@ async function buildTonightDinnerReply(
     : `Tonight's dinners are ${names} at ${timeLabel(dinnerTime)}.`;
 }
 
+async function buildScheduleRangeReply(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  label: string,
+  startDate: DateTime,
+  days: number,
+  includeModules: string[],
+  smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): Promise<string> {
+  const grouped: Array<{ date: DateTime; events: AgendaEvent[] }> = [];
+  for (let i = 0; i < Math.max(1, days); i += 1) {
+    const date = startDate.plus({ days: i }).startOf("day");
+    const events = await fetchAgendaForDate(supabase, userId, date, timezone, includeModules, smsPreference, profileSettingsDocument);
+    grouped.push({ date, events });
+  }
+  return formatRangeAgenda(label, grouped);
+}
+
+function parseAgentDateText(dateText: string | null | undefined, timezone: string): DateTime | null {
+  const trimmed = trimTrailingPunctuation(String(dateText || ""));
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const parsed = DateTime.fromISO(trimmed, { zone: timezone }).startOf("day");
+    return parsed.isValid ? parsed : null;
+  }
+  return parseUsDate(trimmed, timezone);
+}
+
+function resolveAgentLayer(layerText: string | null | undefined, choices: string[]): string | null {
+  const rawLayer = String(layerText || "").trim();
+  if (!rawLayer) return null;
+  const direct = resolveCalendarLayerChoice(rawLayer, choices);
+  if (direct) return direct;
+  const normalized = normalizeCalendarLayerName(rawLayer);
+  return choices.find((choice) => normalizeNameForMatch(choice) === normalizeNameForMatch(normalized)) || null;
+}
+
+function buildCalendarDraftFromAgent(
+  intent: SmsAgentIntent,
+  timezone: string,
+  layerChoices: string[],
+): { draft: CalendarAddDraft | null; question: string | null } {
+  const title = normalizeCalendarTitle(String(intent.title || ""));
+  if (!title) return { draft: null, question: "What should I call that calendar event?" };
+
+  const date = parseAgentDateText(intent.dateText, timezone);
+  if (!date) return { draft: null, question: `What date should I put ${title} on?` };
+
+  const layer = resolveAgentLayer(intent.layer, layerChoices);
+  if (intent.layer && !layer) {
+    return { draft: null, question: formatCalendarLayerQuestion(layerChoices) };
+  }
+
+  if (intent.allDay || !intent.timeText) {
+    if (!intent.allDay && !intent.timeText) {
+      return { draft: null, question: `What time should I put ${title} on ${date.toFormat("LLL d")}?` };
+    }
+    return {
+      draft: {
+        title,
+        layer,
+        startsAt: date.set({ hour: 12, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO() || "",
+        endsAt: null,
+        allDay: true,
+        locationText: intent.locationText || null,
+        description: intent.description || null,
+      },
+      question: null,
+    };
+  }
+
+  const startsAt = parseTimeForZone(intent.timeText, date, timezone);
+  if (!startsAt) return { draft: null, question: `What time should I put ${title} on ${date.toFormat("LLL d")}?` };
+  const endsAt = intent.endTimeText ? parseTimeForZone(intent.endTimeText, date, timezone) : startsAt.plus({ hours: 1 });
+
+  return {
+    draft: {
+      title,
+      layer,
+      startsAt: startsAt.toUTC().toISO() || "",
+      endsAt: (endsAt || startsAt.plus({ hours: 1 })).toUTC().toISO() || null,
+      allDay: false,
+      locationText: intent.locationText || null,
+      description: intent.description || null,
+    },
+    question: null,
+  };
+}
+
+function buildReminderIntentFromAgent(
+  intent: SmsAgentIntent,
+  timezone: string,
+): { reminder: TextReminderIntent | null; question: string | null } {
+  const title = titleCaseWords(String(intent.title || "").trim().toLowerCase());
+  if (!title) return { reminder: null, question: "What should I remind you to do?" };
+  if (!intent.timeText) return { reminder: null, question: `What time should I remind you to ${title.toLowerCase()}?` };
+
+  const localNow = DateTime.now().setZone(timezone);
+  let date = parseAgentDateText(intent.dateText, timezone);
+  let sendAt: DateTime | null = null;
+  if (date) {
+    sendAt = parseTimeForZone(intent.timeText, date, timezone);
+  } else {
+    date = localNow.startOf("day");
+    sendAt = parseTimeForZone(intent.timeText, date, timezone);
+    if (sendAt && sendAt <= localNow.plus({ minutes: 1 })) {
+      date = date.plus({ days: 1 });
+      sendAt = parseTimeForZone(intent.timeText, date, timezone);
+    }
+  }
+  if (!sendAt) return { reminder: null, question: `What time should I remind you to ${title.toLowerCase()}?` };
+
+  return {
+    reminder: {
+      title,
+      personName: intent.personName,
+      sendAt: sendAt.toUTC().toISO() || "",
+    },
+    question: null,
+  };
+}
+
+function buildTaskIntentFromAgent(
+  intent: SmsAgentIntent,
+  timezone: string,
+): { task: TaskAddIntent | null; question: string | null } {
+  const title = titleCaseWords(String(intent.title || "").trim().toLowerCase());
+  if (!title) return { task: null, question: "What task should I add?" };
+
+  let dueDate = parseAgentDateText(intent.dateText, timezone);
+  let reminderTime: DateTime | null = null;
+  if (intent.timeText) {
+    if (!dueDate) {
+      const localNow = DateTime.now().setZone(timezone);
+      dueDate = localNow.startOf("day");
+      reminderTime = parseTimeForZone(intent.timeText, dueDate, timezone);
+      if (reminderTime && reminderTime <= localNow.plus({ minutes: 1 })) {
+        dueDate = dueDate.plus({ days: 1 });
+        reminderTime = parseTimeForZone(intent.timeText, dueDate, timezone);
+      }
+    } else {
+      reminderTime = parseTimeForZone(intent.timeText, dueDate, timezone);
+    }
+    if (!reminderTime) return { task: null, question: `What time should I remind you about ${title}?` };
+  }
+
+  return {
+    task: {
+      title,
+      personName: intent.personName,
+      dueDate: dueDate?.toISODate() || undefined,
+      reminderTime: reminderTime?.toFormat("HH:mm") || undefined,
+    },
+    question: null,
+  };
+}
+
+async function logMealIntentFromAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { document, fullName } = await loadProfileSettingsContext(supabase, userId);
+  const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
+  const person = resolvePersonByName(profiles, intent.personName || "me");
+  if (!person) {
+    return `I couldn't find ${intent.personName || "that person"}. Reply with the exact dashboard name, like Ken or Katie.`;
+  }
+
+  const recipeName = String(intent.recipeName || intent.title || "").trim();
+  if (!recipeName) return "What saved recipe or food should I log?";
+
+  const { recipe, ambiguousMatches } = await findRecipeForMealLog(supabase, userId, recipeName);
+  if (!recipe && ambiguousMatches.length > 0) {
+    return `I found a few recipes that could match ${recipeName}: ${ambiguousMatches.join(", ")}. Reply with the exact recipe name to log it.`;
+  }
+  if (!recipe) {
+    return `I couldn't find a saved recipe named ${recipeName}. It has to already be in your recipe library before I can log it.`;
+  }
+
+  const servings = Math.max(0.25, intent.servings || 1);
+  const { logId } = await addMealLogBySms(supabase, userId, timezone, person.id, recipe, servings);
+  const latestDocument = await loadProfileSettingsDocument(supabase, userId);
+  await saveSmsAssistantContext(supabase, userId, latestDocument, {
+    ...normalizeSmsAssistantContext(getDocumentValue(latestDocument, ["appPreferences", "smsAssistant"])),
+    lastMealLog: {
+      logId,
+      title: recipe.name,
+      personId: person.id,
+      personName: person.name,
+      servings,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+
+  const servingsLabel = servings === 1 ? "1 serving" : `${servings} servings`;
+  return `Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`;
+}
+
+async function tryHandleSmsAgentFallback(
+  supabase: ReturnType<typeof createClient>,
+  pref: InboundSmsPreferenceRow,
+  timezone: string,
+  rawBody: string,
+  normalizedBody: string,
+  profileSettingsDocument: Record<string, unknown>,
+  smsAssistantDocument: Record<string, unknown>,
+  smsAssistantContext: SmsAssistantContext,
+  from: string,
+): Promise<string | null> {
+  const textForAi = rawBody.trim() || normalizedBody;
+  if (!textForAi) return null;
+
+  const [{ document: profileDocument, fullName }, layerChoices] = await Promise.all([
+    loadProfileSettingsContext(supabase, pref.user_id),
+    loadCalendarLayerChoices(supabase, pref.user_id),
+  ]);
+  const macroProfiles = macroProfilesFromDocument(profileDocument, { accountFullName: fullName });
+  const intent = await parseSmsAgentIntentWithAi(textForAi, timezone, pref.user_id, {
+    calendarLayers: layerChoices,
+    macroProfiles,
+    context: smsAssistantContext,
+  });
+  if (!intent || intent.action === "unsupported") return null;
+
+  if (intent.action === "clarify") {
+    return intent.question || "What would you like me to do with that?";
+  }
+
+  if (intent.action === "calendar_add") {
+    const { draft, question } = buildCalendarDraftFromAgent(intent, timezone, layerChoices);
+    if (question) return question;
+    if (!draft) return "I couldn't clearly read that calendar event. What should I add?";
+    if (!draft.layer) {
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        pendingCalendarAdd: {
+          title: draft.title,
+          startsAt: draft.startsAt,
+          endsAt: draft.endsAt,
+          allDay: draft.allDay,
+          locationText: draft.locationText || null,
+          description: draft.description || null,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return formatCalendarLayerQuestion(layerChoices);
+    }
+    const result = await addCalendarEventBySms(supabase, pref.user_id, timezone, draft as CalendarAddIntent);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      pendingCalendarAdd: null,
+      lastCalendarEvent: {
+        eventId: result.eventId,
+        title: draft.title,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return result.reply;
+  }
+
+  if (intent.action === "calendar_delete") {
+    const title = normalizeCalendarTitle(String(intent.title || ""));
+    if (!title && smsAssistantContext.lastCalendarEvent?.eventId) {
+      return await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, smsAssistantContext, { deleteEvent: true });
+    }
+    if (!title) return "Which calendar event should I remove?";
+    const layer = resolveAgentLayer(intent.layer, layerChoices);
+    return await deleteCalendarEventBySms(supabase, pref.user_id, timezone, {
+      title,
+      layer,
+      dateText: intent.dateText || null,
+      timeText: intent.timeText || null,
+    });
+  }
+
+  if (intent.action === "schedule_lookup") {
+    const parsedDate = parseAgentDateText(intent.dateText, timezone);
+    if (parsedDate) {
+      return await buildScheduleReplyForDate(
+        supabase,
+        pref.user_id,
+        parsedDate,
+        timezone,
+        CALENDAR_AGENDA_MODULES,
+        pref,
+        profileSettingsDocument,
+      );
+    }
+    const localToday = DateTime.now().setZone(timezone).startOf("day");
+    if (intent.range === "tomorrow") {
+      return await buildTomorrowScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    }
+    if (intent.range === "next_week") {
+      const nextMonday = localToday.plus({ weeks: 1 }).minus({ days: localToday.weekday - 1 }).startOf("day");
+      return await buildScheduleRangeReply(supabase, pref.user_id, timezone, "Next week", nextMonday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    }
+    if (intent.range === "this_week") {
+      const monday = localToday.minus({ days: localToday.weekday - 1 }).startOf("day");
+      return await buildScheduleRangeReply(supabase, pref.user_id, timezone, "This week", monday, 7, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    }
+    if (intent.range === "next_7_days") {
+      return await buildNextWeekScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+    }
+    return await buildTodayScheduleReply(supabase, pref.user_id, timezone, CALENDAR_AGENDA_MODULES, pref, profileSettingsDocument);
+  }
+
+  if (intent.action === "grocery_add") {
+    const name = String(intent.itemName || "").trim();
+    if (!name) return "What should I add to the grocery list?";
+    return await addGroceryItemBySms(supabase, pref.user_id, timezone, {
+      name,
+      quantity: intent.quantity || "1x",
+      weekly: !!intent.weekly,
+    });
+  }
+
+  if (intent.action === "grocery_remove") {
+    const name = String(intent.itemName || "").trim();
+    if (!name) return "What should I remove from the grocery list?";
+    return await removeGroceryItemBySms(supabase, pref.user_id, timezone, { name });
+  }
+
+  if (intent.action === "grocery_list") {
+    return await buildGroceryListReply(supabase, pref.user_id, timezone);
+  }
+
+  if (intent.action === "grocery_ordered" || intent.action === "grocery_not_ordered") {
+    return await updateGroceryOrderBySms(
+      supabase,
+      pref.user_id,
+      timezone,
+      intent.action === "grocery_ordered" ? "ordered" : "not_ordered",
+    );
+  }
+
+  if (intent.action === "reminder_add") {
+    const { reminder, question } = buildReminderIntentFromAgent(intent, timezone);
+    if (question) return question;
+    if (!reminder) return "What reminder should I set?";
+    return await addTextReminderBySms(supabase, pref.user_id, timezone, from, reminder);
+  }
+
+  if (intent.action === "task_add") {
+    const { task, question } = buildTaskIntentFromAgent(intent, timezone);
+    if (question) return question;
+    if (!task) return "What task should I add?";
+    return await addTaskBySms(supabase, pref.user_id, timezone, task);
+  }
+
+  if (intent.action === "task_complete") {
+    const title = String(intent.title || "").trim();
+    if (!title) return "Which task should I mark done?";
+    return await completeTaskBySms(supabase, pref.user_id, { title });
+  }
+
+  if (intent.action === "open_tasks") {
+    return await buildOpenTasksReply(supabase, pref.user_id, timezone);
+  }
+
+  if (intent.action === "water_log") {
+    const person = resolvePersonByName(macroProfiles, intent.personName || "me");
+    if (!person) return `I couldn't find ${intent.personName || "that person"}. Reply with the exact dashboard name, like Ken or Katie.`;
+    const requestedOunces = Math.round(intent.ounces || 0);
+    if (!requestedOunces) return "How many ounces of water should I log?";
+    const ounces = Math.max(1, requestedOunces);
+    await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, ounces);
+    return `Logged ${ounces} oz of water for ${person.name}.`;
+  }
+
+  if (intent.action === "meal_log") {
+    return await logMealIntentFromAgent(supabase, pref.user_id, timezone, intent);
+  }
+
+  if (intent.action === "meal_lookup") {
+    if (intent.range === "next_week") {
+      return await buildMealsReply(supabase, pref.user_id, timezone, true);
+    }
+    if (intent.range === "tonight" || intent.range === "today") {
+      return await buildTonightDinnerReply(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
+    }
+    return await buildMealsReply(supabase, pref.user_id, timezone, false);
+  }
+
+  if (intent.action === "meal_plan_run") {
+    const localNow = DateTime.now().setZone(timezone).startOf("day");
+    const targetWeekOf = intent.range === "this_week"
+      ? weekOfIso(localNow)
+      : weekOfIso(localNow.plus({ weeks: 1 }));
+    const result = await generateMealsForWeekBySms(supabase, pref.user_id, targetWeekOf);
+    return `Done. I generated ${result.inserted} meals${result.lockedKept ? ` and kept ${result.lockedKept} locked` : ""} for week of ${targetWeekOf}. Your grocery list is ready in Home Harmony.`;
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
@@ -3819,7 +4461,8 @@ serve(async (req) => {
 
     const params = new URLSearchParams(rawBody);
     const from = params.get("From")?.trim() || "";
-    const body = normalizeKeyword(params.get("Body") || "");
+    const incomingBody = params.get("Body")?.trim() || "";
+    const body = normalizeKeyword(incomingBody);
     const messageStatus = params.get("MessageStatus") || "";
 
     const supabase = createClient(supabaseUrl, serviceRole);
@@ -3881,7 +4524,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony commands:\n- add dentist appt to Katie calendar on 4/6 at 9:00 AM\n- delete dentist appt from Katie calendar on 4/6 at 9:00 AM\n- text a screenshot with 'add this to calendar'\n- then follow up with 'change it to Katie calendar', 'remind me 45 min before', 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- remind me tomorrow at 3 PM to take the trash out\n- add milk to grocery list\n- remove milk from grocery list\n- mark groceries ordered\n- undo grocery order\n- what's on the grocery list\n- add task take trash to road for Ken tomorrow at 6 PM\n- mark take trash to road done\n- what tasks are open today\n- add water log to ken drank 32 oz\n- log air fryer orange chicken for ken\n- add ken's morning smoothie and ken's greek yogurt fruit bowl to ken's meal log for breakfast this morning\n- then follow up with 'change that to 2 servings' or 'delete that meal'\n- What do I have tomorrow?\n- What meals do we have this week?\n- Run meals for next week\nReply STOP to pause or START to resume.",
+        "Home Harmony can understand natural texts. Examples:\n- Add dentist appt to Katie calendar on 4/6 at 9 AM\n- Add girls soccer at 11 AM tomorrow to the family calendar\n- Remove dentist appt from calendar tomorrow\n- Text a screenshot with 'add this to calendar'\n- Follow up with 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- Remind Ken at 11 AM to get trash bags\n- Add yogurt to my grocery list\n- Make paper towels a weekly grocery staple\n- Remove milk from grocery list\n- What's on my schedule Friday?\n- What's on the grocery list?\n- Add task take trash to road for Ken tomorrow at 6 PM\n- Log 32 oz water for Ken\n- Log 2 servings of air fryer orange chicken for Ken\n- What meals do we have this week?\n- Run meals for next week\nIf I need a missing detail, I'll ask. Reply STOP to pause or START to resume.",
       );
     }
 
@@ -3904,7 +4547,7 @@ serve(async (req) => {
       metadata: {
         from: normalizePhone(from),
         mediaCount: Number.isFinite(numMedia) ? numMedia : 0,
-        bodyLength: body.length,
+        bodyLength: incomingBody.length || body.length,
       },
     });
 
@@ -4138,6 +4781,18 @@ serve(async (req) => {
       !!pendingCalendarAdd &&
       !!pendingCalendarAddUpdatedAt?.isValid &&
       pendingCalendarAddUpdatedAt >= DateTime.now().setZone(timezone).minus({ hours: 24 });
+    const tryAgentFallbackReply = () =>
+      tryHandleSmsAgentFallback(
+        supabase,
+        pref,
+        timezone,
+        incomingBody,
+        body,
+        profileSettingsDocument,
+        smsAssistantDocument,
+        smsAssistantContext,
+        from,
+      );
 
     if (hasFreshPendingCalendarAdd) {
       try {
@@ -4223,7 +4878,7 @@ serve(async (req) => {
     let calendarIntent = parseCalendarAddIntent(body, timezone);
     if (!calendarIntent && likelyCalendarAdd) {
       try {
-        calendarIntent = await parseCalendarAddIntentWithAi(body, timezone, pref.user_id);
+        calendarIntent = await parseCalendarAddIntentWithAi(incomingBody || body, timezone, pref.user_id);
       } catch (error) {
         console.error("sms ai calendar parse failed:", error);
       }
@@ -4269,6 +4924,14 @@ serve(async (req) => {
       }
     }
     if (likelyCalendarAdd) {
+      try {
+        const agentReply = await tryAgentFallbackReply();
+        if (agentReply) return twiml(agentReply);
+      } catch (error) {
+        console.error("sms agent fallback failed:", error);
+        const detail = describeUnknownError(error);
+        return twiml(`I hit an error while thinking through that text: ${detail}`);
+      }
       return twiml("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.");
     }
 
@@ -4391,6 +5054,15 @@ serve(async (req) => {
         profileSettingsDocument,
       );
       return twiml(reply);
+    }
+
+    try {
+      const agentReply = await tryAgentFallbackReply();
+      if (agentReply) return twiml(agentReply);
+    } catch (error) {
+      console.error("sms agent fallback failed:", error);
+      const detail = describeUnknownError(error);
+      return twiml(`I hit an error while thinking through that text: ${detail}`);
     }
 
     return twiml("I didn't catch that. Reply HELP for examples.");
