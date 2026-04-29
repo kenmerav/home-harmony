@@ -197,6 +197,12 @@ type SmsAssistantContext = {
     servings: number;
     updatedAt: string;
   } | null;
+  pendingAgentAction?: {
+    action: SmsAgentIntent["action"];
+    intent: Record<string, unknown>;
+    description: string;
+    updatedAt: string;
+  } | null;
 };
 
 type SmsTextReminder = {
@@ -270,10 +276,31 @@ type SmsAgentIntent = {
     | "meal_log"
     | "meal_lookup"
     | "meal_plan_run"
+    | "meal_log_update"
+    | "meal_log_delete"
+    | "meal_plan_set"
+    | "meal_plan_skip"
+    | "recipe_update"
+    | "recipe_delete"
+    | "saved_food_update"
+    | "saved_food_delete"
+    | "grocery_update"
+    | "task_update"
+    | "task_delete"
+    | "reminder_delete"
+    | "chore_add"
+    | "chore_update"
+    | "chore_delete"
+    | "chore_complete"
+    | "skill_add"
+    | "skill_update"
+    | "skill_delete"
+    | "skill_complete"
     | "account_question"
     | "clarify"
     | "unsupported";
   title?: string;
+  newTitle?: string;
   itemName?: string;
   recipeName?: string;
   personName?: string;
@@ -286,8 +313,21 @@ type SmsAgentIntent = {
   description?: string;
   quantity?: string;
   weekly?: boolean;
+  frequency?: string;
+  dayOfWeek?: string;
+  days?: string[];
   servings?: number;
   ounces?: number;
+  minutes?: number;
+  points?: number;
+  rewardAmount?: number;
+  rewardType?: string;
+  mealType?: string;
+  courseType?: string;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
   range?: "today" | "tomorrow" | "tonight" | "this_week" | "next_week" | "next_7_days" | "";
   question?: string;
 };
@@ -1047,6 +1087,26 @@ function normalizeSmsAgentIntent(input: Record<string, unknown> | null): SmsAgen
     "meal_log",
     "meal_lookup",
     "meal_plan_run",
+    "meal_log_update",
+    "meal_log_delete",
+    "meal_plan_set",
+    "meal_plan_skip",
+    "recipe_update",
+    "recipe_delete",
+    "saved_food_update",
+    "saved_food_delete",
+    "grocery_update",
+    "task_update",
+    "task_delete",
+    "reminder_delete",
+    "chore_add",
+    "chore_update",
+    "chore_delete",
+    "chore_complete",
+    "skill_add",
+    "skill_update",
+    "skill_delete",
+    "skill_complete",
     "account_question",
     "clarify",
     "unsupported",
@@ -1069,12 +1129,39 @@ function normalizeSmsAgentIntent(input: Record<string, unknown> | null): SmsAgen
     }
     return undefined;
   };
+  const nonNegativeNumberField = (...keys: string[]): number | undefined => {
+    for (const key of keys) {
+      const value = input[key];
+      const parsed = typeof value === "number" ? value : Number(value);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return undefined;
+  };
+  const stringArrayField = (...keys: string[]): string[] | undefined => {
+    for (const key of keys) {
+      const value = input[key];
+      if (Array.isArray(value)) {
+        const items = value
+          .map((item) => String(item || "").trim().toLowerCase().replace(/-/g, "_"))
+          .filter(Boolean);
+        if (items.length) return items;
+      }
+      if (typeof value === "string" && value.trim()) {
+        const items = value.split(/[,|]/)
+          .map((item) => item.trim().toLowerCase().replace(/-/g, "_"))
+          .filter(Boolean);
+        if (items.length) return items;
+      }
+    }
+    return undefined;
+  };
   const range = String(input.range || "").trim().toLowerCase().replace(/-/g, "_");
   const allowedRanges = new Set(["today", "tomorrow", "tonight", "this_week", "next_week", "next_7_days", ""]);
 
   return {
     action: rawAction as SmsAgentIntent["action"],
     title: stringField("title", "eventTitle", "taskTitle", "reminderTitle"),
+    newTitle: stringField("newTitle", "newName", "renameTo"),
     itemName: stringField("itemName", "groceryItem", "name"),
     recipeName: stringField("recipeName", "mealName"),
     personName: stringField("personName", "person", "recipient"),
@@ -1087,8 +1174,21 @@ function normalizeSmsAgentIntent(input: Record<string, unknown> | null): SmsAgen
     description: stringField("description", "notes"),
     quantity: stringField("quantity"),
     weekly: parseBoolean(input.weekly),
+    frequency: stringField("frequency", "cadence"),
+    dayOfWeek: stringField("dayOfWeek", "weekday"),
+    days: stringArrayField("days", "weekdays"),
     servings: numberField("servings"),
     ounces: numberField("ounces", "waterOz"),
+    minutes: numberField("minutes", "targetMinutes"),
+    points: nonNegativeNumberField("points"),
+    rewardAmount: nonNegativeNumberField("rewardAmount", "reward"),
+    rewardType: stringField("rewardType", "rewardUnit"),
+    mealType: stringField("mealType", "defaultMealType"),
+    courseType: stringField("courseType", "dishType"),
+    calories: nonNegativeNumberField("calories", "cal"),
+    protein_g: nonNegativeNumberField("protein_g", "protein"),
+    carbs_g: nonNegativeNumberField("carbs_g", "carbs"),
+    fat_g: nonNegativeNumberField("fat_g", "fat"),
     range: allowedRanges.has(range) ? range as SmsAgentIntent["range"] : "",
     question: stringField("question", "clarification"),
   };
@@ -1124,8 +1224,9 @@ Return JSON only. Do not write prose.
 
 Schema:
 {
-  "action": "calendar_add" | "calendar_delete" | "schedule_lookup" | "grocery_add" | "grocery_remove" | "grocery_list" | "grocery_ordered" | "grocery_not_ordered" | "reminder_add" | "task_add" | "task_complete" | "open_tasks" | "water_log" | "meal_log" | "meal_lookup" | "meal_plan_run" | "account_question" | "clarify" | "unsupported",
+  "action": "calendar_add" | "calendar_delete" | "schedule_lookup" | "grocery_add" | "grocery_remove" | "grocery_list" | "grocery_ordered" | "grocery_not_ordered" | "reminder_add" | "task_add" | "task_complete" | "open_tasks" | "water_log" | "meal_log" | "meal_lookup" | "meal_plan_run" | "meal_log_update" | "meal_log_delete" | "meal_plan_set" | "meal_plan_skip" | "recipe_update" | "recipe_delete" | "saved_food_update" | "saved_food_delete" | "grocery_update" | "task_update" | "task_delete" | "reminder_delete" | "chore_add" | "chore_update" | "chore_delete" | "chore_complete" | "skill_add" | "skill_update" | "skill_delete" | "skill_complete" | "account_question" | "clarify" | "unsupported",
   "title": "calendar/task/reminder title, or empty",
+  "newTitle": "new name/title when renaming, or empty",
   "itemName": "grocery item only, or empty",
   "recipeName": "saved recipe or food name, or empty",
   "personName": "person/dashboard name, or empty",
@@ -1138,10 +1239,23 @@ Schema:
   "description": "",
   "quantity": "quantity for grocery item, or 1x",
   "weekly": false,
+  "frequency": "daily | weekly | weekly_any | custom_weekly | monthly | once | empty",
+  "dayOfWeek": "monday | tuesday | ... | sunday | empty",
+  "days": ["monday"],
   "servings": 1,
   "ounces": 0,
+  "minutes": 0,
+  "points": 0,
+  "rewardAmount": 0,
+  "rewardType": "money | points | empty",
+  "mealType": "breakfast | lunch | dinner | snack | empty",
+  "courseType": "main | side | dessert | empty",
+  "calories": 0,
+  "protein_g": 0,
+  "carbs_g": 0,
+  "fat_g": 0,
   "range": "today | tomorrow | tonight | this_week | next_week | next_7_days | empty",
-  "question": "only for clarify"
+  "question": "for clarify or account_question"
 }
 
 Rules:
@@ -1154,6 +1268,15 @@ Rules:
 - Reminder add is for texts like "remind Ken at 11 AM to get trash bags"; title is only what to do.
 - Task add is for creating app tasks, not text reminders.
 - Meal log only logs saved recipes/foods; include personName if the user says who ate it.
+- Use task_update/task_delete for editing or deleting existing tasks.
+- Use grocery_update for changing an existing grocery item's quantity/name/category or whether it repeats weekly.
+- Use reminder_delete for canceling/removing a text reminder.
+- Use recipe_update/recipe_delete for saved recipes. Put the current recipe in recipeName or title; put a renamed recipe in newTitle.
+- Use saved_food_update/saved_food_delete for saved foods/common foods.
+- Use meal_log_update/meal_log_delete for food already logged in nutrition. Include dateText and personName when provided; use servings/macros for changes.
+- Use meal_plan_set to put a recipe on a day. Use meal_plan_skip for "no meal needed"; include dateText/dayOfWeek and range if this week/next week is clear.
+- Use chore_add/chore_update/chore_delete/chore_complete for kid chores. Use personName for the child, title for the chore, frequency/days/rewardAmount/rewardType for setup.
+- Use skill_add/skill_update/skill_delete/skill_complete for kid Skill Development. Use personName for the child, title for the skill, minutes/points/frequency/days for setup.
 - Use account_question for conversational questions about the user's stored Home Harmony data, like family setup, saved recipes, saved foods, grocery staples, logged meals, chores, skills, tasks, settings, reminders, or account status.
 - For account_question, put the user's question in "question"; do not answer it here.
 - If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
@@ -1378,6 +1501,7 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
   const rawLast = record.lastCalendarEvent;
   const rawPendingCalendarAdd = record.pendingCalendarAdd;
   const rawMeal = record.lastMealLog;
+  const rawPendingAgentAction = record.pendingAgentAction;
   const context: SmsAssistantContext = {};
 
   if (rawLast && typeof rawLast === "object" && !Array.isArray(rawLast)) {
@@ -1431,6 +1555,24 @@ function normalizeSmsAssistantContext(input: unknown): SmsAssistantContext {
         personId: personId || "me",
         personName: personName || "your dashboard",
         servings: Number.isFinite(servings) && servings > 0 ? servings : 1,
+        updatedAt,
+      };
+    }
+  }
+
+  if (rawPendingAgentAction && typeof rawPendingAgentAction === "object" && !Array.isArray(rawPendingAgentAction)) {
+    const pending = rawPendingAgentAction as Record<string, unknown>;
+    const action = String(pending.action || "").trim().toLowerCase().replace(/-/g, "_");
+    const intent = pending.intent && typeof pending.intent === "object" && !Array.isArray(pending.intent)
+      ? pending.intent as Record<string, unknown>
+      : {};
+    const description = typeof pending.description === "string" ? pending.description.trim() : "";
+    const updatedAt = typeof pending.updatedAt === "string" ? pending.updatedAt.trim() : "";
+    if (action && Object.keys(intent).length && updatedAt) {
+      context.pendingAgentAction = {
+        action: action as SmsAgentIntent["action"],
+        intent,
+        description: description || "that change",
         updatedAt,
       };
     }
@@ -4851,6 +4993,762 @@ Return JSON only: {"reply":"..."}`;
   return reply ? truncateForSmsAgent(reply, 1400) : null;
 }
 
+const ADVANCED_SMS_AGENT_ACTIONS = new Set<SmsAgentIntent["action"]>([
+  "meal_log_update",
+  "meal_log_delete",
+  "meal_plan_set",
+  "meal_plan_skip",
+  "recipe_update",
+  "recipe_delete",
+  "saved_food_update",
+  "saved_food_delete",
+  "grocery_update",
+  "task_update",
+  "task_delete",
+  "reminder_delete",
+  "chore_add",
+  "chore_update",
+  "chore_delete",
+  "chore_complete",
+  "skill_add",
+  "skill_update",
+  "skill_delete",
+  "skill_complete",
+]);
+
+const DESTRUCTIVE_SMS_AGENT_ACTIONS = new Set<SmsAgentIntent["action"]>([
+  "meal_log_delete",
+  "recipe_delete",
+  "saved_food_delete",
+  "task_delete",
+  "reminder_delete",
+  "chore_delete",
+  "skill_delete",
+]);
+
+function isAffirmativeText(value: string): boolean {
+  return /^(yes|y|yeah|yep|confirm|confirmed|do it|go ahead|please do)$/i.test(trimTrailingPunctuation(value.trim()));
+}
+
+function isNegativeText(value: string): boolean {
+  return /^(no|n|cancel|stop|never mind|nevermind|don't|do not)$/i.test(trimTrailingPunctuation(value.trim()));
+}
+
+function isFreshPendingAgentAction(context: SmsAssistantContext, timezone: string): boolean {
+  const updatedAt = context.pendingAgentAction?.updatedAt
+    ? DateTime.fromISO(context.pendingAgentAction.updatedAt, { zone: timezone })
+    : null;
+  return !!context.pendingAgentAction && !!updatedAt?.isValid && updatedAt >= DateTime.now().setZone(timezone).minus({ minutes: 30 });
+}
+
+async function queueSmsAgentConfirmation(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  document: Record<string, unknown>,
+  context: SmsAssistantContext,
+  intent: SmsAgentIntent,
+  description: string,
+): Promise<string> {
+  const pendingIntent = Object.entries(intent).reduce<Record<string, unknown>>((next, [key, value]) => {
+    if (typeof value !== "undefined" && value !== "") next[key] = value;
+    return next;
+  }, {});
+  await saveSmsAssistantContext(supabase, userId, document, {
+    ...context,
+    pendingAgentAction: {
+      action: intent.action,
+      intent: pendingIntent,
+      description,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+  return `${description}. Reply YES to confirm, or NO to cancel.`;
+}
+
+function normalizeDayName(value: string | null | undefined): MealDay | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  const compact = normalized.replace(/[^a-z]/g, "");
+  const byPrefix = MEAL_DAYS.find((day) => day === compact || day.startsWith(compact.slice(0, 3)));
+  return byPrefix || null;
+}
+
+function daysFromIntent(intent: SmsAgentIntent): MealDay[] {
+  const rawDays = [
+    ...(intent.days || []),
+    intent.dayOfWeek || "",
+    intent.dateText || "",
+  ];
+  const days = rawDays
+    .flatMap((value) => String(value || "").split(/[,/&]|\band\b/i))
+    .map((value) => normalizeDayName(value))
+    .filter((day): day is MealDay => !!day);
+  return Array.from(new Set(days));
+}
+
+function scoreNamedMatch(name: string, query: string): number {
+  const normalizedName = normalizeToken(name);
+  const normalizedQuery = normalizeToken(query);
+  if (!normalizedName || !normalizedQuery) return 0;
+  if (normalizedName === normalizedQuery) return 1000;
+  if (normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName)) return 700;
+  const words = normalizedQuery.split(" ").filter((word) => word.length > 2);
+  return words.reduce((score, word) => score + (normalizedName.includes(word) ? 20 : 0), 0);
+}
+
+function findBestNamedMatch<T>(
+  items: T[],
+  query: string,
+  getName: (item: T) => string,
+): { item: T | null; ambiguous: T[] } {
+  const scored = items
+    .map((item) => ({ item, score: scoreNamedMatch(getName(item), query) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!scored.length) return { item: null, ambiguous: [] };
+  const topScore = scored[0].score;
+  const top = scored.filter((entry) => entry.score === topScore).map((entry) => entry.item);
+  return {
+    item: top.length === 1 ? top[0] : null,
+    ambiguous: top.length > 1 ? top : [],
+  };
+}
+
+function formatAmbiguousNames<T>(items: T[], getName: (item: T) => string): string {
+  return items.slice(0, 4).map(getName).join(", ");
+}
+
+async function loadSharedProfileSettingsDocument(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ ownerId: string; document: Record<string, unknown>; fullName: string | null }> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const { document, fullName } = await loadProfileSettingsContext(supabase, ownerId);
+  return { ownerId, document, fullName };
+}
+
+function groceryItemMatches(item: GroceryManualItem, query: string): boolean {
+  return scoreNamedMatch(item.name, query) > 0;
+}
+
+async function updateGroceryItemBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const activeWeekOf = activeGroceryWeekOf(groceryState, timezone);
+  const activeWeek = groceryState.weekStates[activeWeekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+  const query = String(intent.itemName || intent.title || "").trim();
+  if (!query) return "Which grocery item should I edit?";
+
+  const candidates = [
+    ...groceryState.recurringItems.map((item) => ({ item, source: "weekly" as const })),
+    ...activeWeek.manualItems.map((item) => ({ item, source: "current" as const })),
+  ];
+  const { item: match, ambiguous } = findBestNamedMatch(candidates, query, (entry) => entry.item.name);
+  if (ambiguous.length) return `I found a few grocery items that could match ${query}: ${formatAmbiguousNames(ambiguous, (entry) => entry.item.name)}. Reply with the exact item.`;
+  if (!match) return `I couldn't find ${query} on your grocery list.`;
+
+  const nextName = normalizeGroceryItemName(intent.newTitle || intent.itemName || match.item.name);
+  const nextItem: GroceryManualItem = {
+    ...match.item,
+    name: nextName || match.item.name,
+    quantity: intent.quantity || match.item.quantity,
+    category: guessGroceryCategory(nextName || match.item.name),
+    createdAt: match.item.createdAt || new Date().toISOString(),
+  };
+
+  groceryState.recurringItems = groceryState.recurringItems.filter((item) => item.id !== match.item.id);
+  const nextManualItems = activeWeek.manualItems.filter((item) => item.id !== match.item.id);
+  const makeWeekly = intent.weekly === true || normalizeToken(intent.frequency || "").includes("weekly");
+  const makeOneTime = intent.weekly === false && /not weekly|one time|this week only/i.test(`${intent.description || ""} ${intent.frequency || ""}`);
+
+  if (makeWeekly || (!makeOneTime && match.source === "weekly")) {
+    groceryState.recurringItems.push(nextItem);
+    groceryState.weekStates[activeWeekOf] = { ...activeWeek, manualItems: nextManualItems };
+  } else {
+    groceryState.weekStates[activeWeekOf] = { ...activeWeek, manualItems: [...nextManualItems, nextItem] };
+  }
+
+  const nextDocument = setDocumentValue(document, ["appPreferences", "groceryList"], groceryState);
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Updated ${match.item.name} to ${nextItem.quantity} ${nextItem.name}${makeWeekly ? " as a weekly staple" : ""}.`;
+}
+
+async function updateTaskBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document, fullName } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const query = String(intent.title || "").trim();
+  if (!query) return "Which task should I edit?";
+  const { item: task, ambiguous } = findBestNamedMatch(tasks, query, (item) => item.title);
+  if (ambiguous.length) return `I found a few tasks that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.title)}. Reply with the exact task.`;
+  if (!task) return `I couldn't find a task named ${query}.`;
+
+  const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
+  const person = intent.personName ? resolvePersonByName(profiles, intent.personName) : null;
+  const dueDate = parseAgentDateText(intent.dateText, timezone);
+  const reminderTime = intent.timeText && dueDate ? parseTimeForZone(intent.timeText, dueDate, timezone) : null;
+  const frequency = normalizeToken(intent.frequency || "");
+  const nextFrequency: StoredTask["frequency"] =
+    frequency === "daily" || frequency === "weekly" || frequency === "monthly" || frequency === "yearly" || frequency === "once"
+      ? frequency
+      : task.frequency;
+  const day = normalizeDayName(intent.dayOfWeek || intent.dateText || "") || task.day;
+
+  const nextTasks = tasks.map((item) => item.id === task.id
+    ? {
+        ...item,
+        title: intent.newTitle || item.title,
+        notes: intent.description || item.notes,
+        frequency: nextFrequency,
+        day: day || item.day,
+        assignedToId: person?.id || item.assignedToId,
+        assignedToName: person?.name || item.assignedToName,
+        dueDate: dueDate?.toISODate() || item.dueDate,
+        reminderEnabled: Boolean(reminderTime || item.reminderEnabled),
+        reminderTime: reminderTime?.toFormat("HH:mm") || item.reminderTime,
+      }
+    : item);
+  const nextDocument = setDocumentValue(document, ["appPreferences", "tasks"], nextTasks);
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Updated task ${task.title}.`;
+}
+
+async function deleteTaskBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const query = String(intent.title || "").trim();
+  if (!query) return "Which task should I delete?";
+  const { item: task, ambiguous } = findBestNamedMatch(tasks, query, (item) => item.title);
+  if (ambiguous.length) return `I found a few tasks that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.title)}. Reply with the exact task.`;
+  if (!task) return `I couldn't find a task named ${query}.`;
+  const nextDocument = setDocumentValue(document, ["appPreferences", "tasks"], tasks.filter((item) => item.id !== task.id));
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Deleted task ${task.title}.`;
+}
+
+async function deleteTextReminderBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const reminders = normalizeSmsTextReminders(getDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"]));
+  const query = String(intent.title || "").trim();
+  if (!query) return "Which reminder should I delete?";
+  const openReminders = reminders.filter((reminder) => !reminder.completedAt);
+  const { item: reminder, ambiguous } = findBestNamedMatch(openReminders, query, (item) => item.title);
+  if (ambiguous.length) return `I found a few reminders that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.title)}. Reply with the exact reminder.`;
+  if (!reminder) return `I couldn't find an open reminder named ${query}.`;
+  const nextDocument = setDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"], reminders.filter((item) => item.id !== reminder.id));
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Deleted reminder ${reminder.title}.`;
+}
+
+async function updateRecipeBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const query = String(intent.recipeName || intent.title || "").trim();
+  if (!query) return "Which recipe should I edit?";
+  const { data, error } = await supabase
+    .from("recipes")
+    .select("id,name")
+    .eq("owner_id", ownerId)
+    .limit(250);
+  if (error) throw error;
+  const recipes = (data || []) as Array<{ id: string; name: string }>;
+  const { item: recipe, ambiguous } = findBestNamedMatch(recipes, query, (item) => item.name);
+  if (ambiguous.length) return `I found a few recipes that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.name)}. Reply with the exact recipe.`;
+  if (!recipe) return `I couldn't find a recipe named ${query}.`;
+
+  const updates: Record<string, unknown> = {};
+  if (intent.newTitle) updates.name = intent.newTitle.trim();
+  const mealType = normalizeToken(intent.mealType || "");
+  if (["breakfast", "lunch", "dinner", "snack"].includes(mealType)) updates.meal_type = mealType;
+  const courseType = normalizeToken(intent.courseType || "");
+  if (["main", "side", "dessert"].includes(courseType)) updates.course_type = courseType;
+  if (typeof intent.servings === "number") updates.servings = Math.max(1, Math.round(intent.servings));
+  if (typeof intent.calories === "number") updates.calories = Math.round(intent.calories);
+  if (typeof intent.protein_g === "number") updates.protein_g = Math.round(intent.protein_g);
+  if (typeof intent.carbs_g === "number") updates.carbs_g = Math.round(intent.carbs_g);
+  if (typeof intent.fat_g === "number") updates.fat_g = Math.round(intent.fat_g);
+  if (intent.description) updates.instructions = intent.description;
+  if (!Object.keys(updates).length) return `What should I change about ${recipe.name}?`;
+
+  const { error: updateError } = await supabase.from("recipes").update(updates).eq("id", recipe.id);
+  if (updateError) throw updateError;
+  return `Updated recipe ${recipe.name}.`;
+}
+
+async function deleteRecipeBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const query = String(intent.recipeName || intent.title || "").trim();
+  if (!query) return "Which recipe should I delete?";
+  const { data, error } = await supabase.from("recipes").select("id,name").eq("owner_id", ownerId).limit(250);
+  if (error) throw error;
+  const recipes = (data || []) as Array<{ id: string; name: string }>;
+  const { item: recipe, ambiguous } = findBestNamedMatch(recipes, query, (item) => item.name);
+  if (ambiguous.length) return `I found a few recipes that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.name)}. Reply with the exact recipe.`;
+  if (!recipe) return `I couldn't find a recipe named ${query}.`;
+  const { error: deleteError } = await supabase.from("recipes").delete().eq("id", recipe.id);
+  if (deleteError) throw deleteError;
+  return `Deleted recipe ${recipe.name}.`;
+}
+
+type CommonFoodForAgent = {
+  id: string;
+  name: string;
+  defaultMealType: string | null;
+  servings: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function normalizeCommonFoodsForAgent(input: unknown): CommonFoodForAgent[] {
+  return summarizeCommonFoodsForSmsAgent(input).map((food, index) => ({
+    id: typeof (food as Record<string, unknown>).id === "string" ? String((food as Record<string, unknown>).id) : `food-${index}`,
+    name: String(food.name || "Saved food"),
+    defaultMealType: food.mealType || null,
+    servings: Number(food.servings || 1),
+    calories: Number(food.calories || 0),
+    protein_g: Number(food.protein_g || 0),
+    carbs_g: Number(food.carbs_g || 0),
+    fat_g: Number(food.fat_g || 0),
+  }));
+}
+
+async function updateSavedFoodBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const rawFoods = getDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "commonFoods"]);
+  const foods = Array.isArray(rawFoods) ? rawFoods as Array<Record<string, unknown>> : [];
+  const normalizedFoods = normalizeCommonFoodsForAgent(rawFoods);
+  const query = String(intent.recipeName || intent.itemName || intent.title || "").trim();
+  if (!query) return "Which saved food should I edit?";
+  const { item: food, ambiguous } = findBestNamedMatch(normalizedFoods, query, (item) => item.name);
+  if (ambiguous.length) return `I found a few saved foods that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.name)}. Reply with the exact saved food.`;
+  if (!food) return `I couldn't find a saved food named ${query}.`;
+  const now = new Date().toISOString();
+  const nextFoods = foods.map((row, index) => {
+    const rowId = typeof row.id === "string" ? row.id : `food-${index}`;
+    const rowName = String(row.name || "");
+    const matches = rowId === food.id || normalizeToken(rowName) === normalizeToken(food.name);
+    if (!matches) return row;
+    const mealType = normalizeToken(intent.mealType || "");
+    return {
+      ...row,
+      name: intent.newTitle || rowName || food.name,
+      defaultMealType: ["breakfast", "lunch", "dinner", "snack"].includes(mealType) ? mealType : row.defaultMealType || null,
+      servings: typeof intent.servings === "number" ? Math.max(0.1, intent.servings) : row.servings || food.servings,
+      calories: typeof intent.calories === "number" ? Math.round(intent.calories) : row.calories ?? food.calories,
+      protein_g: typeof intent.protein_g === "number" ? Math.round(intent.protein_g) : row.protein_g ?? food.protein_g,
+      carbs_g: typeof intent.carbs_g === "number" ? Math.round(intent.carbs_g) : row.carbs_g ?? food.carbs_g,
+      fat_g: typeof intent.fat_g === "number" ? Math.round(intent.fat_g) : row.fat_g ?? food.fat_g,
+      updatedAt: now,
+    };
+  });
+  const nextDocument = setDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "commonFoods"], nextFoods);
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Updated saved food ${food.name}.`;
+}
+
+async function deleteSavedFoodBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const rawFoods = getDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "commonFoods"]);
+  const foods = Array.isArray(rawFoods) ? rawFoods as Array<Record<string, unknown>> : [];
+  const normalizedFoods = normalizeCommonFoodsForAgent(rawFoods);
+  const query = String(intent.recipeName || intent.itemName || intent.title || "").trim();
+  if (!query) return "Which saved food should I delete?";
+  const { item: food, ambiguous } = findBestNamedMatch(normalizedFoods, query, (item) => item.name);
+  if (ambiguous.length) return `I found a few saved foods that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.name)}. Reply with the exact saved food.`;
+  if (!food) return `I couldn't find a saved food named ${query}.`;
+  const nextFoods = foods.filter((row, index) => {
+    const rowId = typeof row.id === "string" ? row.id : `food-${index}`;
+    return rowId !== food.id && normalizeToken(String(row.name || "")) !== normalizeToken(food.name);
+  });
+  const nextDocument = setDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "commonFoods"], nextFoods);
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Deleted saved food ${food.name}.`;
+}
+
+async function updateMealLogBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document, fullName } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
+  const person = intent.personName ? resolvePersonByName(profiles, intent.personName) : null;
+  const date = parseAgentDateText(intent.dateText, timezone) || DateTime.now().setZone(timezone).startOf("day");
+  const dateKey = date.toISODate() || "";
+  const query = String(intent.recipeName || intent.title || "").trim();
+  const candidates = activity.mealLogs.filter((log) => log.date === dateKey && (!person || log.person === person.id));
+  const { item: log, ambiguous } = query
+    ? findBestNamedMatch(candidates, query, (item) => item.recipeName)
+    : { item: candidates.length === 1 ? candidates[0] : null, ambiguous: candidates.length > 1 ? candidates : [] };
+  if (ambiguous.length) return `I found a few logged foods that could match: ${formatAmbiguousNames(ambiguous, (item) => item.recipeName)}. Reply with the exact food.`;
+  if (!log) return query ? `I couldn't find ${query} in the food log for ${date.toFormat("LLL d")}.` : `Which logged food should I edit for ${date.toFormat("LLL d")}?`;
+
+  const currentServings = Number(log.servings) > 0 ? Number(log.servings) : 1;
+  const nextServings = typeof intent.servings === "number" ? Math.max(0.1, intent.servings) : currentServings;
+  const scale = nextServings / currentServings;
+  const nextLogs = activity.mealLogs.map((item) => {
+    if (item.id !== log.id) return item;
+    return {
+      ...item,
+      recipeName: intent.newTitle || item.recipeName,
+      servings: nextServings,
+      macros: {
+        calories: typeof intent.calories === "number" ? Math.round(intent.calories) : Math.round((item.macros.calories || 0) * scale),
+        protein_g: typeof intent.protein_g === "number" ? Math.round(intent.protein_g) : Math.round((item.macros.protein_g || 0) * scale),
+        carbs_g: typeof intent.carbs_g === "number" ? Math.round(intent.carbs_g) : Math.round((item.macros.carbs_g || 0) * scale),
+        fat_g: typeof intent.fat_g === "number" ? Math.round(intent.fat_g) : Math.round((item.macros.fat_g || 0) * scale),
+      },
+    };
+  });
+  const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], { ...activity, mealLogs: nextLogs });
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Updated ${log.recipeName} in the ${date.toFormat("LLL d")} food log.`;
+}
+
+async function deleteMealLogBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document, fullName } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const profiles = macroProfilesFromDocument(document, { accountFullName: fullName });
+  const person = intent.personName ? resolvePersonByName(profiles, intent.personName) : null;
+  const date = parseAgentDateText(intent.dateText, timezone) || DateTime.now().setZone(timezone).startOf("day");
+  const dateKey = date.toISODate() || "";
+  const query = String(intent.recipeName || intent.title || "").trim();
+  if (!query) return "Which logged food should I delete?";
+  const candidates = activity.mealLogs.filter((log) => log.date === dateKey && (!person || log.person === person.id));
+  const { item: log, ambiguous } = findBestNamedMatch(candidates, query, (item) => item.recipeName);
+  if (ambiguous.length) return `I found a few logged foods that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.recipeName)}. Reply with the exact food.`;
+  if (!log) return `I couldn't find ${query} in the food log for ${date.toFormat("LLL d")}.`;
+  const nextDocument = setDocumentValue(document, ["appPreferences", "macroGame", "activity"], {
+    ...activity,
+    mealLogs: activity.mealLogs.filter((item) => item.id !== log.id),
+  });
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+  return `Deleted ${log.recipeName} from the ${date.toFormat("LLL d")} food log.`;
+}
+
+async function setMealPlanBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const date = parseAgentDateText(intent.dateText, timezone);
+  const day = date ? DAY_NAME_BY_WEEKDAY[date.weekday] : normalizeDayName(intent.dayOfWeek || intent.dateText || "");
+  if (!day) return "Which day should I update on the meal plan?";
+  const weekOf = intent.range === "next_week"
+    ? weekOfIso(DateTime.now().setZone(timezone).plus({ weeks: 1 }))
+    : date
+      ? weekOfIso(date)
+      : weekOfIso(DateTime.now().setZone(timezone));
+
+  const skip = intent.action === "meal_plan_skip";
+  let recipeId: string | null = null;
+  let recipeName = "No meal needed";
+  if (!skip) {
+    const query = String(intent.recipeName || intent.title || "").trim();
+    if (!query) return `Which recipe should I put on ${titleCaseWords(day)}?`;
+    const { data, error } = await supabase.from("recipes").select("id,name").eq("owner_id", ownerId).limit(250);
+    if (error) throw error;
+    const recipes = (data || []) as Array<{ id: string; name: string }>;
+    const { item: recipe, ambiguous } = findBestNamedMatch(recipes, query, (item) => item.name);
+    if (ambiguous.length) return `I found a few recipes that could match ${query}: ${formatAmbiguousNames(ambiguous, (item) => item.name)}. Reply with the exact recipe.`;
+    if (!recipe) return `I couldn't find a recipe named ${query}.`;
+    recipeId = recipe.id;
+    recipeName = recipe.name;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("planned_meals")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .eq("week_of", weekOf)
+    .eq("day", day)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.id) {
+    const { error } = await supabase
+      .from("planned_meals")
+      .update({ recipe_id: recipeId, is_skipped: skip })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("planned_meals").insert({
+      owner_id: ownerId,
+      day,
+      week_of: weekOf,
+      recipe_id: recipeId,
+      is_skipped: skip,
+    });
+    if (error) throw error;
+  }
+  return `Set ${titleCaseWords(day)} dinner for week of ${weekOf} to ${recipeName}.`;
+}
+
+type ChoresAgentState = {
+  children: Array<Record<string, unknown>>;
+  availableExtraChores: unknown[];
+  lastDailyResetDate?: string;
+  lastWeeklyResetDate?: string;
+};
+
+function normalizeChoresAgentState(input: unknown): ChoresAgentState {
+  const record = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  return {
+    children: Array.isArray(record.children) ? record.children.filter((child): child is Record<string, unknown> => !!child && typeof child === "object" && !Array.isArray(child)) : [],
+    availableExtraChores: Array.isArray(record.availableExtraChores) ? record.availableExtraChores : [],
+    lastDailyResetDate: typeof record.lastDailyResetDate === "string" ? record.lastDailyResetDate : undefined,
+    lastWeeklyResetDate: typeof record.lastWeeklyResetDate === "string" ? record.lastWeeklyResetDate : undefined,
+  };
+}
+
+function findChoresChild(state: ChoresAgentState, personName: string | undefined): { child: Record<string, unknown> | null; ambiguous: Record<string, unknown>[] } {
+  const query = String(personName || "").trim();
+  if (!query) return { child: null, ambiguous: [] };
+  const result = findBestNamedMatch(state.children, query, (child) => String(child.name || ""));
+  return { child: result.item, ambiguous: result.ambiguous };
+}
+
+function rewardUnitFromIntent(value: string | undefined): "money" | "points" {
+  const normalized = normalizeToken(value || "");
+  return normalized.includes("point") ? "points" : "money";
+}
+
+function completionPeriodCompleted(dates: string[], cadence: string, today: DateTime): boolean {
+  const todayKey = today.toISODate() || "";
+  if (cadence === "weekly_any") {
+    const weekStart = today.minus({ days: today.weekday - 1 }).startOf("day");
+    const weekKeys = new Set(Array.from({ length: 7 }, (_, index) => weekStart.plus({ days: index }).toISODate() || ""));
+    return dates.some((date) => weekKeys.has(date));
+  }
+  if (cadence === "monthly") {
+    const monthKey = today.toFormat("yyyy-MM");
+    return dates.some((date) => date.startsWith(monthKey));
+  }
+  return dates.includes(todayKey);
+}
+
+async function mutateChoresBySmsAgent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  intent: SmsAgentIntent,
+): Promise<string> {
+  const { ownerId, document } = await loadSharedProfileSettingsDocument(supabase, userId);
+  const state = normalizeChoresAgentState(getDocumentValue(document, ["shared_preferences", "chores"]));
+  const { child, ambiguous } = findChoresChild(state, intent.personName);
+  if (ambiguous.length) return `I found a few kids that could match ${intent.personName}: ${formatAmbiguousNames(ambiguous, (item) => String(item.name || "Child"))}. Reply with the exact name.`;
+  if (!child) return "Which child should I update?";
+  const childName = String(child.name || "Child");
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const todayKey = today.toISODate() || "";
+  const isSkillAction = intent.action.startsWith("skill_");
+  const title = String(intent.title || intent.recipeName || "").trim();
+  const collectionName = isSkillAction ? "skillItems" : intent.frequency === "daily" ? "dailyChores" : "weeklyChores";
+  const collection = Array.isArray(child[collectionName]) ? child[collectionName] as Array<Record<string, unknown>> : [];
+
+  if (intent.action === "chore_add") {
+    if (!title) return `What chore should I add for ${childName}?`;
+    const reward = Math.max(0, Number(intent.rewardAmount ?? 1));
+    const frequency = normalizeToken(intent.frequency || "");
+    const days = daysFromIntent(intent);
+    const newChore = frequency === "daily"
+      ? {
+          id: `daily-${Date.now()}`,
+          name: title,
+          isCompleted: false,
+          reward,
+          rewardUnit: rewardUnitFromIntent(intent.rewardType),
+          completionDates: [],
+        }
+      : {
+          id: `weekly-${Date.now()}`,
+          name: title,
+          day: days[0] || "monday",
+          days: days.length ? days : [days[0] || "monday"],
+          scheduleType: frequency === "custom_weekly" ? "other" : "weekly",
+          isCompleted: false,
+          reward,
+          rewardUnit: rewardUnitFromIntent(intent.rewardType),
+          completionDates: [],
+        };
+    const targetCollection = frequency === "daily" ? "dailyChores" : "weeklyChores";
+    child[targetCollection] = [...(Array.isArray(child[targetCollection]) ? child[targetCollection] as unknown[] : []), newChore];
+  } else if (intent.action === "skill_add") {
+    if (!title) return `What skill should I add for ${childName}?`;
+    const cadence = normalizeToken(intent.frequency || "") || "weekly_any";
+    const normalizedCadence = ["daily", "weekly", "weekly_any", "custom_weekly", "monthly"].includes(cadence) ? cadence : "weekly_any";
+    const days = daysFromIntent(intent);
+    child.skillItems = [
+      ...(Array.isArray(child.skillItems) ? child.skillItems as unknown[] : []),
+      {
+        id: `skill-${Date.now()}`,
+        name: title,
+        targetMinutes: Math.max(1, Math.round(Number(intent.minutes || 30))),
+        points: Math.max(0, Math.round(Number(intent.points ?? 1))),
+        cadence: normalizedCadence,
+        day: days[0] || "monday",
+        days: normalizedCadence === "custom_weekly" ? (days.length ? days : ["monday"]) : undefined,
+        completionDates: [],
+      },
+    ];
+  } else {
+    if (!title) return `Which ${isSkillAction ? "skill" : "chore"} should I update for ${childName}?`;
+    const searchCollections = isSkillAction
+      ? [{ name: "skillItems", items: Array.isArray(child.skillItems) ? child.skillItems as Array<Record<string, unknown>> : [] }]
+      : [
+          { name: "dailyChores", items: Array.isArray(child.dailyChores) ? child.dailyChores as Array<Record<string, unknown>> : [] },
+          { name: "weeklyChores", items: Array.isArray(child.weeklyChores) ? child.weeklyChores as Array<Record<string, unknown>> : [] },
+        ];
+    const flat = searchCollections.flatMap((group) => group.items.map((item) => ({ group: group.name, item })));
+    const { item: match, ambiguous: matches } = findBestNamedMatch(flat, title, (entry) => String(entry.item.name || ""));
+    if (matches.length) return `I found a few ${isSkillAction ? "skills" : "chores"} that could match ${title}: ${formatAmbiguousNames(matches, (entry) => String(entry.item.name || ""))}. Reply with the exact name.`;
+    if (!match) return `I couldn't find ${title} for ${childName}.`;
+
+    if (intent.action === "chore_delete" || intent.action === "skill_delete") {
+      child[match.group] = (Array.isArray(child[match.group]) ? child[match.group] as Array<Record<string, unknown>> : []).filter((item) => item.id !== match.item.id);
+    } else if (intent.action === "chore_complete") {
+      const reward = Number(match.item.reward || 0);
+      const rewardUnit = String(match.item.rewardUnit || "money");
+      const dates = Array.isArray(match.item.completionDates) ? match.item.completionDates.filter((date): date is string => typeof date === "string") : [];
+      const alreadyDone = dates.includes(todayKey) || match.item.isCompleted === true;
+      const updated = { ...match.item, isCompleted: true, completionDates: alreadyDone ? dates : [...dates, todayKey] };
+      child[match.group] = (child[match.group] as Array<Record<string, unknown>>).map((item) => item.id === match.item.id ? updated : item);
+      if (!alreadyDone && reward > 0) {
+        if (rewardUnit === "points") {
+          child.pointsBank = Math.max(0, Number(child.pointsBank || 0) + reward);
+          child.lifetimePointsEarned = Math.max(0, Number(child.lifetimePointsEarned || 0) + reward);
+        } else {
+          child.piggyBank = Math.max(0, Number(child.piggyBank || 0) + reward);
+          child.lifetimeEarned = Math.max(0, Number(child.lifetimeEarned || 0) + reward);
+        }
+      }
+    } else if (intent.action === "skill_complete") {
+      const dates = Array.isArray(match.item.completionDates) ? match.item.completionDates.filter((date): date is string => typeof date === "string") : [];
+      const cadence = String(match.item.cadence || "weekly_any");
+      const alreadyDone = completionPeriodCompleted(dates, cadence, today);
+      const updated = { ...match.item, completionDates: alreadyDone ? dates : [...dates, todayKey] };
+      child[match.group] = (child[match.group] as Array<Record<string, unknown>>).map((item) => item.id === match.item.id ? updated : item);
+      if (!alreadyDone) {
+        const points = Math.max(0, Number(match.item.points || 0));
+        child.pointsBank = Math.max(0, Number(child.pointsBank || 0) + points);
+        child.lifetimePointsEarned = Math.max(0, Number(child.lifetimePointsEarned || 0) + points);
+      }
+    } else {
+      const days = daysFromIntent(intent);
+      const updated = {
+        ...match.item,
+        name: intent.newTitle || String(match.item.name || title),
+        targetMinutes: typeof intent.minutes === "number" ? Math.max(1, Math.round(intent.minutes)) : match.item.targetMinutes,
+        points: typeof intent.points === "number" ? Math.max(0, Math.round(intent.points)) : match.item.points,
+        reward: typeof intent.rewardAmount === "number" ? Math.max(0, intent.rewardAmount) : match.item.reward,
+        rewardUnit: intent.rewardType ? rewardUnitFromIntent(intent.rewardType) : match.item.rewardUnit,
+        cadence: intent.frequency && isSkillAction ? normalizeToken(intent.frequency) : match.item.cadence,
+        day: days[0] || match.item.day,
+        days: days.length ? days : match.item.days,
+      };
+      child[match.group] = (child[match.group] as Array<Record<string, unknown>>).map((item) => item.id === match.item.id ? updated : item);
+    }
+  }
+
+  const nextState = {
+    ...state,
+    children: state.children.map((item) => item === child ? child : item),
+  };
+  const nextDocument = setDocumentValue(document, ["shared_preferences", "chores"], nextState);
+  await saveProfileSettingsDocument(supabase, ownerId, nextDocument);
+
+  if (intent.action.endsWith("_complete")) return `Marked ${title} complete for ${childName}.`;
+  if (intent.action.endsWith("_delete")) return `Deleted ${title} for ${childName}.`;
+  if (intent.action.endsWith("_add")) return `Added ${title} for ${childName}.`;
+  return `Updated ${title} for ${childName}.`;
+}
+
+async function handleAdvancedSmsAgentAction(
+  supabase: ReturnType<typeof createClient>,
+  pref: InboundSmsPreferenceRow,
+  timezone: string,
+  intent: SmsAgentIntent,
+  options: {
+    confirmed?: boolean;
+    smsAssistantDocument: Record<string, unknown>;
+    smsAssistantContext: SmsAssistantContext;
+  },
+): Promise<string | null> {
+  if (!ADVANCED_SMS_AGENT_ACTIONS.has(intent.action)) return null;
+  if (DESTRUCTIVE_SMS_AGENT_ACTIONS.has(intent.action) && !options.confirmed) {
+    const target = intent.title || intent.recipeName || intent.itemName || "that item";
+    return await queueSmsAgentConfirmation(
+      supabase,
+      pref.user_id,
+      options.smsAssistantDocument,
+      options.smsAssistantContext,
+      intent,
+      `I can ${intent.action.replace(/_/g, " ")} ${target}`,
+    );
+  }
+
+  if (intent.action === "grocery_update") return await updateGroceryItemBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "task_update") return await updateTaskBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "task_delete") return await deleteTaskBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "reminder_delete") return await deleteTextReminderBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "recipe_update") return await updateRecipeBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "recipe_delete") return await deleteRecipeBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "saved_food_update") return await updateSavedFoodBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "saved_food_delete") return await deleteSavedFoodBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "meal_log_update") return await updateMealLogBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "meal_log_delete") return await deleteMealLogBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "meal_plan_set" || intent.action === "meal_plan_skip") return await setMealPlanBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action.startsWith("chore_") || intent.action.startsWith("skill_")) {
+    return await mutateChoresBySmsAgent(supabase, pref.user_id, timezone, intent);
+  }
+  return null;
+}
+
 async function tryHandleSmsAgentFallback(
   supabase: ReturnType<typeof createClient>,
   pref: InboundSmsPreferenceRow,
@@ -5052,6 +5950,13 @@ async function tryHandleSmsAgentFallback(
     return `Done. I generated ${result.inserted} meals${result.lockedKept ? ` and kept ${result.lockedKept} locked` : ""} for week of ${targetWeekOf}. Your grocery list is ready in Home Harmony.`;
   }
 
+  if (ADVANCED_SMS_AGENT_ACTIONS.has(intent.action)) {
+    return await handleAdvancedSmsAgentAction(supabase, pref, timezone, intent, {
+      smsAssistantDocument,
+      smsAssistantContext,
+    });
+  }
+
   return null;
 }
 
@@ -5138,7 +6043,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony can understand natural texts. Examples:\n- Add dentist appt to Katie calendar on 4/6 at 9 AM\n- Add girls soccer at 11 AM tomorrow to the family calendar\n- Remove dentist appt from calendar tomorrow\n- Text a screenshot with 'add this to calendar'\n- Follow up with 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- Remind Ken at 11 AM to get trash bags\n- Add yogurt to my grocery list\n- Make paper towels a weekly grocery staple\n- Remove milk from grocery list\n- What's on my schedule Friday?\n- What's on the grocery list?\n- Add task take trash to road for Ken tomorrow at 6 PM\n- Log 32 oz water for Ken\n- Log 2 servings of air fryer orange chicken for Ken\n- What meals do we have this week?\n- What chores does Jude have today?\n- Which saved breakfast recipes do I have?\n- What did I log for lunch today?\n- Run meals for next week\nIf I need a missing detail, I'll ask. Reply STOP to pause or START to resume.",
+        "Home Harmony can understand natural texts. Examples:\n- Add dentist appt to Katie calendar on 4/6 at 9 AM\n- Add girls soccer at 11 AM tomorrow to the family calendar\n- Remove dentist appt from calendar tomorrow\n- Text a screenshot with 'add this to calendar'\n- Follow up with 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- Remind Ken at 11 AM to get trash bags\n- Add yogurt to my grocery list\n- Change yogurt to 2 tubs and make it weekly\n- Remove milk from grocery list\n- Add task take trash to road for Ken tomorrow at 6 PM\n- Delete task take trash to road\n- Mark Jude's piano skill complete\n- Add soccer practice skill for Jude 30 minutes weekly\n- Make Friday dinner no meal needed\n- Change air fryer chicken to lunch\n- Log 2 servings of air fryer orange chicken for Ken\n- What meals do we have this week?\n- What chores does Jude have today?\n- What did I log for lunch today?\nIf I need a missing detail, I'll ask. Risky deletes ask for YES first. Reply STOP to pause or START to resume.",
       );
     }
 
@@ -5407,6 +6312,45 @@ serve(async (req) => {
         smsAssistantContext,
         from,
       );
+
+    if (isFreshPendingAgentAction(smsAssistantContext, timezone)) {
+      if (isNegativeText(body)) {
+        await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+          ...smsAssistantContext,
+          pendingAgentAction: null,
+        });
+        return twiml("Okay, I canceled that pending change.");
+      }
+      if (isAffirmativeText(body)) {
+        try {
+          const pendingIntent = normalizeSmsAgentIntent(smsAssistantContext.pendingAgentAction?.intent || null);
+          if (!pendingIntent) {
+            await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+              ...smsAssistantContext,
+              pendingAgentAction: null,
+            });
+            return twiml("I couldn't reload that pending change. Please send it again.");
+          }
+          const reply = await handleAdvancedSmsAgentAction(supabase, pref, timezone, pendingIntent, {
+            confirmed: true,
+            smsAssistantDocument,
+            smsAssistantContext: {
+              ...smsAssistantContext,
+              pendingAgentAction: null,
+            },
+          });
+          await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+            ...smsAssistantContext,
+            pendingAgentAction: null,
+          });
+          return twiml(reply || "Done.");
+        } catch (error) {
+          console.error("sms pending agent action failed:", error);
+          const detail = describeUnknownError(error);
+          return twiml(`I could not finish that pending change: ${detail}`);
+        }
+      }
+    }
 
     if (hasFreshPendingCalendarAdd) {
       try {
