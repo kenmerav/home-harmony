@@ -73,7 +73,7 @@ describe('apple calendar feed utilities', () => {
         },
       ],
       'Home Harmony - All Events',
-      new Date('2026-03-12T12:00:00.000Z'),
+      new Date('2026-03-11T15:00:00.000Z'),
     );
 
     expect(ics).toContain('UID:deleted-1@homeharmonyhq');
@@ -97,7 +97,7 @@ describe('apple calendar feed utilities', () => {
         },
       ],
       'Home Harmony - All Events',
-      new Date('2026-04-10T12:00:00.000Z'),
+      new Date('2026-03-11T17:00:00.000Z'),
     );
 
     expect(ics).not.toContain('UID:deleted-old-1@homeharmonyhq');

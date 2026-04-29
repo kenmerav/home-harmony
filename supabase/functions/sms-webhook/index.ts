@@ -175,6 +175,7 @@ type CalendarFollowUpIntent = {
 };
 
 type SmsReferenceType = "recipe" | "meal_plan" | "meal_log" | "calendar" | "grocery" | "task" | "reminder" | "chore" | "skill" | "nutrition";
+type SmsConversationDomain = "meal" | "calendar" | "grocery" | "task" | "reminder" | "nutrition" | "chore" | "skill";
 
 type SmsLastReference = {
   type: SmsReferenceType;
@@ -1317,6 +1318,10 @@ Rules:
 - Use account_question for conversational questions about the user's stored Home Harmony data, like family setup, saved recipes, saved foods, grocery staples, logged meals, chores, skills, tasks, settings, reminders, or account status.
 - Use recent context and recent conversation for follow-up texts. Words like "it", "that", "this", "those", "the recipe", "what about tomorrow", "make that weekly", or "delete that" should refer to the most recent relevant Home Harmony subject when fresh.
 - If a follow-up can be safely resolved from recent conversation, fill the missing title/item/date/person/layer fields from that context.
+- If the recent reference is grocery and the user says "that" or "it", put the remembered grocery name in itemName for grocery_update/grocery_remove.
+- If the recent reference is task or reminder and the user says "that" or "it", put the remembered title in title for task_update/task_delete/reminder_delete.
+- If the recent reference is calendar and the user says "that" or "it", put the remembered title/date in title/dateText for calendar_delete or schedule_lookup.
+- Generic follow-ups like "tell me more", "who has that", "what else", "what about tomorrow", and "same for next week" should be account_question unless they clearly map to a specific executable action.
 - For account_question, put the user's question in "question"; do not answer it here.
 - If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
 - If the text is unrelated to Home Harmony app actions, use "unsupported".`;
@@ -3825,6 +3830,96 @@ function isRecipeFollowUpText(text: string): boolean {
   return /\b(how do i make|how to make|how do you make|make it|cook it|prepare it|what is in it|what s in it|whats in it)\b/.test(normalized);
 }
 
+function hasFreshSmsConversation(context: SmsAssistantContext, timezone: string, maxHours = 24): boolean {
+  const recentTurn = (context.recentTurns || []).slice(-1)[0] || null;
+  const updatedAt = recentTurn?.createdAt
+    ? DateTime.fromISO(recentTurn.createdAt, { zone: timezone })
+    : null;
+  return !!updatedAt?.isValid && updatedAt >= DateTime.now().setZone(timezone).minus({ hours: maxHours });
+}
+
+function recentSmsDomain(context: SmsAssistantContext): SmsConversationDomain | null {
+  const referenceType = context.lastReference?.type || null;
+  if (referenceType === "meal_plan" || referenceType === "recipe" || referenceType === "meal_log") return "meal";
+  if (referenceType === "calendar") return "calendar";
+  if (referenceType === "grocery") return "grocery";
+  if (referenceType === "task") return "task";
+  if (referenceType === "reminder") return "reminder";
+  if (referenceType === "nutrition") return "nutrition";
+  if (referenceType === "chore") return "chore";
+  if (referenceType === "skill") return "skill";
+
+  const lastAction = (context.recentTurns || []).slice().reverse().find((turn) => turn.action)?.action || "";
+  if (lastAction.startsWith("meal") || lastAction === "recipe_follow_up") return "meal";
+  if (lastAction.startsWith("calendar") || lastAction.startsWith("schedule")) return "calendar";
+  if (lastAction.startsWith("grocery")) return "grocery";
+  if (lastAction.startsWith("task")) return "task";
+  if (lastAction.startsWith("reminder")) return "reminder";
+  if (lastAction.startsWith("water") || lastAction.startsWith("nutrition")) return "nutrition";
+  if (lastAction.startsWith("chore")) return "chore";
+  if (lastAction.startsWith("skill")) return "skill";
+  return null;
+}
+
+function isGenericReferenceName(value: string | null | undefined): boolean {
+  const normalized = normalizeToken(String(value || ""));
+  return normalized === "it" || normalized === "that" || normalized === "this" || normalized === "those" || normalized === "them";
+}
+
+function isGenericReferenceMutationText(text: string): boolean {
+  const normalized = normalizeToken(text);
+  if (!normalized) return false;
+  const hasGenericReference = /\b(it|that|this|those|them)\b/.test(normalized);
+  if (!hasGenericReference) return false;
+  return /^(delete|remove|cancel|change|update|edit|rename|move|make|set|turn|mark|complete|finish|log)\b/.test(normalized);
+}
+
+function hasFreshReferenceContext(context: SmsAssistantContext, timezone: string): boolean {
+  return hasFreshSmsConversation(context, timezone, 24) || isFreshLastReference(context, timezone, 24);
+}
+
+function shouldLetAgentResolveGenericReference(
+  text: string,
+  context: SmsAssistantContext,
+  timezone: string,
+  allowedDomains: SmsConversationDomain[],
+): boolean {
+  if (!isGenericReferenceMutationText(text)) return false;
+  if (!hasFreshReferenceContext(context, timezone)) return false;
+  const domain = recentSmsDomain(context);
+  if (!domain) return false;
+  return !allowedDomains.includes(domain);
+}
+
+function freshReferenceTitleForDomain(
+  context: SmsAssistantContext,
+  timezone: string,
+  domain: SmsConversationDomain,
+): string | null {
+  if (!isFreshLastReference(context, timezone, 24)) return null;
+  const reference = context.lastReference;
+  if (!reference?.title) return null;
+  if (domain === "meal" && ["recipe", "meal_plan", "meal_log"].includes(reference.type)) return reference.title;
+  if (domain === reference.type) return reference.title;
+  return null;
+}
+
+function isGenericContextualDateFollowUp(text: string): boolean {
+  const normalized = normalizeToken(text);
+  if (!normalized) return false;
+  const hasRelativeDate =
+    /\b(today|tonight|tomorrow|next week|this week|coming week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(normalized) ||
+    /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/.test(text);
+  if (!hasRelativeDate) return false;
+  return /^(what about|how about|and|same for|show me|what is|whats|what s|what's|for|on|tomorrow|today|tonight|next week|this week)\b/.test(normalized);
+}
+
+function isGenericConversationFollowUpText(text: string): boolean {
+  const normalized = normalizeToken(text);
+  if (!normalized) return false;
+  return /^(tell me more|more|what else|who has that|who is assigned|when is that|what time|why|how so|what about|how about|same for|and what|what is that|what's that|whats that)\b/.test(normalized);
+}
+
 function recipeFollowUpMode(text: string): "ingredients" | "instructions" | "macros" | "full" {
   const normalized = normalizeToken(String(text || "").toLowerCase().replace(/what['’]s/g, "whats"));
   if (/\b(macros?|nutrition|calories|protein|carbs?|fat)\b/.test(normalized)) return "macros";
@@ -4545,6 +4640,20 @@ async function buildTonightDinnerReply(
   return result.reply;
 }
 
+function dinnerLookupLabelForDate(localDate: DateTime, timezone: string): string {
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  if (localDate.hasSame(today, "day")) return "Tonight's dinner";
+  if (localDate.hasSame(today.plus({ days: 1 }), "day")) return "Tomorrow's dinner";
+  return `${localDate.toFormat("cccc, LLL d")} dinner`;
+}
+
+function noDinnerPhraseForDate(localDate: DateTime, timezone: string): string {
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  if (localDate.hasSame(today, "day")) return "tonight";
+  if (localDate.hasSame(today.plus({ days: 1 }), "day")) return "tomorrow";
+  return localDate.toFormat("cccc, LLL d");
+}
+
 async function buildTonightDinnerReplyWithReference(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -4552,10 +4661,30 @@ async function buildTonightDinnerReplyWithReference(
   smsPreference: InboundSmsPreferenceRow,
   profileSettingsDocument?: Record<string, unknown> | null,
 ): Promise<{ reply: string; reference: SmsLastReference | null }> {
-  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
   const today = DateTime.now().setZone(timezone).startOf("day");
-  const weekOf = weekOfIso(today);
-  const day = DAY_NAME_BY_WEEKDAY[today.weekday];
+  return await buildDinnerReplyForDateWithReference(
+    supabase,
+    userId,
+    timezone,
+    smsPreference,
+    today,
+    profileSettingsDocument,
+  );
+}
+
+async function buildDinnerReplyForDateWithReference(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  smsPreference: InboundSmsPreferenceRow,
+  localDate: DateTime,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): Promise<{ reply: string; reference: SmsLastReference | null }> {
+  const ownerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const dayStart = localDate.setZone(timezone).startOf("day");
+  const weekOf = weekOfIso(dayStart);
+  const day = DAY_NAME_BY_WEEKDAY[dayStart.weekday];
+  const label = dinnerLookupLabelForDate(dayStart, timezone);
   const { data, error } = await supabase
     .from("planned_meals")
     .select("id,week_of,day,recipe_id,recipes(id,name,servings,ingredients,instructions,calories,protein_g,carbs_g,fat_g,fiber_g,meal_type,course_type)")
@@ -4584,19 +4713,19 @@ async function buildTonightDinnerReplyWithReference(
   const dinnerNames = dinnerRecipes.map((recipe) => recipe.recipeName);
 
   if (!dinnerNames.length) {
-    return { reply: "No dinner is planned for tonight yet.", reference: null };
+    return { reply: `No dinner is planned for ${noDinnerPhraseForDate(dayStart, timezone)} yet.`, reference: null };
   }
 
-  const dinnerTime = DateTime.fromISO(`${today.toISODate()}T00:00:00`, { zone: timezone }).set(
+  const dinnerTime = DateTime.fromISO(`${dayStart.toISODate()}T00:00:00`, { zone: timezone }).set(
     parseTimeToHourMinute(preferredDinnerTimeForDay(smsPreference, day, profileSettingsDocument)),
   );
   const names = dinnerNames.join(" and ");
   const reply = dinnerNames.length === 1
-    ? `Tonight's dinner is ${names} at ${timeLabel(dinnerTime)}.`
-    : `Tonight's dinners are ${names} at ${timeLabel(dinnerTime)}.`;
+    ? `${label} is ${names} at ${timeLabel(dinnerTime)}.`
+    : `${label}s are ${names} at ${timeLabel(dinnerTime)}.`;
   const reference: SmsLastReference = {
     type: "meal_plan",
-    title: dinnerNames.length === 1 ? dinnerNames[0] : `Tonight's dinners: ${dinnerNames.join(", ")}`,
+    title: dinnerNames.length === 1 ? dinnerNames[0] : `${label}s: ${dinnerNames.join(", ")}`,
     recipeId: dinnerRecipes.length === 1 ? dinnerRecipes[0].recipeId || null : null,
     recipeName: dinnerRecipes.length === 1 ? dinnerRecipes[0].recipeName : null,
     recipeOptions: dinnerRecipes.map((recipe) => ({
@@ -4606,7 +4735,7 @@ async function buildTonightDinnerReplyWithReference(
     mealPlanId: dinnerRecipes.length === 1 ? dinnerRecipes[0].mealPlanId || null : null,
     day,
     weekOf,
-    date: today.toISODate(),
+    date: dayStart.toISODate(),
     updatedAt: new Date().toISOString(),
   };
   return { reply, reference };
@@ -4630,6 +4759,165 @@ async function buildScheduleRangeReply(
     grouped.push({ date, events });
   }
   return formatRangeAgenda(label, grouped);
+}
+
+async function tryHandleContextualLookupFollowUp(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  body: string,
+  context: SmsAssistantContext,
+  smsPreference: InboundSmsPreferenceRow,
+  profileSettingsDocument?: Record<string, unknown> | null,
+): Promise<{ reply: string; contextPatch?: Partial<SmsAssistantContext>; action: string } | null> {
+  if (!hasFreshSmsConversation(context, timezone, 24) && !isFreshLastReference(context, timezone, 24)) return null;
+
+  const normalized = normalizeToken(body);
+  const explicitMeal = /\b(meal|meals|dinner|breakfast|lunch|snack|menu)\b/.test(normalized);
+  const explicitSchedule = /\b(calendar|schedule|event|events|appointment|appointments)\b/.test(normalized);
+  const genericDateFollowUp = isGenericContextualDateFollowUp(body);
+  if (!explicitMeal && !explicitSchedule && !genericDateFollowUp) return null;
+
+  const recentDomain = recentSmsDomain(context);
+  const shouldHandleMeal = explicitMeal || (!explicitSchedule && genericDateFollowUp && recentDomain === "meal");
+  const shouldHandleSchedule = explicitSchedule || (!explicitMeal && genericDateFollowUp && recentDomain === "calendar");
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+
+  if (shouldHandleMeal) {
+    if (normalized.includes("next week") || normalized.includes("coming week")) {
+      const reply = await buildMealsReply(supabase, userId, timezone, true);
+      return {
+        reply,
+        action: "meal_lookup",
+        contextPatch: {
+          lastReference: {
+            type: "meal_plan",
+            title: "Meals next week",
+            weekOf: weekOfIso(localToday.plus({ weeks: 1 })),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+    if (normalized.includes("this week")) {
+      const reply = await buildMealsReply(supabase, userId, timezone, false);
+      return {
+        reply,
+        action: "meal_lookup",
+        contextPatch: {
+          lastReference: {
+            type: "meal_plan",
+            title: "Meals this week",
+            weekOf: weekOfIso(localToday),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+
+    const requestedDate = extractScheduleLookupDate(body, timezone) ||
+      (normalized.includes("tonight") ? localToday : null);
+    if (requestedDate) {
+      const result = await buildDinnerReplyForDateWithReference(
+        supabase,
+        userId,
+        timezone,
+        smsPreference,
+        requestedDate,
+        profileSettingsDocument,
+      );
+      return {
+        reply: result.reply,
+        action: "meal_lookup",
+        contextPatch: {
+          lastReference: result.reference,
+        },
+      };
+    }
+  }
+
+  if (shouldHandleSchedule) {
+    if (normalized.includes("next week") || normalized.includes("coming week")) {
+      const nextMonday = localToday.plus({ weeks: 1 }).minus({ days: localToday.weekday - 1 }).startOf("day");
+      const reply = await buildScheduleRangeReply(
+        supabase,
+        userId,
+        timezone,
+        "Next week",
+        nextMonday,
+        7,
+        CALENDAR_AGENDA_MODULES,
+        smsPreference,
+        profileSettingsDocument,
+      );
+      return {
+        reply,
+        action: "schedule_lookup",
+        contextPatch: {
+          lastReference: {
+            type: "calendar",
+            title: "Next week schedule",
+            weekOf: weekOfIso(nextMonday),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+    if (normalized.includes("this week")) {
+      const monday = localToday.minus({ days: localToday.weekday - 1 }).startOf("day");
+      const reply = await buildScheduleRangeReply(
+        supabase,
+        userId,
+        timezone,
+        "This week",
+        monday,
+        7,
+        CALENDAR_AGENDA_MODULES,
+        smsPreference,
+        profileSettingsDocument,
+      );
+      return {
+        reply,
+        action: "schedule_lookup",
+        contextPatch: {
+          lastReference: {
+            type: "calendar",
+            title: "This week schedule",
+            weekOf: weekOfIso(monday),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+
+    const requestedDate = extractScheduleLookupDate(body, timezone) ||
+      (normalized.includes("tonight") ? localToday : null);
+    if (requestedDate) {
+      const reply = await buildScheduleReplyForDate(
+        supabase,
+        userId,
+        requestedDate,
+        timezone,
+        CALENDAR_AGENDA_MODULES,
+        smsPreference,
+        profileSettingsDocument,
+      );
+      return {
+        reply,
+        action: "schedule_lookup",
+        contextPatch: {
+          lastReference: {
+            type: "calendar",
+            title: `Schedule for ${requestedDate.toISODate()}`,
+            date: requestedDate.toISODate(),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+  }
+
+  return null;
 }
 
 function parseAgentDateText(dateText: string | null | undefined, timezone: string): DateTime | null {
@@ -6162,19 +6450,89 @@ async function handleAdvancedSmsAgentAction(
     );
   }
 
-  if (intent.action === "grocery_update") return await updateGroceryItemBySmsAgent(supabase, pref.user_id, timezone, intent);
-  if (intent.action === "task_update") return await updateTaskBySmsAgent(supabase, pref.user_id, timezone, intent);
+  const rememberReference = async (reference: SmsLastReference | null) => {
+    if (!reference) return;
+    await saveSmsAssistantContext(supabase, pref.user_id, options.smsAssistantDocument, {
+      ...options.smsAssistantContext,
+      lastReference: reference,
+    });
+  };
+
+  if (intent.action === "grocery_update") {
+    const reply = await updateGroceryItemBySmsAgent(supabase, pref.user_id, timezone, intent);
+    await rememberReference({
+      type: "grocery",
+      title: intent.newTitle || intent.itemName || intent.title || "Grocery item",
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
+  if (intent.action === "task_update") {
+    const reply = await updateTaskBySmsAgent(supabase, pref.user_id, timezone, intent);
+    await rememberReference({
+      type: "task",
+      title: intent.newTitle || intent.title || "Task",
+      date: intent.dateText || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
   if (intent.action === "task_delete") return await deleteTaskBySmsAgent(supabase, pref.user_id, intent);
   if (intent.action === "reminder_delete") return await deleteTextReminderBySmsAgent(supabase, pref.user_id, intent);
-  if (intent.action === "recipe_update") return await updateRecipeBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "recipe_update") {
+    const reply = await updateRecipeBySmsAgent(supabase, pref.user_id, intent);
+    await rememberReference({
+      type: "recipe",
+      title: intent.newTitle || intent.recipeName || intent.title || "Recipe",
+      recipeName: intent.newTitle || intent.recipeName || intent.title || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
   if (intent.action === "recipe_delete") return await deleteRecipeBySmsAgent(supabase, pref.user_id, intent);
-  if (intent.action === "saved_food_update") return await updateSavedFoodBySmsAgent(supabase, pref.user_id, intent);
+  if (intent.action === "saved_food_update") {
+    const reply = await updateSavedFoodBySmsAgent(supabase, pref.user_id, intent);
+    await rememberReference({
+      type: "recipe",
+      title: intent.newTitle || intent.recipeName || intent.title || "Saved food",
+      recipeName: intent.newTitle || intent.recipeName || intent.title || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
   if (intent.action === "saved_food_delete") return await deleteSavedFoodBySmsAgent(supabase, pref.user_id, intent);
-  if (intent.action === "meal_log_update") return await updateMealLogBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "meal_log_update") {
+    const reply = await updateMealLogBySmsAgent(supabase, pref.user_id, timezone, intent);
+    await rememberReference({
+      type: "meal_log",
+      title: intent.recipeName || intent.title || "Meal log",
+      recipeName: intent.recipeName || intent.title || null,
+      date: intent.dateText || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
   if (intent.action === "meal_log_delete") return await deleteMealLogBySmsAgent(supabase, pref.user_id, timezone, intent);
-  if (intent.action === "meal_plan_set" || intent.action === "meal_plan_skip") return await setMealPlanBySmsAgent(supabase, pref.user_id, timezone, intent);
+  if (intent.action === "meal_plan_set" || intent.action === "meal_plan_skip") {
+    const reply = await setMealPlanBySmsAgent(supabase, pref.user_id, timezone, intent);
+    await rememberReference({
+      type: "meal_plan",
+      title: intent.action === "meal_plan_skip" ? "No meal needed" : intent.recipeName || intent.title || "Meal plan",
+      recipeName: intent.recipeName || intent.title || null,
+      day: intent.dayOfWeek || null,
+      date: intent.dateText || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
+  }
   if (intent.action.startsWith("chore_") || intent.action.startsWith("skill_")) {
-    return await mutateChoresBySmsAgent(supabase, pref.user_id, timezone, intent);
+    const reply = await mutateChoresBySmsAgent(supabase, pref.user_id, timezone, intent);
+    await rememberReference({
+      type: intent.action.startsWith("skill_") ? "skill" : "chore",
+      title: intent.title || "Kid item",
+      updatedAt: new Date().toISOString(),
+    });
+    return reply;
   }
   return null;
 }
@@ -6213,7 +6571,23 @@ async function tryHandleSmsAgentFallback(
     macroProfiles,
     context: smsAssistantContext,
   });
-  if (!intent || intent.action === "unsupported") return null;
+  if (!intent || intent.action === "unsupported") {
+    if (isGenericConversationFollowUpText(textForAi) && hasFreshSmsConversation(smsAssistantContext, timezone, 24)) {
+      const question = textForAi;
+      const snapshot = await buildSmsAccountSnapshot(supabase, pref.user_id, timezone, question, pref);
+      snapshot.conversation = {
+        recentContext: [
+          smsAssistantContext.lastCalendarEvent?.title ? `recent calendar event: ${smsAssistantContext.lastCalendarEvent.title}` : "",
+          smsAssistantContext.lastMealLog?.title ? `recent meal log: ${smsAssistantContext.lastMealLog.title} for ${smsAssistantContext.lastMealLog.personName}` : "",
+          smsAssistantContext.lastReference?.title ? `recent reference: ${smsAssistantContext.lastReference.type} ${smsAssistantContext.lastReference.title}` : "",
+        ].filter(Boolean),
+        recentTurns: smsAssistantContext.recentTurns || [],
+      };
+      const reply = await answerAccountQuestionWithAi(question, snapshot, pref.user_id);
+      return reply || null;
+    }
+    return null;
+  }
 
   if (intent.action === "clarify") {
     return intent.question || "What would you like me to do with that?";
@@ -6262,6 +6636,12 @@ async function tryHandleSmsAgentFallback(
         title: draft.title,
         updatedAt: new Date().toISOString(),
       },
+      lastReference: {
+        type: "calendar",
+        title: draft.title,
+        date: draft.startsAt,
+        updatedAt: new Date().toISOString(),
+      },
     });
     return result.reply;
   }
@@ -6269,16 +6649,32 @@ async function tryHandleSmsAgentFallback(
   if (intent.action === "calendar_delete") {
     const title = normalizeCalendarTitle(String(intent.title || ""));
     if (!title && smsAssistantContext.lastCalendarEvent?.eventId) {
-      return await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, smsAssistantContext, { deleteEvent: true });
+      const reply = await updateRecentCalendarEventBySms(supabase, pref.user_id, timezone, smsAssistantContext, { deleteEvent: true });
+      await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+        ...smsAssistantContext,
+        lastCalendarEvent: null,
+        lastReference: null,
+      });
+      return reply;
     }
     if (!title) return "Which calendar event should I remove?";
     const layer = resolveAgentLayer(intent.layer, layerChoices);
-    return await deleteCalendarEventBySms(supabase, pref.user_id, timezone, {
+    const reply = await deleteCalendarEventBySms(supabase, pref.user_id, timezone, {
       title,
       layer,
       dateText: intent.dateText || null,
       timeText: intent.timeText || null,
     });
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "calendar",
+        title,
+        date: intent.dateText || null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "schedule_lookup") {
@@ -6315,17 +6711,35 @@ async function tryHandleSmsAgentFallback(
   if (intent.action === "grocery_add") {
     const name = String(intent.itemName || "").trim();
     if (!name) return "What should I add to the grocery list?";
-    return await addGroceryItemBySms(supabase, pref.user_id, timezone, {
+    const reply = await addGroceryItemBySms(supabase, pref.user_id, timezone, {
       name,
       quantity: intent.quantity || "1x",
       weekly: !!intent.weekly,
     });
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "grocery",
+        title: name,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "grocery_remove") {
     const name = String(intent.itemName || "").trim();
     if (!name) return "What should I remove from the grocery list?";
-    return await removeGroceryItemBySms(supabase, pref.user_id, timezone, { name });
+    const reply = await removeGroceryItemBySms(supabase, pref.user_id, timezone, { name });
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "grocery",
+        title: name,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "grocery_list") {
@@ -6345,20 +6759,49 @@ async function tryHandleSmsAgentFallback(
     const { reminder, question } = buildReminderIntentFromAgent(intent, timezone);
     if (question) return question;
     if (!reminder) return "What reminder should I set?";
-    return await addTextReminderBySms(supabase, pref.user_id, timezone, from, reminder);
+    const reply = await addTextReminderBySms(supabase, pref.user_id, timezone, from, reminder);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "reminder",
+        title: reminder.title,
+        date: reminder.sendAt,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "task_add") {
     const { task, question } = buildTaskIntentFromAgent(intent, timezone);
     if (question) return question;
     if (!task) return "What task should I add?";
-    return await addTaskBySms(supabase, pref.user_id, timezone, task);
+    const reply = await addTaskBySms(supabase, pref.user_id, timezone, task);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "task",
+        title: task.title,
+        date: task.dueDate || null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "task_complete") {
     const title = String(intent.title || "").trim();
     if (!title) return "Which task should I mark done?";
-    return await completeTaskBySms(supabase, pref.user_id, { title });
+    const reply = await completeTaskBySms(supabase, pref.user_id, { title });
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "task",
+        title,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return reply;
   }
 
   if (intent.action === "open_tasks") {
@@ -6372,6 +6815,14 @@ async function tryHandleSmsAgentFallback(
     if (!requestedOunces) return "How many ounces of water should I log?";
     const ounces = Math.max(1, requestedOunces);
     await addWaterLogBySms(supabase, pref.user_id, timezone, person.id, ounces);
+    await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
+      ...smsAssistantContext,
+      lastReference: {
+        type: "nutrition",
+        title: `${person.name} water`,
+        updatedAt: new Date().toISOString(),
+      },
+    });
     return `Logged ${ounces} oz of water for ${person.name}.`;
   }
 
@@ -6383,8 +6834,15 @@ async function tryHandleSmsAgentFallback(
     if (intent.range === "next_week") {
       return await buildMealsReply(supabase, pref.user_id, timezone, true);
     }
-    if (intent.range === "tonight" || intent.range === "today") {
-      const result = await buildTonightDinnerReplyWithReference(supabase, pref.user_id, timezone, pref, profileSettingsDocument);
+    const mealLookupDate = intent.dateText
+      ? parseAgentDateText(intent.dateText, timezone)
+      : intent.range === "tomorrow"
+        ? DateTime.now().setZone(timezone).plus({ days: 1 }).startOf("day")
+        : intent.range === "tonight" || intent.range === "today"
+          ? DateTime.now().setZone(timezone).startOf("day")
+          : null;
+    if (mealLookupDate) {
+      const result = await buildDinnerReplyForDateWithReference(supabase, pref.user_id, timezone, pref, mealLookupDate, profileSettingsDocument);
       if (result.reference) {
         await saveSmsAssistantContext(supabase, pref.user_id, smsAssistantDocument, {
           ...smsAssistantContext,
@@ -6649,17 +7107,40 @@ serve(async (req) => {
     const taskCompleteIntent = parseTaskCompleteIntent(body);
     if (taskCompleteIntent) {
       try {
-        const reply = await completeTaskBySms(supabase, pref.user_id, taskCompleteIntent);
+        let resolvedTaskCompleteIntent: TaskCompleteIntent | null = taskCompleteIntent;
+        if (isGenericReferenceName(taskCompleteIntent.title)) {
+          const { context } = await loadSmsAssistantContext(supabase, pref.user_id);
+          if (shouldLetAgentResolveGenericReference(body, context, timezone, ["task"])) {
+            resolvedTaskCompleteIntent = null;
+          } else {
+            const referencedTask = freshReferenceTitleForDomain(context, timezone, "task");
+            if (referencedTask) {
+              resolvedTaskCompleteIntent = { title: referencedTask };
+            } else {
+              return await replyWithMemory("Which task should I mark done?", null, "task_complete_clarify");
+            }
+          }
+        }
+
+        if (!resolvedTaskCompleteIntent) {
+          throw new Error("route_to_agent");
+        }
+
+        const reply = await completeTaskBySms(supabase, pref.user_id, resolvedTaskCompleteIntent);
         return await replyWithMemory(reply, {
           lastReference: {
             type: "task",
-            title: taskCompleteIntent.title,
+            title: resolvedTaskCompleteIntent.title,
             updatedAt: new Date().toISOString(),
           },
         }, "task_complete");
       } catch (error) {
-        console.error("sms task complete failed:", error);
-        return await replyWithMemory("I could not update that task right now. Please try again in a moment.", null, "task_complete_error");
+        if (error instanceof Error && error.message === "route_to_agent") {
+          // Let the AI agent resolve "mark that done" for chores, skills, reminders, or other recent subjects.
+        } else {
+          console.error("sms task complete failed:", error);
+          return await replyWithMemory("I could not update that task right now. Please try again in a moment.", null, "task_complete_error");
+        }
       }
     }
 
@@ -6738,11 +7219,22 @@ serve(async (req) => {
     const groceryRemoveIntent = parseGroceryRemoveIntent(body);
     if (groceryRemoveIntent) {
       try {
-        const reply = await removeGroceryItemBySms(supabase, pref.user_id, timezone, groceryRemoveIntent);
+        let resolvedGroceryRemoveIntent = groceryRemoveIntent;
+        if (isGenericReferenceName(groceryRemoveIntent.name)) {
+          const { context } = await loadSmsAssistantContext(supabase, pref.user_id);
+          const referencedGrocery = freshReferenceTitleForDomain(context, timezone, "grocery");
+          if (referencedGrocery) {
+            resolvedGroceryRemoveIntent = { name: referencedGrocery };
+          } else {
+            return await replyWithMemory("Which grocery item should I remove?", null, "grocery_remove_clarify");
+          }
+        }
+
+        const reply = await removeGroceryItemBySms(supabase, pref.user_id, timezone, resolvedGroceryRemoveIntent);
         return await replyWithMemory(reply, {
           lastReference: {
             type: "grocery",
-            title: groceryRemoveIntent.name,
+            title: resolvedGroceryRemoveIntent.name,
             updatedAt: new Date().toISOString(),
           },
         }, "grocery_remove");
@@ -6795,7 +7287,11 @@ serve(async (req) => {
       try {
         const { context } = await loadSmsAssistantContext(supabase, pref.user_id);
         const recentSubject = mostRecentAssistantSubject(context, timezone);
-        if (!mealFollowUpIntent.genericDelete || recentSubject === "meal") {
+        const explicitMealFollowUp = /\b(meal|meal log|food log|breakfast|lunch|dinner|snacks?)\b/i.test(body);
+        const letAgentResolve =
+          !explicitMealFollowUp &&
+          shouldLetAgentResolveGenericReference(body, context, timezone, ["meal"]);
+        if (!letAgentResolve && (!mealFollowUpIntent.genericDelete || recentSubject === "meal" || recentSmsDomain(context) === "meal")) {
           const reply = await updateRecentMealLogBySms(supabase, pref.user_id, timezone, context, mealFollowUpIntent);
           if (reply) {
             const latestDocument = await loadProfileSettingsDocument(supabase, pref.user_id);
@@ -6974,6 +7470,14 @@ serve(async (req) => {
       try {
         const { document, context } = await loadSmsAssistantContext(supabase, pref.user_id);
         const recentSubject = mostRecentAssistantSubject(context, timezone);
+        const explicitCalendarFollowUp = /\b(calendar|event|appointment)\b/i.test(body);
+        if (
+          !explicitCalendarFollowUp &&
+          followUpIntent.deleteEvent &&
+          shouldLetAgentResolveGenericReference(body, context, timezone, ["calendar"])
+        ) {
+          throw new Error("route_to_agent");
+        }
         if (followUpIntent.deleteEvent && recentSubject === "meal") {
           return await replyWithMemory("If you meant the meal you just logged, reply 'delete that meal'.", null, "calendar_follow_up_clarify");
         }
@@ -7012,9 +7516,13 @@ serve(async (req) => {
               : context.lastReference || null,
         }, followUpIntent.deleteEvent ? "calendar_delete" : "calendar_update");
       } catch (error) {
-        console.error("sms calendar follow-up failed:", error);
-        const detail = describeUnknownError(error);
-        return await replyWithMemory(`I could not update that calendar event right now: ${detail}`, null, "calendar_follow_up_error");
+        if (error instanceof Error && error.message === "route_to_agent") {
+          // Let the AI agent resolve generic deletes like "delete that" for groceries, tasks, chores, and skills.
+        } else {
+          console.error("sms calendar follow-up failed:", error);
+          const detail = describeUnknownError(error);
+          return await replyWithMemory(`I could not update that calendar event right now: ${detail}`, null, "calendar_follow_up_error");
+        }
       }
     }
 
@@ -7118,6 +7626,19 @@ serve(async (req) => {
         return await replyWithMemory(`I hit an error while thinking through that text: ${detail}`, null, "agent_fallback_error");
       }
       return await replyWithMemory("I couldn't clearly parse that calendar event. Try including the title, date, time, and who it belongs to.", null, "calendar_add_clarify");
+    }
+
+    const contextualLookup = await tryHandleContextualLookupFollowUp(
+      supabase,
+      pref.user_id,
+      timezone,
+      incomingBody || body,
+      smsAssistantContext,
+      pref,
+      profileSettingsDocument,
+    );
+    if (contextualLookup) {
+      return await replyWithMemory(contextualLookup.reply, contextualLookup.contextPatch || null, contextualLookup.action);
     }
 
     const wantsTomorrow = hasAnyKeyword(body, ["tomorrow"]);
