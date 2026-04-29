@@ -270,6 +270,7 @@ type SmsAgentIntent = {
     | "meal_log"
     | "meal_lookup"
     | "meal_plan_run"
+    | "account_question"
     | "clarify"
     | "unsupported";
   title?: string;
@@ -1046,6 +1047,7 @@ function normalizeSmsAgentIntent(input: Record<string, unknown> | null): SmsAgen
     "meal_log",
     "meal_lookup",
     "meal_plan_run",
+    "account_question",
     "clarify",
     "unsupported",
   ]);
@@ -1122,7 +1124,7 @@ Return JSON only. Do not write prose.
 
 Schema:
 {
-  "action": "calendar_add" | "calendar_delete" | "schedule_lookup" | "grocery_add" | "grocery_remove" | "grocery_list" | "grocery_ordered" | "grocery_not_ordered" | "reminder_add" | "task_add" | "task_complete" | "open_tasks" | "water_log" | "meal_log" | "meal_lookup" | "meal_plan_run" | "clarify" | "unsupported",
+  "action": "calendar_add" | "calendar_delete" | "schedule_lookup" | "grocery_add" | "grocery_remove" | "grocery_list" | "grocery_ordered" | "grocery_not_ordered" | "reminder_add" | "task_add" | "task_complete" | "open_tasks" | "water_log" | "meal_log" | "meal_lookup" | "meal_plan_run" | "account_question" | "clarify" | "unsupported",
   "title": "calendar/task/reminder title, or empty",
   "itemName": "grocery item only, or empty",
   "recipeName": "saved recipe or food name, or empty",
@@ -1152,6 +1154,8 @@ Rules:
 - Reminder add is for texts like "remind Ken at 11 AM to get trash bags"; title is only what to do.
 - Task add is for creating app tasks, not text reminders.
 - Meal log only logs saved recipes/foods; include personName if the user says who ate it.
+- Use account_question for conversational questions about the user's stored Home Harmony data, like family setup, saved recipes, saved foods, grocery staples, logged meals, chores, skills, tasks, settings, reminders, or account status.
+- For account_question, put the user's question in "question"; do not answer it here.
 - If a required detail is missing and the best next step is to ask, use action "clarify" with one short question.
 - If the text is unrelated to Home Harmony app actions, use "unsupported".`;
 
@@ -4244,6 +4248,609 @@ async function logMealIntentFromAgent(
   return `Logged ${servingsLabel} of ${recipe.name} for ${person.name}.`;
 }
 
+function truncateForSmsAgent(value: string, maxLength = 600): string {
+  const cleaned = String(value || "").replace(/\s+/g, " ").trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function compactValueForSmsAgent(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === "undefined") return null;
+  if (typeof value === "string") return truncateForSmsAgent(value, 180);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    if (depth >= 3) return `[${value.length} items]`;
+    return value.slice(0, 12).map((item) => compactValueForSmsAgent(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return "[object]";
+    const sensitivePattern = /(token|secret|password|stripe|customer|subscription_id|phone_e164)/i;
+    return Object.entries(value as Record<string, unknown>).slice(0, 28).reduce<Record<string, unknown>>((next, [key, item]) => {
+      if (sensitivePattern.test(key)) return next;
+      next[key] = compactValueForSmsAgent(item, depth + 1);
+      return next;
+    }, {});
+  }
+  return null;
+}
+
+async function resolveSharedAccountOwnerId(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<string> {
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("household_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError) {
+    console.error("sms agent shared owner lookup failed:", profileError);
+    return userId;
+  }
+
+  const householdId = typeof profile?.household_id === "string" ? profile.household_id : "";
+  if (!householdId) return userId;
+
+  const { data: members, error: membersError } = await supabase
+    .from("household_members")
+    .select("user_id,role,status")
+    .eq("household_id", householdId)
+    .eq("status", "active");
+  if (membersError) {
+    console.error("sms agent household member lookup failed:", membersError);
+    return userId;
+  }
+
+  const owner = (members || []).find((member) => String(member.role || "").toLowerCase() === "owner");
+  return typeof owner?.user_id === "string" && owner.user_id ? owner.user_id : userId;
+}
+
+async function loadHouseholdSnapshot(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<Array<{ name: string; email: string | null; role: string; status: string }>> {
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("household_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError) throw profileError;
+
+  const householdId = typeof profile?.household_id === "string" ? profile.household_id : "";
+  if (!householdId) return [];
+
+  const { data: members, error: membersError } = await supabase
+    .from("household_members")
+    .select("user_id,role,status,created_at")
+    .eq("household_id", householdId)
+    .order("created_at", { ascending: true });
+  if (membersError) throw membersError;
+
+  const userIds = Array.from(new Set((members || []).map((member) => String(member.user_id || "")).filter(Boolean)));
+  if (!userIds.length) return [];
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id,full_name,email")
+    .in("id", userIds);
+  if (profilesError) throw profilesError;
+
+  const profileById = new Map(
+    ((profiles || []) as Array<{ id: string; full_name: string | null; email: string | null }>)
+      .map((row) => [row.id, row]),
+  );
+
+  return (members || []).map((member) => {
+    const row = profileById.get(String(member.user_id || ""));
+    return {
+      name: String(row?.full_name || "").trim() || "Family member",
+      email: row?.email ? String(row.email).trim().toLowerCase() : null,
+      role: String(member.role || "member"),
+      status: String(member.status || "unknown"),
+    };
+  });
+}
+
+function summarizeGroceryForSmsAgent(groceryState: StoredGroceryListState, timezone: string) {
+  const activeWeekOf = activeGroceryWeekOf(groceryState, timezone);
+  const week = groceryState.weekStates[activeWeekOf] || { checkedKeys: [], manualItems: [], orderedAt: null };
+  return {
+    activeWeekOf,
+    orderedAt: week.orderedAt || null,
+    weeklyStaples: groceryState.recurringItems.slice(0, 40).map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      category: item.category,
+    })),
+    manualItems: week.manualItems.slice(0, 60).map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      category: item.category,
+    })),
+    checkedItemCount: week.checkedKeys.length,
+  };
+}
+
+function summarizeTasksForSmsAgent(tasks: StoredTask[], timezone: string) {
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const openTasks = tasks.filter((task) => task.status !== "done");
+  const todayTasks = openTasks.filter((task) => taskOccursOnDate(task, today));
+  return {
+    total: tasks.length,
+    openCount: openTasks.length,
+    doneCount: tasks.filter((task) => task.status === "done").length,
+    today: todayTasks.slice(0, 20).map((task) => ({
+      title: task.title,
+      assignedTo: task.assignedToName || null,
+      dueDate: task.dueDate || null,
+      reminderTime: task.reminderEnabled ? task.reminderTime || null : null,
+      frequency: task.frequency,
+      status: task.status,
+    })),
+    open: openTasks.slice(0, 40).map((task) => ({
+      title: task.title,
+      assignedTo: task.assignedToName || null,
+      dueDate: task.dueDate || null,
+      day: task.day || null,
+      frequency: task.frequency,
+      status: task.status,
+    })),
+  };
+}
+
+function summarizeChoresForSmsAgent(rawChores: unknown) {
+  const record = rawChores && typeof rawChores === "object" && !Array.isArray(rawChores)
+    ? rawChores as Record<string, unknown>
+    : {};
+  const children = Array.isArray(record.children) ? record.children : [];
+  const availableExtraChores = Array.isArray(record.availableExtraChores) ? record.availableExtraChores : [];
+
+  const summarizeRewardItem = (item: unknown) => {
+    const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    return {
+      name: String(row.name || "Chore"),
+      completed: !!row.isCompleted,
+      reward: Number.isFinite(Number(row.reward)) ? Number(row.reward) : 0,
+      rewardUnit: String(row.rewardUnit || "money"),
+      day: typeof row.day === "string" ? row.day : null,
+      days: Array.isArray(row.days) ? row.days.filter((day) => typeof day === "string").slice(0, 7) : [],
+      completionDates: Array.isArray(row.completionDates) ? row.completionDates.filter((date) => typeof date === "string").slice(-8) : [],
+    };
+  };
+
+  return {
+    childCount: children.length,
+    lastDailyResetDate: typeof record.lastDailyResetDate === "string" ? record.lastDailyResetDate : null,
+    lastWeeklyResetDate: typeof record.lastWeeklyResetDate === "string" ? record.lastWeeklyResetDate : null,
+    children: children.slice(0, 12).map((child) => {
+      const row = child && typeof child === "object" && !Array.isArray(child) ? child as Record<string, unknown> : {};
+      const dailyChores = Array.isArray(row.dailyChores) ? row.dailyChores : [];
+      const weeklyChores = Array.isArray(row.weeklyChores) ? row.weeklyChores : [];
+      const skillItems = Array.isArray(row.skillItems) ? row.skillItems : [];
+      const extraChores = Array.isArray(row.extraChores) ? row.extraChores : [];
+      return {
+        name: String(row.name || "Child"),
+        piggyBank: Number.isFinite(Number(row.piggyBank)) ? Number(row.piggyBank) : 0,
+        pointsBank: Number.isFinite(Number(row.pointsBank)) ? Number(row.pointsBank) : 0,
+        dailyChores: dailyChores.slice(0, 20).map(summarizeRewardItem),
+        weeklyChores: weeklyChores.slice(0, 20).map(summarizeRewardItem),
+        skills: skillItems.slice(0, 20).map((skill) => {
+          const skillRow = skill && typeof skill === "object" && !Array.isArray(skill) ? skill as Record<string, unknown> : {};
+          return {
+            name: String(skillRow.name || "Skill"),
+            cadence: String(skillRow.cadence || "weekly_any"),
+            targetMinutes: Number.isFinite(Number(skillRow.targetMinutes)) ? Number(skillRow.targetMinutes) : 0,
+            points: Number.isFinite(Number(skillRow.points)) ? Number(skillRow.points) : 0,
+            day: typeof skillRow.day === "string" ? skillRow.day : null,
+            days: Array.isArray(skillRow.days) ? skillRow.days.filter((day) => typeof day === "string").slice(0, 7) : [],
+            completionDates: Array.isArray(skillRow.completionDates) ? skillRow.completionDates.filter((date) => typeof date === "string").slice(-8) : [],
+          };
+        }),
+        extraChores: extraChores.slice(0, 12).map((extra) => {
+          const extraRow = extra && typeof extra === "object" && !Array.isArray(extra) ? extra as Record<string, unknown> : {};
+          return {
+            name: String(extraRow.name || "Extra chore"),
+            completed: !!extraRow.isCompleted,
+            failed: !!extraRow.isFailed,
+            dueAt: typeof extraRow.dueAt === "string" ? extraRow.dueAt : null,
+          };
+        }),
+      };
+    }),
+    availableExtraChores: availableExtraChores.slice(0, 20).map((extra) => {
+      const row = extra && typeof extra === "object" && !Array.isArray(extra) ? extra as Record<string, unknown> : {};
+      return {
+        name: String(row.name || "Extra chore"),
+        reward: Number.isFinite(Number(row.reward)) ? Number(row.reward) : 0,
+        penalty: Number.isFinite(Number(row.penalty)) ? Number(row.penalty) : 0,
+      };
+    }),
+  };
+}
+
+function summarizeCommonFoodsForSmsAgent(rawFoods: unknown) {
+  const foods = Array.isArray(rawFoods) ? rawFoods : [];
+  return foods.slice(0, 80).map((food) => {
+    const row = food && typeof food === "object" && !Array.isArray(food) ? food as Record<string, unknown> : {};
+    return {
+      name: String(row.name || "Saved food"),
+      mealType: typeof row.defaultMealType === "string" ? row.defaultMealType : null,
+      servings: Number.isFinite(Number(row.servings)) ? Number(row.servings) : 1,
+      calories: Number.isFinite(Number(row.calories)) ? Number(row.calories) : 0,
+      protein_g: Number.isFinite(Number(row.protein_g)) ? Number(row.protein_g) : 0,
+      carbs_g: Number.isFinite(Number(row.carbs_g)) ? Number(row.carbs_g) : 0,
+      fat_g: Number.isFinite(Number(row.fat_g)) ? Number(row.fat_g) : 0,
+    };
+  });
+}
+
+function summarizePlannedFoodsForSmsAgent(rawEntries: unknown, timezone: string) {
+  const entries = Array.isArray(rawEntries) ? rawEntries : [];
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const start = today.minus({ days: 14 });
+  const end = today.plus({ days: 14 });
+  return entries
+    .filter((entry) => {
+      const row = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : {};
+      const parsed = typeof row.date === "string" ? DateTime.fromISO(row.date, { zone: timezone }).startOf("day") : null;
+      return !!parsed?.isValid && parsed >= start && parsed <= end;
+    })
+    .slice(-120)
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        date: String(row.date || ""),
+        mealType: String(row.mealType || ""),
+        personName: typeof row.personName === "string" ? row.personName : null,
+        name: String(row.name || "Food"),
+        servings: Number.isFinite(Number(row.servings)) ? Number(row.servings) : 1,
+        calories: Number.isFinite(Number(row.calories)) ? Number(row.calories) : 0,
+        protein_g: Number.isFinite(Number(row.protein_g)) ? Number(row.protein_g) : 0,
+      };
+    });
+}
+
+function summarizeMacroActivityForSmsAgent(document: Record<string, unknown>, timezone: string) {
+  const activity = normalizeMacroActivityState(getDocumentValue(document, ["appPreferences", "macroGame", "activity"]));
+  const today = DateTime.now().setZone(timezone).startOf("day");
+  const start = today.minus({ days: 14 });
+  const recentMealLogs = activity.mealLogs
+    .filter((log) => {
+      const parsed = DateTime.fromISO(log.date, { zone: timezone }).startOf("day");
+      return parsed.isValid && parsed >= start && parsed <= today.plus({ days: 1 });
+    })
+    .slice(-80)
+    .map((log) => ({
+      date: log.date,
+      person: log.person,
+      recipeName: log.recipeName,
+      servings: log.servings,
+      calories: log.macros.calories,
+      protein_g: log.macros.protein_g,
+      carbs_g: log.macros.carbs_g,
+      fat_g: log.macros.fat_g,
+      isQuickAdd: log.isQuickAdd,
+    }));
+
+  const todayKey = today.toISODate() || "";
+  return {
+    todayKey,
+    mealLogsToday: recentMealLogs.filter((log) => log.date === todayKey),
+    recentMealLogs,
+    trackersToday: activity.trackers[todayKey] || {},
+  };
+}
+
+function scoreRecipeForQuestion(recipe: Record<string, unknown>, question: string): number {
+  const recipeName = normalizeToken(String(recipe.name || ""));
+  const questionKey = normalizeToken(question);
+  if (!recipeName || !questionKey) return 0;
+  if (questionKey.includes(recipeName)) return 100;
+  const words = questionKey.split(" ").filter((word) => word.length > 2);
+  return words.reduce((score, word) => score + (recipeName.includes(word) ? 1 : 0), 0);
+}
+
+function summarizeRecipesForSmsAgent(recipes: Array<Record<string, unknown>>, question: string) {
+  const countsByMealType = recipes.reduce<Record<string, number>>((counts, recipe) => {
+    const mealType = String(recipe.meal_type || "unknown");
+    counts[mealType] = (counts[mealType] || 0) + 1;
+    return counts;
+  }, {});
+  const matchingRecipes = recipes
+    .map((recipe) => ({ recipe, score: scoreRecipeForQuestion(recipe, question) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map(({ recipe }) => ({
+      name: String(recipe.name || "Recipe"),
+      mealType: String(recipe.meal_type || ""),
+      dishType: String(recipe.course_type || ""),
+      servings: Number(recipe.servings || 0),
+      calories: Number(recipe.calories || 0),
+      protein_g: Number(recipe.protein_g || 0),
+      carbs_g: Number(recipe.carbs_g || 0),
+      fat_g: Number(recipe.fat_g || 0),
+      anchored: !!recipe.is_anchored,
+      defaultDay: typeof recipe.default_day === "string" ? recipe.default_day : null,
+      mealPrep: !!recipe.is_meal_prep,
+      ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.slice(0, 30) : [],
+      instructions: truncateForSmsAgent(String(recipe.instructions || ""), 1200),
+      hasInstructions: !!String(recipe.instructions || "").trim(),
+    }));
+
+  return {
+    total: recipes.length,
+    countsByMealType,
+    missingInstructionCount: recipes.filter((recipe) => !String(recipe.instructions || "").trim()).length,
+    recent: recipes.slice(0, 30).map((recipe) => ({
+      name: String(recipe.name || "Recipe"),
+      mealType: String(recipe.meal_type || ""),
+      dishType: String(recipe.course_type || ""),
+      calories: Number(recipe.calories || 0),
+      protein_g: Number(recipe.protein_g || 0),
+      hasInstructions: !!String(recipe.instructions || "").trim(),
+    })),
+    matchingRecipes,
+  };
+}
+
+function summarizeAgendaForSmsAgent(grouped: Array<{ date: DateTime; events: AgendaEvent[] }>) {
+  return grouped.map((day) => ({
+    date: day.date.toISODate(),
+    label: day.date.toFormat("EEE, LLL d"),
+    events: day.events.slice(0, 12).map((event) => ({
+      time: agendaTimeLabel(event),
+      title: event.title,
+      source: event.source,
+      allDay: !!event.allDay,
+    })),
+  }));
+}
+
+async function buildSmsAccountSnapshot(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  timezone: string,
+  question: string,
+  smsPreference: InboundSmsPreferenceRow,
+): Promise<Record<string, unknown>> {
+  const sharedOwnerId = await resolveSharedAccountOwnerId(supabase, userId);
+  const localToday = DateTime.now().setZone(timezone).startOf("day");
+  const thisWeekOf = weekOfIso(localToday);
+  const nextWeekOf = weekOfIso(localToday.plus({ weeks: 1 }));
+
+  const [
+    sharedProfileContext,
+    personalProfileContext,
+    householdMembers,
+    subscriptionResult,
+    recipesResult,
+    plannedMealsResult,
+  ] = await Promise.all([
+    loadProfileSettingsContext(supabase, sharedOwnerId),
+    sharedOwnerId === userId
+      ? Promise.resolve(null)
+      : loadProfileSettingsContext(supabase, userId).catch((error) => {
+          console.error("sms agent personal profile snapshot failed:", error);
+          return null;
+        }),
+    loadHouseholdSnapshot(supabase, sharedOwnerId).catch((error) => {
+      console.error("sms agent household snapshot failed:", error);
+      return [];
+    }),
+    supabase
+      .from("subscriptions")
+      .select("status,trial_ends_at,current_period_end,cancel_at,cancel_at_period_end,canceled_at")
+      .eq("user_id", sharedOwnerId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("recipes")
+      .select("id,name,meal_type,course_type,servings,calories,protein_g,carbs_g,fat_g,is_anchored,default_day,is_meal_prep,ingredients,instructions,updated_at")
+      .eq("owner_id", sharedOwnerId)
+      .order("updated_at", { ascending: false })
+      .limit(150),
+    supabase
+      .from("planned_meals")
+      .select("day,week_of,is_locked,is_skipped,recipes(name,calories,protein_g)")
+      .eq("owner_id", sharedOwnerId)
+      .in("week_of", [thisWeekOf, nextWeekOf])
+      .order("week_of", { ascending: true })
+      .order("day", { ascending: true }),
+  ]);
+  const { document, fullName } = sharedProfileContext;
+  const personalDocument = personalProfileContext?.document || document;
+  const personalFullName = personalProfileContext?.fullName || fullName || null;
+
+  if (subscriptionResult.error) console.error("sms agent subscription snapshot failed:", subscriptionResult.error);
+  if (recipesResult.error) console.error("sms agent recipe snapshot failed:", recipesResult.error);
+  if (plannedMealsResult.error) console.error("sms agent planned meals snapshot failed:", plannedMealsResult.error);
+
+  const agendaDays: Array<{ date: DateTime; events: AgendaEvent[] }> = [];
+  for (let i = 0; i < 7; i += 1) {
+    const date = localToday.plus({ days: i });
+    const events = await fetchAgendaForDate(
+      supabase,
+      sharedOwnerId,
+      date,
+      timezone,
+      CALENDAR_AGENDA_MODULES,
+      smsPreference,
+      document,
+    );
+    agendaDays.push({ date, events });
+  }
+
+  const groceryState = normalizeGroceryState(getDocumentValue(document, ["appPreferences", "groceryList"]));
+  const tasks = normalizeStoredTasks(getDocumentValue(document, ["appPreferences", "tasks"]));
+  const commonFoods = summarizeCommonFoodsForSmsAgent(getDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "commonFoods"]));
+  const plannedFoods = summarizePlannedFoodsForSmsAgent(getDocumentValue(document, ["appPreferences", "mealBudgetPlanner", "entries"]), timezone);
+  const recipes = ((recipesResult.data || []) as Array<Record<string, unknown>>);
+  const mealPlans = ((plannedMealsResult.data || []) as Array<Record<string, unknown>>).map((row) => {
+    const recipe = row.recipes && typeof row.recipes === "object" && !Array.isArray(row.recipes)
+      ? row.recipes as Record<string, unknown>
+      : {};
+    return {
+      weekOf: String(row.week_of || ""),
+      day: String(row.day || ""),
+      meal: String(recipe.name || (row.is_skipped ? "No meal needed" : "Meal")),
+      calories: Number(recipe.calories || 0),
+      protein_g: Number(recipe.protein_g || 0),
+      locked: !!row.is_locked,
+      skipped: !!row.is_skipped,
+    };
+  });
+
+  return {
+    today: {
+      date: localToday.toISODate(),
+      label: localToday.toFormat("cccc, LLL d, yyyy"),
+      timezone,
+      thisWeekOf,
+      nextWeekOf,
+    },
+    account: {
+      currentSmsUserId: userId,
+      sharedDataOwnerId: sharedOwnerId,
+      currentUserName: personalFullName,
+      ownerName: fullName || null,
+      macroProfiles: macroProfilesFromDocument(document, { accountFullName: fullName }).map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        memberType: profile.memberType || null,
+      })),
+      householdMembers,
+      subscription: subscriptionResult.data
+        ? {
+            status: String(subscriptionResult.data.status || ""),
+            trialEndsAt: subscriptionResult.data.trial_ends_at || null,
+            currentPeriodEnd: subscriptionResult.data.current_period_end || null,
+            cancelAt: subscriptionResult.data.cancel_at || null,
+            cancelAtPeriodEnd: !!subscriptionResult.data.cancel_at_period_end,
+            canceledAt: subscriptionResult.data.canceled_at || null,
+          }
+        : null,
+    },
+    settings: {
+      currentUser: {
+        onboarding: compactValueForSmsAgent(getDocumentValue(personalDocument, ["onboarding"])),
+        personalizedPlan: compactValueForSmsAgent(getDocumentValue(personalDocument, ["personalizedPlan"])),
+        appPreferences: compactValueForSmsAgent(getDocumentValue(personalDocument, ["appPreferences"])),
+      },
+      sharedHousehold: {
+        onboarding: compactValueForSmsAgent(getDocumentValue(document, ["onboarding"])),
+        personalizedPlan: compactValueForSmsAgent(getDocumentValue(document, ["personalizedPlan"])),
+        mealPreferences: compactValueForSmsAgent(getDocumentValue(document, ["shared_preferences", "meals"])),
+        groceryPreferences: compactValueForSmsAgent(getDocumentValue(document, ["shared_preferences", "grocery"])),
+      },
+    },
+    grocery: summarizeGroceryForSmsAgent(groceryState, timezone),
+    tasks: summarizeTasksForSmsAgent(tasks, timezone),
+    chores: summarizeChoresForSmsAgent(getDocumentValue(document, ["shared_preferences", "chores"])),
+    nutrition: {
+      macroActivity: summarizeMacroActivityForSmsAgent(document, timezone),
+      currentUserMacroActivity: summarizeMacroActivityForSmsAgent(personalDocument, timezone),
+      plannedFoods,
+      savedFoods: commonFoods,
+    },
+    recipes: summarizeRecipesForSmsAgent(recipes, question),
+    meals: {
+      thisWeek: mealPlans.filter((meal) => meal.weekOf === thisWeekOf),
+      nextWeek: mealPlans.filter((meal) => meal.weekOf === nextWeekOf),
+    },
+    calendar: {
+      next7Days: summarizeAgendaForSmsAgent(agendaDays),
+    },
+    reminders: normalizeSmsTextReminders(getDocumentValue(document, ["appPreferences", "smsAssistant", "textReminders"]))
+      .filter((reminder) => !reminder.completedAt)
+      .slice(0, 20)
+      .map((reminder) => ({
+        title: reminder.title,
+        sendAt: reminder.sendAt,
+      })),
+  };
+}
+
+async function answerAccountQuestionWithAi(
+  question: string,
+  snapshot: Record<string, unknown>,
+  userId: string | null,
+): Promise<string | null> {
+  const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openAiApiKey) return "I can answer questions about your account, but AI is not configured right now.";
+
+  const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+  const snapshotJson = JSON.stringify(snapshot);
+  const boundedSnapshot = snapshotJson.length > 60000
+    ? `${snapshotJson.slice(0, 60000)}\n[Snapshot truncated for SMS response]`
+    : snapshotJson;
+  const systemPrompt = `You are the Home Harmony SMS account assistant.
+Answer the user's question using only the account_snapshot JSON.
+Be concise enough for a text message, usually under 900 characters.
+If the snapshot does not contain the answer, say what you can see and what is missing.
+Do not invent stored data. Do not mention internal IDs unless the user asks for technical detail.
+If the user asks how to change something, give a short next text they can send or the app area to open.
+Return JSON only: {"reply":"..."}`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiModel,
+      temperature: 0.2,
+      max_tokens: 500,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Question: ${question}\n\naccount_snapshot:\n${boundedSnapshot}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `AI SMS account answer failed (${response.status}).`);
+  }
+
+  const aiResponse = await response.json().catch(() => null) as
+    | {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    }
+    | null;
+
+  await logUsageCostEvent({
+    userId,
+    category: "ai",
+    provider: "openai",
+    meter: "sms_agent_account_answer",
+    estimatedCostUsd: estimateOpenAiCostUsd(openAiModel, aiResponse?.usage),
+    quantity: 1,
+    metadata: {
+      model: openAiModel,
+      promptTokens: aiResponse?.usage?.prompt_tokens ?? 0,
+      completionTokens: aiResponse?.usage?.completion_tokens ?? 0,
+      cachedPromptTokens: aiResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+  });
+
+  const parsed = parseJsonObjectFromAi(aiResponse?.choices?.[0]?.message?.content || "");
+  const reply = typeof parsed?.reply === "string" ? parsed.reply.trim() : "";
+  return reply ? truncateForSmsAgent(reply, 1400) : null;
+}
+
 async function tryHandleSmsAgentFallback(
   supabase: ReturnType<typeof createClient>,
   pref: InboundSmsPreferenceRow,
@@ -4272,6 +4879,13 @@ async function tryHandleSmsAgentFallback(
 
   if (intent.action === "clarify") {
     return intent.question || "What would you like me to do with that?";
+  }
+
+  if (intent.action === "account_question") {
+    const question = String(intent.question || textForAi).trim();
+    const snapshot = await buildSmsAccountSnapshot(supabase, pref.user_id, timezone, question, pref);
+    const reply = await answerAccountQuestionWithAi(question, snapshot, pref.user_id);
+    return reply || "I could not answer that from your Home Harmony data yet.";
   }
 
   if (intent.action === "calendar_add") {
@@ -4524,7 +5138,7 @@ serve(async (req) => {
 
     if (helpWords.has(body)) {
       return twiml(
-        "Home Harmony can understand natural texts. Examples:\n- Add dentist appt to Katie calendar on 4/6 at 9 AM\n- Add girls soccer at 11 AM tomorrow to the family calendar\n- Remove dentist appt from calendar tomorrow\n- Text a screenshot with 'add this to calendar'\n- Follow up with 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- Remind Ken at 11 AM to get trash bags\n- Add yogurt to my grocery list\n- Make paper towels a weekly grocery staple\n- Remove milk from grocery list\n- What's on my schedule Friday?\n- What's on the grocery list?\n- Add task take trash to road for Ken tomorrow at 6 PM\n- Log 32 oz water for Ken\n- Log 2 servings of air fryer orange chicken for Ken\n- What meals do we have this week?\n- Run meals for next week\nIf I need a missing detail, I'll ask. Reply STOP to pause or START to resume.",
+        "Home Harmony can understand natural texts. Examples:\n- Add dentist appt to Katie calendar on 4/6 at 9 AM\n- Add girls soccer at 11 AM tomorrow to the family calendar\n- Remove dentist appt from calendar tomorrow\n- Text a screenshot with 'add this to calendar'\n- Follow up with 'move it to tomorrow at 3 PM', 'make it all day', or 'delete that'\n- Remind Ken at 11 AM to get trash bags\n- Add yogurt to my grocery list\n- Make paper towels a weekly grocery staple\n- Remove milk from grocery list\n- What's on my schedule Friday?\n- What's on the grocery list?\n- Add task take trash to road for Ken tomorrow at 6 PM\n- Log 32 oz water for Ken\n- Log 2 servings of air fryer orange chicken for Ken\n- What meals do we have this week?\n- What chores does Jude have today?\n- Which saved breakfast recipes do I have?\n- What did I log for lunch today?\n- Run meals for next week\nIf I need a missing detail, I'll ask. Reply STOP to pause or START to resume.",
       );
     }
 
@@ -4955,7 +5569,6 @@ serve(async (req) => {
       "this week",
     ]);
     const requestedScheduleDate = asksSchedule ? extractScheduleLookupDate(body, timezone) : null;
-    const asksChores = hasAnyKeyword(body, ["chore", "chores", "kid", "kids"]);
     const asksAutoGenerateMeals =
       hasAnyKeyword(body, ["run meals", "auto generate", "autogenerate", "generate meals", "plan meals"]) ||
       body === "yes" ||
@@ -4984,12 +5597,6 @@ serve(async (req) => {
         const message = generationError instanceof Error ? generationError.message : "Could not generate meals.";
         return twiml(`Could not run meal generation: ${message}`);
       }
-    }
-
-    if (asksChores && !asksMeals && !asksSchedule) {
-      return twiml(
-        "I can text schedule and meal updates right now. Kids chore completion by person is not cloud-synced yet, so I can't verify that by SMS yet.",
-      );
     }
 
     if (asksMeals && wantsNextWeek) {
