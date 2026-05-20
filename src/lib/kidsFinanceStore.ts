@@ -31,6 +31,15 @@ export interface KidsInvestmentCashOut {
   symbol: 'VOO';
 }
 
+export interface KidsFinanceEarningAdjustment {
+  eventId: string;
+  amount?: number;
+  sourceName?: string;
+  dateKey?: string;
+  deleted?: boolean;
+  updatedAt?: string;
+}
+
 export interface KidsFinanceChildSettings {
   childId: string;
   allocation: KidsFinanceAllocation;
@@ -40,6 +49,7 @@ export interface KidsFinanceState {
   childSettings: KidsFinanceChildSettings[];
   investmentLots: KidsInvestmentLot[];
   cashOuts: KidsInvestmentCashOut[];
+  earningAdjustments: KidsFinanceEarningAdjustment[];
   updatedAt?: string;
 }
 
@@ -140,6 +150,24 @@ function normalizeFinanceState(input: unknown): KidsFinanceState {
           })
           .filter((item) => item.id && item.childId && item.amount > 0 && item.shares > 0)
       : [],
+    earningAdjustments: Array.isArray(record.earningAdjustments)
+      ? record.earningAdjustments
+          .map((item) => {
+            const adjustment = item as Partial<KidsFinanceEarningAdjustment>;
+            const amount = adjustment.amount === undefined ? undefined : normalizeMoney(adjustment.amount);
+            return {
+              eventId: String(adjustment.eventId || '').trim(),
+              amount,
+              sourceName: typeof adjustment.sourceName === 'string' ? adjustment.sourceName.trim() : undefined,
+              dateKey: typeof adjustment.dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(adjustment.dateKey)
+                ? adjustment.dateKey
+                : undefined,
+              deleted: Boolean(adjustment.deleted),
+              updatedAt: typeof adjustment.updatedAt === 'string' ? adjustment.updatedAt : undefined,
+            };
+          })
+          .filter((item) => item.eventId.length > 0)
+      : [],
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
   };
 }
@@ -179,13 +207,19 @@ export async function hydrateKidsFinanceStateFromAccount(userId?: string | null)
     normalized.childSettings.length > 0
     || normalized.investmentLots.length > 0
     || normalized.cashOuts.length > 0
+    || normalized.earningAdjustments.length > 0
   ) {
     writeStoredKidsFinanceState(normalized, scopedUserId);
     return;
   }
 
   const local = readStoredKidsFinanceState(scopedUserId);
-  if (local.childSettings.length > 0 || local.investmentLots.length > 0 || local.cashOuts.length > 0) {
+  if (
+    local.childSettings.length > 0
+    || local.investmentLots.length > 0
+    || local.cashOuts.length > 0
+    || local.earningAdjustments.length > 0
+  ) {
     await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'kidsFinance'], local);
     writeStoredKidsFinanceState(local, scopedUserId);
   }

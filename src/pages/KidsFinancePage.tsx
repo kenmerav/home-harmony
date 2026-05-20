@@ -4,6 +4,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,6 +27,7 @@ import {
   persistKidsFinanceStateToAccount,
   readStoredKidsFinanceState,
   setAllocationForChild,
+  type KidsFinanceEarningAdjustment,
   type KidsFinanceAllocation,
   type KidsFinanceState,
   type KidsInvestmentLot,
@@ -27,7 +36,7 @@ import {
 } from '@/lib/kidsFinanceStore';
 import { hydrateChoresStateFromAccount, readStoredChoresState } from '@/lib/choresStateStore';
 import { cn } from '@/lib/utils';
-import { ArrowUpRight, Banknote, CircleDollarSign, HandCoins, Landmark, PiggyBank, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, Banknote, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Trash2, TrendingUp } from 'lucide-react';
 
 type PeriodPreset = 'this_week' | 'this_month' | 'this_year' | 'last_90' | 'all_time' | 'custom';
 
@@ -80,6 +89,7 @@ const emptyFinanceState: KidsFinanceState = {
   childSettings: [],
   investmentLots: [],
   cashOuts: [],
+  earningAdjustments: [],
 };
 
 const money = (amount: number) =>
@@ -229,6 +239,25 @@ function isInRange(event: EarnedEvent, range: DateRange): boolean {
   return true;
 }
 
+function applyEarningAdjustments(events: EarnedEvent[], adjustments: KidsFinanceEarningAdjustment[]): EarnedEvent[] {
+  if (adjustments.length === 0) return events;
+  const adjustmentMap = new Map(adjustments.map((adjustment) => [adjustment.eventId, adjustment]));
+
+  return events
+    .map((event) => {
+      const adjustment = adjustmentMap.get(event.id);
+      if (!adjustment) return event;
+      if (adjustment.deleted) return null;
+      return {
+        ...event,
+        amount: adjustment.amount ?? event.amount,
+        sourceName: adjustment.sourceName || event.sourceName,
+        dateKey: adjustment.dateKey || event.dateKey,
+      };
+    })
+    .filter((event): event is EarnedEvent => Boolean(event));
+}
+
 function allocationDollars(totalEarned: number, allocation: KidsFinanceAllocation) {
   return {
     tithing: totalEarned * allocation.tithing / 100,
@@ -296,6 +325,8 @@ export default function KidsFinancePage() {
   const [quote, setQuote] = useState<VooQuote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
+  const [editingEvent, setEditingEvent] = useState<EarnedEvent | null>(null);
+  const [earningDraft, setEarningDraft] = useState({ sourceName: '', amount: '', dateKey: '' });
 
   useEffect(() => {
     if (householdScopeLoading) return;
@@ -361,9 +392,13 @@ export default function KidsFinancePage() {
     };
   }, []);
 
-  const allEvents = useMemo(
+  const rawEvents = useMemo(
     () => children.flatMap((child) => completedMoneyEventsForChild(child)),
     [children],
+  );
+  const allEvents = useMemo(
+    () => applyEarningAdjustments(rawEvents, financeState.earningAdjustments),
+    [financeState.earningAdjustments, rawEvents],
   );
   const selectedRange = useMemo(() => rangeForPreset(period, customStart, customEnd), [customEnd, customStart, period]);
   const periodEvents = useMemo(
@@ -404,6 +439,25 @@ export default function KidsFinancePage() {
           symbol: 'VOO',
           source: 'auto_allocation',
         });
+      } else if (missingPrincipal < -0.01) {
+        let excessPrincipal = Math.abs(missingPrincipal);
+        for (let index = nextLots.length - 1; index >= 0 && excessPrincipal > 0.01; index -= 1) {
+          const lot = nextLots[index];
+          if (lot.childId !== child.id || lot.source !== 'auto_allocation') continue;
+          changed = true;
+          if (lot.amount <= excessPrincipal + 0.01) {
+            excessPrincipal -= lot.amount;
+            nextLots.splice(index, 1);
+          } else {
+            const nextAmount = Math.round((lot.amount - excessPrincipal) * 100) / 100;
+            nextLots[index] = {
+              ...lot,
+              amount: nextAmount,
+              shares: lot.pricePerShare > 0 ? nextAmount / lot.pricePerShare : lot.shares,
+            };
+            excessPrincipal = 0;
+          }
+        }
       }
     });
 
@@ -416,6 +470,65 @@ export default function KidsFinancePage() {
     setFinanceState((current) => {
       const currentAllocation = allocationForChild(current, childId);
       return setAllocationForChild(current, childId, nextAllocationWithChangedField(currentAllocation, field, value));
+    });
+  };
+
+  const mergeEarningAdjustment = (eventId: string, updates: Omit<KidsFinanceEarningAdjustment, 'eventId'>) => {
+    setFinanceState((current) => {
+      const existing = current.earningAdjustments.find((adjustment) => adjustment.eventId === eventId);
+      const nextAdjustment = {
+        ...existing,
+        ...updates,
+        eventId,
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        ...current,
+        earningAdjustments: [
+          ...current.earningAdjustments.filter((adjustment) => adjustment.eventId !== eventId),
+          nextAdjustment,
+        ],
+      };
+    });
+  };
+
+  const openEditEarning = (event: EarnedEvent) => {
+    setEditingEvent(event);
+    setEarningDraft({
+      sourceName: event.sourceName,
+      amount: String(event.amount),
+      dateKey: event.dateKey,
+    });
+  };
+
+  const saveEditedEarning = () => {
+    if (!editingEvent) return;
+    const amount = normalizeMoney(earningDraft.amount);
+    const sourceName = earningDraft.sourceName.trim();
+    if (!sourceName || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(earningDraft.dateKey)) {
+      toast({
+        title: 'Check the earning details',
+        description: 'Name, date, and amount are required before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    mergeEarningAdjustment(editingEvent.id, {
+      sourceName,
+      amount,
+      dateKey: earningDraft.dateKey,
+      deleted: false,
+    });
+    setEditingEvent(null);
+    toast({ title: 'Finance earning updated', description: 'The corrected amount is now used in finance totals.' });
+  };
+
+  const deleteEarningFromFinance = (event: EarnedEvent) => {
+    mergeEarningAdjustment(event.id, { deleted: true });
+    toast({
+      title: 'Earning removed from finance',
+      description: 'The chore history is unchanged, but this entry no longer counts in finance totals.',
     });
   };
 
@@ -700,7 +813,29 @@ export default function KidsFinancePage() {
                               <p className="font-medium">{event.sourceName}</p>
                               <p className="text-xs text-muted-foreground">{event.dateKey} • {event.sourceType}</p>
                             </div>
-                            <p className="font-semibold">{money(event.amount)}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold">{money(event.amount)}</p>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => openEditEarning(event)}
+                                aria-label={`Edit ${event.sourceName}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => deleteEarningFromFinance(event)}
+                                aria-label={`Remove ${event.sourceName} from finance`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -725,6 +860,54 @@ export default function KidsFinancePage() {
           This is a learning tracker, not tax or investment advice. The VOO section simulates investing so kids can see how patience and market movement affect money over time.
         </p>
       </div>
+
+      <Dialog open={Boolean(editingEvent)} onOpenChange={(open) => !open && setEditingEvent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit finance earning</DialogTitle>
+            <DialogDescription>
+              This only changes the kids finance ledger. It does not delete the original chore completion.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={earningDraft.sourceName}
+                onChange={(event) => setEarningDraft((current) => ({ ...current, sourceName: event.target.value }))}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Amount earned</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={earningDraft.amount}
+                  onChange={(event) => setEarningDraft((current) => ({ ...current, amount: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={earningDraft.dateKey}
+                  onChange={(event) => setEarningDraft((current) => ({ ...current, dateKey: event.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={saveEditedEarning}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
