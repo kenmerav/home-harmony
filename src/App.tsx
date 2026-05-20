@@ -57,6 +57,7 @@ const MealsPage = lazyWithReload(() => import("./pages/MealsPage"));
 const RecipesPage = lazyWithReload(() => import("./pages/RecipesPage"));
 const GroceryPage = lazyWithReload(() => import("./pages/GroceryPage"));
 const ChoresPage = lazyWithReload(() => import("./pages/ChoresPage"));
+const KidsFinancePage = lazyWithReload(() => import("./pages/KidsFinancePage"));
 const TasksPage = lazyWithReload(() => import("./pages/TasksPage"));
 const FamilyPage = lazyWithReload(() => import("./pages/FamilyPage"));
 const SettingsPage = lazyWithReload(() => import("./pages/SettingsPage"));
@@ -366,6 +367,16 @@ const App = () => (
                   <RequireProfileComplete>
                     <RequireSubscription>
                       <ChoresPage />
+                    </RequireSubscription>
+                  </RequireProfileComplete>
+                }
+              />
+              <Route
+                path="/kids-finance"
+                element={
+                  <RequireProfileComplete>
+                    <RequireSubscription>
+                      <KidsFinancePage />
                     </RequireSubscription>
                   </RequireProfileComplete>
                 }
