@@ -537,7 +537,7 @@ export default function FamilyPage() {
             <section className="rounded-xl border border-border bg-card p-5">
               <h2 className="font-semibold">Family leaderboard</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Weekly score combines macro goal progress, healthy habits, and kids&apos; completed chores.
+                Weekly points reset Monday and decide the weekly prize. Kids score from point chores and skills; money rewards stay in Kids Finance.
               </p>
               <div className="mt-3 space-y-2">
                 {familyLeaderboard.map((entry, index) => (

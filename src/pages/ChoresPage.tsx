@@ -1331,6 +1331,14 @@ export default function ChoresPage() {
         </div>
       </SectionCard>
 
+      <div className="mt-6 rounded-xl border border-primary/25 bg-primary/10 p-4">
+        <p className="text-sm font-semibold text-foreground">How points work</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Point chores and skills count toward the weekly family leaderboard for prizes and privileges. The weekly race resets Monday,
+          but lifetime points stay visible here. Money rewards stay separate and flow into Kids Finance.
+        </p>
+      </div>
+
       <div className="space-y-6 mt-6">
         {children.map((child) => {
           const dailyCompleted = child.dailyChores.filter((chore) => chore.isCompleted).length;

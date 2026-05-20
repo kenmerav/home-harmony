@@ -199,9 +199,6 @@ const paceAdjustments: Record<GoalPace, number> = {
   aggressive: 700,
 };
 
-const KID_DAILY_PROGRESS_POINTS = 40;
-const KID_DAILY_PERFECT_BONUS = 10;
-const KID_WEEKLY_CHORE_POINTS = 20;
 const KID_EXTRA_CHORE_POINTS = 25;
 const KID_EXTRA_CHORE_MISS_PENALTY = 15;
 const KID_EXTRA_CHORE_DAILY_CAP = 25;
@@ -1464,14 +1461,6 @@ function timestampToDateKey(value: unknown): string | null {
   return format(parsed, 'yyyy-MM-dd');
 }
 
-function getKidDailyPoints(completed: number, total: number): number {
-  if (total <= 0) return 0;
-  const safeCompleted = Math.max(0, Math.min(completed, total));
-  const progressPoints = Math.round((safeCompleted / total) * KID_DAILY_PROGRESS_POINTS);
-  const perfectBonus = safeCompleted === total ? KID_DAILY_PERFECT_BONUS : 0;
-  return progressPoints + perfectBonus;
-}
-
 function choreWasCompletedOnDate(
   chore: { isCompleted?: boolean; completionDates?: unknown },
   dateKey: string,
@@ -1482,6 +1471,56 @@ function choreWasCompletedOnDate(
     return completionDates.includes(dateKey);
   }
   return Boolean(chore.isCompleted) && fallbackDateKey === dateKey;
+}
+
+function pointValue(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''));
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.round(numeric));
+}
+
+function chorePointValue(chore: { reward?: unknown; rewardUnit?: unknown }): number {
+  return chore.rewardUnit === 'points' ? pointValue(chore.reward) : 0;
+}
+
+function sumCompletedChorePointsForDate(
+  chores: Array<{ reward?: unknown; rewardUnit?: unknown; isCompleted?: boolean; completionDates?: unknown }>,
+  dateKey: string,
+  fallbackDateKey: string,
+): number {
+  return chores.reduce(
+    (sum, chore) => sum + (choreWasCompletedOnDate(chore, dateKey, fallbackDateKey) ? chorePointValue(chore) : 0),
+    0,
+  );
+}
+
+function sumCompletedChorePointsForDates(
+  chores: Array<{ reward?: unknown; rewardUnit?: unknown; isCompleted?: boolean; completionDates?: unknown }>,
+  dateKeys: string[],
+  fallbackDateKey: string,
+): number {
+  return dateKeys.reduce((sum, dateKey) => sum + sumCompletedChorePointsForDate(chores, dateKey, fallbackDateKey), 0);
+}
+
+function skillPointsForDate(
+  skills: Array<{ points?: unknown; completionDates?: unknown }>,
+  dateKey: string,
+): number {
+  return skills.reduce((sum, skill) => {
+    const completionDates = uniqueDateKeys(skill.completionDates);
+    return sum + (completionDates.includes(dateKey) ? pointValue(skill.points) : 0);
+  }, 0);
+}
+
+function skillPointsForDates(
+  skills: Array<{ points?: unknown; completionDates?: unknown }>,
+  dateKeys: string[],
+): number {
+  const weekSet = new Set(dateKeys);
+  return skills.reduce((sum, skill) => {
+    const completionDates = uniqueDateKeys(skill.completionDates);
+    return completionDates.some((dateKey) => weekSet.has(dateKey)) ? sum + pointValue(skill.points) : sum;
+  }, 0);
 }
 
 function extraMatchesDate(
@@ -1512,8 +1551,9 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
       children?: Array<{
         id: string;
         name: string;
-        dailyChores?: Array<{ isCompleted?: boolean; completionDates?: unknown }>;
-        weeklyChores?: Array<{ isCompleted?: boolean; completionDates?: unknown }>;
+        dailyChores?: Array<{ reward?: unknown; rewardUnit?: unknown; isCompleted?: boolean; completionDates?: unknown }>;
+        weeklyChores?: Array<{ reward?: unknown; rewardUnit?: unknown; isCompleted?: boolean; completionDates?: unknown }>;
+        skillItems?: Array<{ points?: unknown; completionDates?: unknown }>;
         extraChores?: Array<{
           isCompleted?: boolean;
           isFailed?: boolean;
@@ -1529,16 +1569,21 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
     return children.map((child) => {
       const dailyChores = Array.isArray(child.dailyChores) ? child.dailyChores : [];
       const weeklyChores = Array.isArray(child.weeklyChores) ? child.weeklyChores : [];
+      const skillItems = Array.isArray(child.skillItems) ? child.skillItems : [];
       const extraChores = Array.isArray(child.extraChores) ? child.extraChores : [];
       const totalDaily = dailyChores.length;
       const completedDailyToday = dailyChores.filter((chore) => choreWasCompletedOnDate(chore, todayKey, todayKey)).length;
-      const weekDailyPoints = weekKeys.reduce((sum, dateKey) => {
-        const completedForDay = dailyChores.filter((chore) => choreWasCompletedOnDate(chore, dateKey, todayKey)).length;
-        return sum + getKidDailyPoints(completedForDay, totalDaily);
-      }, 0);
-      const completedWeeklyToday = weeklyChores.filter((chore) => choreWasCompletedOnDate(chore, todayKey, todayKey)).length;
+      const dailyPointsToday = sumCompletedChorePointsForDate(dailyChores, todayKey, todayKey);
+      const weeklyPointsToday = sumCompletedChorePointsForDate(weeklyChores, todayKey, todayKey);
+      const skillPointsToday = skillPointsForDate(skillItems, todayKey);
+      const weekDailyPoints = sumCompletedChorePointsForDates(dailyChores, weekKeys, todayKey);
+      const weekWeeklyPoints = sumCompletedChorePointsForDates(weeklyChores, weekKeys, todayKey);
+      const weekSkillPoints = skillPointsForDates(skillItems, weekKeys);
       const completedWeeklyWeek = weeklyChores.filter((chore) =>
         weekKeys.some((dateKey) => choreWasCompletedOnDate(chore, dateKey, todayKey)),
+      ).length;
+      const completedSkillsWeek = skillItems.filter((skill) =>
+        uniqueDateKeys(skill.completionDates).some((dateKey) => weekKeys.includes(dateKey)),
       ).length;
       const completedExtrasToday = extraChores.filter((extra) =>
         extraMatchesDate(extra, 'completed', todayKey, todayKey),
@@ -1554,15 +1599,17 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
       ).length;
       const todayPoints = Math.max(
         0,
-        getKidDailyPoints(completedDailyToday, totalDaily) +
-          completedWeeklyToday * KID_WEEKLY_CHORE_POINTS +
+        dailyPointsToday +
+          weeklyPointsToday +
+          skillPointsToday +
           Math.min(KID_EXTRA_CHORE_DAILY_CAP, completedExtrasToday * KID_EXTRA_CHORE_POINTS) -
           Math.min(KID_EXTRA_CHORE_MISS_DAILY_CAP, failedExtrasToday * KID_EXTRA_CHORE_MISS_PENALTY),
       );
       const weekPoints = Math.max(
         0,
         weekDailyPoints +
-          completedWeeklyWeek * KID_WEEKLY_CHORE_POINTS +
+          weekWeeklyPoints +
+          weekSkillPoints +
           Math.min(KID_EXTRA_CHORE_WEEKLY_CAP, completedExtrasWeek * KID_EXTRA_CHORE_POINTS) -
           Math.min(KID_EXTRA_CHORE_MISS_WEEKLY_CAP, failedExtrasWeek * KID_EXTRA_CHORE_MISS_PENALTY),
       );
@@ -1582,7 +1629,7 @@ function getKidEntries(date = new Date(), userId?: string | null): LeaderboardEn
         todayPoints,
         weekPoints,
         streak,
-        headline: `${completedDailyToday}/${totalDaily || 0} daily today • ${completedWeeklyWeek} weekly • ${completedExtrasWeek} extras`,
+        headline: `${completedDailyToday}/${totalDaily || 0} daily • ${completedWeeklyWeek} weekly • ${completedSkillsWeek} skills`,
       };
     });
   } catch {

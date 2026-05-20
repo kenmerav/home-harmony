@@ -1295,7 +1295,7 @@ export default function TodayPage() {
 
         <SectionCard
           title="Family Leaderboard"
-          subtitle="Weekly points across nutrition + chores"
+          subtitle="Weekly points reset Monday. Lifetime points stay on each kid's chore profile."
           action={
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setPrizeDialogOpen(true)}>
@@ -1310,6 +1310,9 @@ export default function TodayPage() {
           <div className="mb-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2">
             <p className="text-xs uppercase tracking-wide text-primary/80">This Week&apos;s Prize</p>
             <p className="text-sm font-medium text-foreground">{leaderboardPrize}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Points are for weekly prizes and privileges. Money rewards stay separate in Kids Finance.
+            </p>
           </div>
           <div className="space-y-2">
             {leaderboard.map((entry, index) => (
@@ -1563,7 +1566,9 @@ export default function TodayPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-display">Set Weekly Prize</DialogTitle>
-            <DialogDescription>Choose this week&apos;s reward for the family leaderboard winner.</DialogDescription>
+            <DialogDescription>
+              Choose this week&apos;s privilege for the family leaderboard winner. Weekly points reset Monday.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Input
@@ -1571,6 +1576,25 @@ export default function TodayPage() {
               value={prizeInput}
               onChange={(e) => setPrizeInput(e.target.value)}
             />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                'Winner picks Friday dessert',
+                'Winner chooses family movie',
+                'Winner gets 30 minutes extra screen time',
+                'Winner picks dinner one night',
+              ].map((preset) => (
+                <Button
+                  key={preset}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="justify-start whitespace-normal text-left"
+                  onClick={() => setPrizeInput(preset)}
+                >
+                  {preset}
+                </Button>
+              ))}
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setPrizeDialogOpen(false)}>
                 Cancel
