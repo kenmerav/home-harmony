@@ -1234,6 +1234,50 @@ export default function ChoresPage() {
     }));
   };
 
+  const unassignExtraChore = (childId: string, extraId: string) => {
+    setState((prev) => {
+      const child = prev.children.find((item) => item.id === childId);
+      const extra = child?.extraChores.find((item) => item.id === extraId);
+      if (!child || !extra || extra.isCompleted || extra.isFailed) return prev;
+
+      const dueAtMs = new Date(extra.dueAt).getTime();
+      const remainingMs = dueAtMs - Date.now();
+      const hoursToComplete =
+        Number.isFinite(remainingMs) && remainingMs > 0
+          ? Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)))
+          : 24;
+      const restoredId =
+        extra.sourceId && !prev.availableExtraChores.some((chore) => chore.id === extra.sourceId)
+          ? extra.sourceId
+          : `extra-board-${Date.now()}`;
+
+      return {
+        ...prev,
+        availableExtraChores: [
+          ...prev.availableExtraChores,
+          {
+            id: restoredId,
+            name: extra.name,
+            reward: extra.reward,
+            penalty: extra.penalty,
+            hoursToComplete,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        children: prev.children.map((item) =>
+          item.id === childId
+            ? { ...item, extraChores: item.extraChores.filter((chore) => chore.id !== extraId) }
+            : item,
+        ),
+      };
+    });
+
+    toast({
+      title: 'Extra chore unassigned',
+      description: 'It is back on the available extra chores board.',
+    });
+  };
+
   const completeExtraChore = (childId: string, extraId: string) => {
     updateChild(childId, (child) => {
       let earned = 0;
@@ -1677,15 +1721,22 @@ export default function ChoresPage() {
                             {new Date(extra.dueAt).toLocaleString()}
                           </p>
                         </div>
-                        {extra.isCompleted ? (
-                          <span className="text-xs text-primary font-medium">Completed</span>
-                        ) : extra.isFailed ? (
-                          <span className="text-xs text-destructive font-medium">Missed</span>
-                        ) : (
-                          <Button size="sm" variant="outline" onClick={() => completeExtraChore(child.id, extra.id)}>
-                            Complete
-                          </Button>
-                        )}
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {extra.isCompleted ? (
+                            <span className="text-xs text-primary font-medium">Completed</span>
+                          ) : extra.isFailed ? (
+                            <span className="text-xs text-destructive font-medium">Missed</span>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => unassignExtraChore(child.id, extra.id)}>
+                                Unassign
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => completeExtraChore(child.id, extra.id)}>
+                                Complete
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
