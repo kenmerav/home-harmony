@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { DayOfWeek } from '@/types';
-import { Plus, RotateCcw, CheckCircle2, X, PiggyBank, Wallet, Clock3, Pencil } from 'lucide-react';
+import { Plus, RotateCcw, CheckCircle2, X, PiggyBank, Clock3, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -517,7 +517,6 @@ export default function ChoresPage() {
   const [extraReward, setExtraReward] = useState('3');
   const [extraPenalty, setExtraPenalty] = useState('2');
   const [extraHours, setExtraHours] = useState('24');
-  const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
   const currentDay = getCurrentDay();
   const { toast } = useToast();
   const activeScopeId = sharedHouseholdOwnerId || user?.id || null;
@@ -1253,28 +1252,6 @@ export default function ChoresPage() {
     });
   };
 
-  const cashOut = (childId: string) => {
-    const amount = Number.parseFloat(cashOutAmounts[childId] || '0');
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const child = children.find((c) => c.id === childId);
-    if (!child) return;
-    if (amount > child.piggyBank) {
-      toast({
-        title: 'Not enough balance',
-        description: `${child.name} only has ${money(child.piggyBank)}.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-    updateChild(childId, (current) => ({
-      ...current,
-      piggyBank: current.piggyBank - amount,
-      cashedOut: current.cashedOut + amount,
-    }));
-    setCashOutAmounts((prev) => ({ ...prev, [childId]: '' }));
-    toast({ title: 'Cash out recorded', description: `${money(amount)} paid out.` });
-  };
-
   const totalDailyChores = useMemo(
     () => children.reduce((sum, child) => sum + child.dailyChores.length, 0),
     [children],
@@ -1425,12 +1402,6 @@ export default function ChoresPage() {
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground">Penalties</p>
                     <p className="font-semibold text-destructive">{money(child.lifetimePenalties)}</p>
-                  </div>
-                  <div className="rounded-md border border-border p-2">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Wallet className="w-3.5 h-3.5" /> Cashed Out
-                    </p>
-                    <p className="font-semibold">{money(child.cashedOut)}</p>
                   </div>
                 </div>
 
@@ -1710,23 +1681,6 @@ export default function ChoresPage() {
                       </div>
                     </div>
                   ))}
-                </div>
-
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-sm font-medium mb-2">Cash Out</p>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.25"
-                      value={cashOutAmounts[child.id] || ''}
-                      onChange={(e) =>
-                        setCashOutAmounts((prev) => ({ ...prev, [child.id]: e.target.value }))
-                      }
-                      placeholder="Amount"
-                    />
-                    <Button onClick={() => cashOut(child.id)}>Cash Out</Button>
-                  </div>
                 </div>
 
                 <Button variant="ghost" size="sm" className="w-full" onClick={() => openAddChore(child.id)}>
