@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,7 +39,7 @@ import {
 } from '@/lib/kidsFinanceStore';
 import { hydrateChoresStateFromAccount, readStoredChoresState } from '@/lib/choresStateStore';
 import { cn } from '@/lib/utils';
-import { ArrowRightLeft, ArrowUpRight, Banknote, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Target, Trash2, TrendingUp } from 'lucide-react';
+import { ArrowRightLeft, ArrowUpRight, Banknote, ChevronDown, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Target, Trash2, TrendingUp } from 'lucide-react';
 
 type PeriodPreset = 'this_week' | 'this_month' | 'this_year' | 'last_90' | 'all_time' | 'custom';
 
@@ -917,42 +918,57 @@ export default function KidsFinancePage() {
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-muted/20 p-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="font-semibold">Allocation settings</p>
-                            <p className="text-sm text-muted-foreground">Increase any bucket. Remaining adjusts automatically unless you edit it.</p>
-                          </div>
-                          {allocationTotal !== 100 && (
-                            <Badge variant="destructive">{percent(allocationTotal)} total</Badge>
-                          )}
-                        </div>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                          {(['tithing', 'investing', 'taxes', 'remaining'] as const).map((field) => (
-                            <div key={field} className="space-y-2">
-                              <Label className="capitalize">{field}</Label>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  step="1"
-                                  value={String(allocation[field])}
-                                  onChange={(event) => updateAllocation(child.id, field, event.target.value)}
-                                />
-                                <span className="text-sm text-muted-foreground">%</span>
-                              </div>
+                        <Collapsible defaultOpen={false} className="rounded-2xl border bg-muted/20 p-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="font-semibold">Allocation settings</p>
+                              <p className="text-sm text-muted-foreground">Increase any bucket. Remaining adjusts automatically unless you edit it.</p>
                             </div>
-                          ))}
-                        </div>
-                      </div>
+                            <div className="flex items-center gap-2">
+                              {allocationTotal !== 100 && (
+                                <Badge variant="destructive">{percent(allocationTotal)} total</Badge>
+                              )}
+                              <CollapsibleTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  aria-label="Toggle allocation settings"
+                                >
+                                  <ChevronDown className="h-4 w-4" />
+                                </Button>
+                              </CollapsibleTrigger>
+                            </div>
+                          </div>
+                          <CollapsibleContent>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                              {(['tithing', 'investing', 'taxes', 'remaining'] as const).map((field) => (
+                                <div key={field} className="space-y-2">
+                                  <Label className="capitalize">{field}</Label>
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      step="1"
+                                      value={String(allocation[field])}
+                                      onChange={(event) => updateAllocation(child.id, field, event.target.value)}
+                                    />
+                                    <span className="text-sm text-muted-foreground">%</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
 
                       <div className="grid gap-3 md:grid-cols-2">
-                          <div className="rounded-2xl border bg-background p-4">
-                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime giving</p>
-                            <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeGiving)}</p>
-                            <p className="text-sm text-muted-foreground">allocation plus remaining transfers</p>
-                          </div>
+                        <div className="rounded-2xl border bg-background p-4">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime giving</p>
+                          <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeGiving)}</p>
+                          <p className="text-sm text-muted-foreground">allocation plus remaining transfers</p>
+                        </div>
                         <div className="rounded-2xl border bg-background p-4">
                           <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime taxes set aside</p>
                           <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeBuckets.taxes)}</p>
