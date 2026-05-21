@@ -331,7 +331,7 @@ function skillDueToday(skill: SkillDevelopmentItem, currentDay: DayOfWeek): bool
 function skillWindowLabel(skill: SkillDevelopmentItem): string {
   switch (skill.cadence) {
     case 'daily':
-      return 'Daily';
+      return 'Daily, once per day';
     case 'weekly':
       return `${dayLabels[skill.day || 'monday']}`;
     case 'weekly_any':
@@ -577,11 +577,11 @@ export default function ChoresPage() {
   const [addSkillOpen, setAddSkillOpen] = useState(false);
   const [skillChildId, setSkillChildId] = useState<string | null>(null);
   const [newSkillName, setNewSkillName] = useState('');
-  const [newSkillCadence, setNewSkillCadence] = useState<SkillCadence>('weekly_any');
+  const [newSkillCadence, setNewSkillCadence] = useState<SkillCadence>('daily');
   const [newSkillDay, setNewSkillDay] = useState<DayOfWeek>('monday');
   const [newSkillDays, setNewSkillDays] = useState<DayOfWeek[]>(['monday']);
   const [newSkillMinutes, setNewSkillMinutes] = useState('30');
-  const [newSkillPoints, setNewSkillPoints] = useState('1');
+  const [newSkillPoints, setNewSkillPoints] = useState('100');
   const [editSkillOpen, setEditSkillOpen] = useState(false);
   const [editingSkillTarget, setEditingSkillTarget] = useState<{ childId: string; skillId: string } | null>(null);
   const [editSkillName, setEditSkillName] = useState('');
@@ -1086,11 +1086,11 @@ export default function ChoresPage() {
   const openAddSkill = (childId: string) => {
     setSkillChildId(childId);
     setNewSkillName('');
-    setNewSkillCadence('weekly_any');
+    setNewSkillCadence('daily');
     setNewSkillDay('monday');
     setNewSkillDays(['monday']);
     setNewSkillMinutes('30');
-    setNewSkillPoints('1');
+    setNewSkillPoints('100');
     setAddSkillOpen(true);
   };
 
@@ -1704,7 +1704,9 @@ export default function ChoresPage() {
                               <span className={cn('flex-1 text-sm', completedToday && 'line-through text-muted-foreground')}>
                                 {skill.name}
                               </span>
-                              <span className="text-xs text-muted-foreground">{skill.targetMinutes} min • {formatPoints(skill.points)}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {skill.targetMinutes} min • {formatPoints(skill.points)} • {skillWindowLabel(skill)}
+                              </span>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -2215,7 +2217,7 @@ export default function ChoresPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Points</label>
+              <label className="text-sm font-medium">Points per completion</label>
               <Input
                 type="number"
                 min={0}
@@ -2260,7 +2262,7 @@ export default function ChoresPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="daily">Daily (earn once per day)</SelectItem>
                   <SelectItem value="weekly">Weekly (specific day)</SelectItem>
                   <SelectItem value="weekly_any">Weekly (any time that week)</SelectItem>
                   <SelectItem value="custom_weekly">Certain days each week</SelectItem>
@@ -2321,7 +2323,7 @@ export default function ChoresPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Points</label>
+              <label className="text-sm font-medium">Points per completion</label>
               <Input
                 type="number"
                 min={0}
