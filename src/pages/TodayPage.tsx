@@ -1295,7 +1295,7 @@ export default function TodayPage() {
 
         <SectionCard
           title="Family Leaderboard"
-          subtitle="Weekly points reset Monday. Lifetime points stay on each kid's chore profile."
+          subtitle="Weekly points reset Monday at 5:00 AM. Lifetime points stay on each kid's chore profile."
           action={
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setPrizeDialogOpen(true)}>
@@ -1567,7 +1567,7 @@ export default function TodayPage() {
           <DialogHeader>
             <DialogTitle className="font-display">Set Weekly Prize</DialogTitle>
             <DialogDescription>
-              Choose this week&apos;s privilege for the family leaderboard winner. Weekly points reset Monday.
+              Choose this week&apos;s privilege for the family leaderboard winner. Weekly points reset Monday at 5:00 AM.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

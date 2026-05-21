@@ -45,11 +45,29 @@ export interface KidsFinanceChildSettings {
   allocation: KidsFinanceAllocation;
 }
 
+export interface KidsSpendingGoal {
+  childId: string;
+  title: string;
+  targetAmount: number;
+  updatedAt?: string;
+}
+
+export interface KidsFinanceTransfer {
+  id: string;
+  childId: string;
+  createdAt: string;
+  amount: number;
+  from: 'remaining';
+  to: 'tithing' | 'investing';
+}
+
 export interface KidsFinanceState {
   childSettings: KidsFinanceChildSettings[];
   investmentLots: KidsInvestmentLot[];
   cashOuts: KidsInvestmentCashOut[];
   earningAdjustments: KidsFinanceEarningAdjustment[];
+  spendingGoals: KidsSpendingGoal[];
+  transfers: KidsFinanceTransfer[];
   updatedAt?: string;
 }
 
@@ -168,6 +186,34 @@ function normalizeFinanceState(input: unknown): KidsFinanceState {
           })
           .filter((item) => item.eventId.length > 0)
       : [],
+    spendingGoals: Array.isArray(record.spendingGoals)
+      ? record.spendingGoals
+          .map((item) => {
+            const goal = item as Partial<KidsSpendingGoal>;
+            return {
+              childId: String(goal.childId || '').trim(),
+              title: typeof goal.title === 'string' ? goal.title.trim() : '',
+              targetAmount: normalizeMoney(goal.targetAmount),
+              updatedAt: typeof goal.updatedAt === 'string' ? goal.updatedAt : undefined,
+            };
+          })
+          .filter((item) => item.childId.length > 0)
+      : [],
+    transfers: Array.isArray(record.transfers)
+      ? record.transfers
+          .map((item) => {
+            const transfer = item as Partial<KidsFinanceTransfer>;
+            return {
+              id: String(transfer.id || '').trim(),
+              childId: String(transfer.childId || '').trim(),
+              createdAt: typeof transfer.createdAt === 'string' ? transfer.createdAt : new Date().toISOString(),
+              amount: normalizeMoney(transfer.amount),
+              from: 'remaining' as const,
+              to: transfer.to === 'investing' ? 'investing' as const : 'tithing' as const,
+            };
+          })
+          .filter((item) => item.id && item.childId && item.amount > 0)
+      : [],
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
   };
 }
@@ -208,6 +254,8 @@ export async function hydrateKidsFinanceStateFromAccount(userId?: string | null)
     || normalized.investmentLots.length > 0
     || normalized.cashOuts.length > 0
     || normalized.earningAdjustments.length > 0
+    || normalized.spendingGoals.length > 0
+    || normalized.transfers.length > 0
   ) {
     writeStoredKidsFinanceState(normalized, scopedUserId);
     return;
@@ -219,6 +267,8 @@ export async function hydrateKidsFinanceStateFromAccount(userId?: string | null)
     || local.investmentLots.length > 0
     || local.cashOuts.length > 0
     || local.earningAdjustments.length > 0
+    || local.spendingGoals.length > 0
+    || local.transfers.length > 0
   ) {
     await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'kidsFinance'], local);
     writeStoredKidsFinanceState(local, scopedUserId);
@@ -249,5 +299,34 @@ export function setAllocationForChild(
   return {
     ...state,
     childSettings: [...current, { childId, allocation: normalized }],
+  };
+}
+
+export function spendingGoalForChild(state: KidsFinanceState, childId: string): KidsSpendingGoal {
+  return state.spendingGoals.find((item) => item.childId === childId) || {
+    childId,
+    title: '',
+    targetAmount: 0,
+  };
+}
+
+export function setSpendingGoalForChild(
+  state: KidsFinanceState,
+  childId: string,
+  title: string,
+  targetAmount: number,
+): KidsFinanceState {
+  const current = state.spendingGoals.filter((item) => item.childId !== childId);
+  return {
+    ...state,
+    spendingGoals: [
+      ...current,
+      {
+        childId,
+        title: title.trim(),
+        targetAmount: normalizeMoney(targetAmount),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
 }

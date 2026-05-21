@@ -27,6 +27,8 @@ import {
   persistKidsFinanceStateToAccount,
   readStoredKidsFinanceState,
   setAllocationForChild,
+  setSpendingGoalForChild,
+  spendingGoalForChild,
   type KidsFinanceEarningAdjustment,
   type KidsFinanceAllocation,
   type KidsFinanceState,
@@ -36,7 +38,7 @@ import {
 } from '@/lib/kidsFinanceStore';
 import { hydrateChoresStateFromAccount, readStoredChoresState } from '@/lib/choresStateStore';
 import { cn } from '@/lib/utils';
-import { ArrowUpRight, Banknote, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Trash2, TrendingUp } from 'lucide-react';
+import { ArrowRightLeft, ArrowUpRight, Banknote, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Target, Trash2, TrendingUp } from 'lucide-react';
 
 type PeriodPreset = 'this_week' | 'this_month' | 'this_year' | 'last_90' | 'all_time' | 'custom';
 
@@ -90,6 +92,8 @@ const emptyFinanceState: KidsFinanceState = {
   investmentLots: [],
   cashOuts: [],
   earningAdjustments: [],
+  spendingGoals: [],
+  transfers: [],
 };
 
 const money = (amount: number) =>
@@ -267,6 +271,16 @@ function allocationDollars(totalEarned: number, allocation: KidsFinanceAllocatio
   };
 }
 
+function transferTotal(
+  state: KidsFinanceState,
+  childId: string,
+  destination?: 'tithing' | 'investing',
+): number {
+  return state.transfers
+    .filter((transfer) => transfer.childId === childId && (!destination || transfer.to === destination))
+    .reduce((sum, transfer) => sum + transfer.amount, 0);
+}
+
 function totalPercent(allocation: KidsFinanceAllocation): number {
   return allocation.tithing + allocation.investing + allocation.taxes + allocation.remaining;
 }
@@ -325,6 +339,8 @@ export default function KidsFinancePage() {
   const [quote, setQuote] = useState<VooQuote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
+  const [goalDrafts, setGoalDrafts] = useState<Record<string, { title: string; targetAmount: string }>>({});
+  const [transferDrafts, setTransferDrafts] = useState<Record<string, { amount: string; to: 'tithing' | 'investing' }>>({});
   const [editingEvent, setEditingEvent] = useState<EarnedEvent | null>(null);
   const [earningDraft, setEarningDraft] = useState({ sourceName: '', amount: '', dateKey: '' });
 
@@ -421,7 +437,7 @@ export default function KidsFinancePage() {
       const allocation = allocationForChild(financeState, child.id);
       const targetPrincipal = (allTimeEarnedByChild.get(child.id) || 0) * allocation.investing / 100;
       const alreadyTracked = financeState.investmentLots
-        .filter((lot) => lot.childId === child.id)
+        .filter((lot) => lot.childId === child.id && lot.source === 'auto_allocation')
         .reduce((sum, lot) => sum + lot.amount, 0)
         + financeState.cashOuts
           .filter((cashOut) => cashOut.childId === child.id)
@@ -470,6 +486,73 @@ export default function KidsFinancePage() {
     setFinanceState((current) => {
       const currentAllocation = allocationForChild(current, childId);
       return setAllocationForChild(current, childId, nextAllocationWithChangedField(currentAllocation, field, value));
+    });
+  };
+
+  const saveSpendingGoal = (childId: string) => {
+    const draft = goalDrafts[childId] || { title: '', targetAmount: '' };
+    const targetAmount = normalizeMoney(draft.targetAmount);
+    setFinanceState((current) => setSpendingGoalForChild(current, childId, draft.title, targetAmount));
+    toast({
+      title: 'Goal saved',
+      description: targetAmount > 0 ? 'The remaining-money tracker is updated.' : 'The goal amount was cleared.',
+    });
+  };
+
+  const transferFromRemaining = (childId: string, availableRemaining: number) => {
+    const draft = transferDrafts[childId] || { amount: '', to: 'tithing' as const };
+    const amount = normalizeMoney(draft.amount);
+    if (amount <= 0) return;
+    if (amount > availableRemaining + 0.01) {
+      toast({
+        title: 'Not enough remaining money',
+        description: `Only ${money(availableRemaining)} is available to move.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (draft.to === 'investing' && !quote?.price) {
+      toast({
+        title: 'VOO quote needed',
+        description: 'Wait for the quote to load before moving money into investing.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFinanceState((current) => ({
+      ...current,
+      transfers: [
+        ...current.transfers,
+        {
+          id: `remaining-transfer-${childId}-${Date.now()}`,
+          childId,
+          createdAt: new Date().toISOString(),
+          amount,
+          from: 'remaining',
+          to: draft.to,
+        },
+      ],
+      investmentLots: draft.to === 'investing' && quote?.price
+        ? [
+            ...current.investmentLots,
+            {
+              id: `voo-manual-${childId}-${Date.now()}`,
+              childId,
+              createdAt: new Date().toISOString(),
+              amount,
+              shares: amount / quote.price,
+              pricePerShare: quote.price,
+              symbol: 'VOO',
+              source: 'manual_adjustment',
+            },
+          ]
+        : current.investmentLots,
+    }));
+    setTransferDrafts((current) => ({ ...current, [childId]: { amount: '', to: draft.to } }));
+    toast({
+      title: 'Money moved',
+      description: `${money(amount)} moved from remaining to ${draft.to}.`,
     });
   };
 
@@ -666,6 +749,19 @@ export default function KidsFinancePage() {
               const allTimeEarned = allTimeEarnedByChild.get(child.id) || 0;
               const periodBuckets = allocationDollars(periodEarned, allocation);
               const lifetimeBuckets = allocationDollars(allTimeEarned, allocation);
+              const transferredToTithing = transferTotal(financeState, child.id, 'tithing');
+              const transferredToInvesting = transferTotal(financeState, child.id, 'investing');
+              const transferredFromRemaining = transferredToTithing + transferredToInvesting;
+              const remainingAvailable = Math.max(0, lifetimeBuckets.remaining - transferredFromRemaining);
+              const lifetimeGiving = lifetimeBuckets.tithing + transferredToTithing;
+              const spendingGoal = spendingGoalForChild(financeState, child.id);
+              const goalDraft = goalDrafts[child.id] || {
+                title: spendingGoal.title,
+                targetAmount: spendingGoal.targetAmount > 0 ? String(spendingGoal.targetAmount) : '',
+              };
+              const goalTarget = normalizeMoney(goalDraft.targetAmount || spendingGoal.targetAmount);
+              const goalProgress = goalTarget > 0 ? Math.min(100, remainingAvailable / goalTarget * 100) : 0;
+              const transferDraft = transferDrafts[child.id] || { amount: '', to: 'tithing' as const };
               const childLots = lotsForChild(financeState, child.id);
               const activeShares = activeSharesForChild(financeState, child.id);
               const currentInvestmentValue = activeShares * (quote?.price || 0);
@@ -686,7 +782,7 @@ export default function KidsFinancePage() {
                 >
                   <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
                     <div className="space-y-5">
-                      <div className="grid gap-3 md:grid-cols-4">
+                        <div className="grid gap-3 md:grid-cols-4">
                         {[
                           ['Tithing', periodBuckets.tithing, allocation.tithing, HandCoins, 'text-amber-700'],
                           ['Investing', periodBuckets.investing, allocation.investing, TrendingUp, 'text-emerald-700'],
@@ -701,10 +797,127 @@ export default function KidsFinancePage() {
                             <p className="mt-3 font-display text-2xl font-semibold">{money(Number(amount))}</p>
                             <p className="text-sm text-muted-foreground">{percent(Number(allocationPercent))} of earnings</p>
                           </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
 
-                      <div className="rounded-2xl border bg-muted/20 p-4">
+                        <div className="rounded-2xl border bg-background p-4">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <Target className="h-5 w-5 text-primary" />
+                                <p className="font-semibold">Remaining goal</p>
+                              </div>
+                              <p className="mt-3 text-sm text-muted-foreground">Available to spend</p>
+                              <p className="font-display text-5xl font-semibold text-primary">{money(remainingAvailable)}</p>
+                              <div className="mt-4">
+                                <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                                  <span className="font-medium">{goalDraft.title.trim() || 'No spending goal yet'}</span>
+                                  <span className="text-muted-foreground">
+                                    {goalTarget > 0 ? `${money(Math.min(remainingAvailable, goalTarget))} / ${money(goalTarget)}` : money(0)}
+                                  </span>
+                                </div>
+                                <Progress value={goalProgress} />
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {goalTarget > 0
+                                    ? `${money(Math.max(0, goalTarget - remainingAvailable))} left to reach this goal.`
+                                    : 'Set a goal so kids can see exactly what their remaining money is working toward.'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="grid w-full gap-3 lg:max-w-sm">
+                              <div className="space-y-2">
+                                <Label>What they want to buy</Label>
+                                <Input
+                                  placeholder="Example: art kit, bike, game"
+                                  value={goalDraft.title}
+                                  onChange={(event) =>
+                                    setGoalDrafts((current) => ({
+                                      ...current,
+                                      [child.id]: { ...goalDraft, title: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Goal amount</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={goalDraft.targetAmount}
+                                  onChange={(event) =>
+                                    setGoalDrafts((current) => ({
+                                      ...current,
+                                      [child.id]: { ...goalDraft, targetAmount: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <Button type="button" onClick={() => saveSpendingGoal(child.id)}>
+                                Save Goal
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border bg-muted/20 p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <ArrowRightLeft className="h-5 w-5 text-primary" />
+                                <p className="font-semibold">Move remaining money</p>
+                              </div>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                Transfer spending money into tithing or simulated investing whenever they choose.
+                              </p>
+                              <p className="mt-2 text-sm">
+                                Already moved: {money(transferredToTithing)} to tithing • {money(transferredToInvesting)} to investing
+                              </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-[140px_150px_auto]">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="Amount"
+                                value={transferDraft.amount}
+                                onChange={(event) =>
+                                  setTransferDrafts((current) => ({
+                                    ...current,
+                                    [child.id]: { ...transferDraft, amount: event.target.value },
+                                  }))
+                                }
+                              />
+                              <Select
+                                value={transferDraft.to}
+                                onValueChange={(value) =>
+                                  setTransferDrafts((current) => ({
+                                    ...current,
+                                    [child.id]: { ...transferDraft, to: value as 'tithing' | 'investing' },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="tithing">Tithing</SelectItem>
+                                  <SelectItem value="investing">Investing</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                onClick={() => transferFromRemaining(child.id, remainingAvailable)}
+                                disabled={remainingAvailable <= 0}
+                              >
+                                Move
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border bg-muted/20 p-4">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="font-semibold">Allocation settings</p>
@@ -735,11 +948,11 @@ export default function KidsFinancePage() {
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-2">
-                        <div className="rounded-2xl border bg-background p-4">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime giving</p>
-                          <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeBuckets.tithing)}</p>
-                          <p className="text-sm text-muted-foreground">based on all recorded earnings</p>
-                        </div>
+                          <div className="rounded-2xl border bg-background p-4">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime giving</p>
+                            <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeGiving)}</p>
+                            <p className="text-sm text-muted-foreground">allocation plus remaining transfers</p>
+                          </div>
                         <div className="rounded-2xl border bg-background p-4">
                           <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime taxes set aside</p>
                           <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeBuckets.taxes)}</p>

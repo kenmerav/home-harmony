@@ -36,6 +36,7 @@ import {
   hydrateChoresStateFromAccount,
   persistChoresStateToAccount,
 } from '@/lib/choresStateStore';
+import { readStoredKidsFinanceState, type KidsFinanceEarningAdjustment } from '@/lib/kidsFinanceStore';
 
 const getCurrentDay = (): DayOfWeek => {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -130,6 +131,11 @@ interface ChoresState {
   lastWeeklyResetDate: string;
 }
 
+interface MoneyEarnedEvent {
+  id: string;
+  amount: number;
+}
+
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -143,8 +149,12 @@ function todayDateKey(): string {
 
 function weekResetDateKey(date = new Date()): string {
   const weekStart = new Date(date);
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const daysSinceMonday = (weekStart.getDay() + 6) % 7;
+  weekStart.setHours(5, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+  if (date.getTime() < weekStart.getTime()) {
+    weekStart.setDate(weekStart.getDate() - 7);
+  }
   return formatDateKey(weekStart);
 }
 
@@ -169,6 +179,70 @@ function normalizeNonNegativeNumber(value: unknown): number {
   const numeric = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''));
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, numeric);
+}
+
+function normalizeMoneyValue(value: unknown): number {
+  const numeric = normalizeNonNegativeNumber(value);
+  return Math.round(numeric * 100) / 100;
+}
+
+function dateKeyFromIso(value?: string): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return formatDateKey(parsed);
+}
+
+function completedMoneyEventsForChild(child: ChildEconomy): MoneyEarnedEvent[] {
+  const events: MoneyEarnedEvent[] = [];
+
+  const addChoreEvents = (sourceType: 'daily' | 'weekly', chore: RewardChore) => {
+    if (chore.rewardUnit === 'points') return;
+    const amount = normalizeMoneyValue(chore.reward);
+    if (amount <= 0) return;
+    normalizeCompletionDates(chore.completionDates).forEach((completionDate, index) => {
+      events.push({
+        id: `${child.id}:${sourceType}:${chore.id}:${completionDate}:${index}`,
+        amount,
+      });
+    });
+  };
+
+  child.dailyChores.forEach((chore) => addChoreEvents('daily', chore));
+  child.weeklyChores.forEach((chore) => addChoreEvents('weekly', chore));
+  child.extraChores.forEach((extra) => {
+    if (!extra.isCompleted) return;
+    const amount = normalizeMoneyValue(extra.reward);
+    const completedDate = dateKeyFromIso(extra.completedAt);
+    if (amount <= 0 || !completedDate) return;
+    events.push({
+      id: `${child.id}:extra:${extra.id}:${completedDate}`,
+      amount,
+    });
+  });
+
+  const trackedTotal = events.reduce((sum, event) => sum + event.amount, 0);
+  const missingLegacy = Math.max(0, normalizeMoneyValue(child.lifetimeEarned) - trackedTotal);
+  if (missingLegacy > 0.01) {
+    events.push({
+      id: `${child.id}:legacy-earned`,
+      amount: missingLegacy,
+    });
+  }
+
+  return events;
+}
+
+function adjustedMoneyEarnedForChild(
+  child: ChildEconomy,
+  adjustments: KidsFinanceEarningAdjustment[],
+): number {
+  const adjustmentMap = new Map(adjustments.map((adjustment) => [adjustment.eventId, adjustment]));
+  return completedMoneyEventsForChild(child).reduce((sum, event) => {
+    const adjustment = adjustmentMap.get(event.id);
+    if (adjustment?.deleted) return sum;
+    return sum + normalizeMoneyValue(adjustment?.amount ?? event.amount);
+  }, 0);
 }
 
 function normalizeNonDailyFrequency(chore: Partial<RewardWeeklyChore>): NonDailyChoreFrequency {
@@ -325,14 +399,19 @@ function normalizeChildEconomy(
     lifetimePenalties: normalizeNonNegativeNumber(item.lifetimePenalties),
     cashedOut: normalizeNonNegativeNumber(item.cashedOut),
     dailyChores: Array.isArray(item.dailyChores)
-      ? item.dailyChores.map((chore) => ({
-          ...chore,
-          rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
-          completionDates: normalizeCompletionDates(
+      ? item.dailyChores.map((chore) => {
+          const completionDates = normalizeCompletionDates(
             (chore as Partial<RewardChore>).completionDates,
             chore.isCompleted ? fallbackDates.daily : undefined,
-          ),
-        }))
+          );
+          const today = todayDateKey();
+          return {
+            ...chore,
+            isCompleted: completionDates.includes(today),
+            rewardUnit: normalizeRewardUnit((chore as Partial<RewardChore>).rewardUnit),
+            completionDates,
+          };
+        })
       : [],
     weeklyChores: Array.isArray(item.weeklyChores)
       ? item.weeklyChores.map((chore) => {
@@ -391,24 +470,23 @@ function loadState(userId?: string | null): ChoresState {
 
     if (Array.isArray(parsed)) {
       // legacy: old format stored only children
-      // Force one daily reset pass after migrating from legacy format.
       return {
         children: parsed.map((child) => normalizeChildEconomy(child)),
         availableExtraChores: [],
-        lastDailyResetDate: '',
+        lastDailyResetDate: todayKey,
         lastWeeklyResetDate: '',
       };
     }
 
     const children = Array.isArray(parsed.children) ? parsed.children : [];
-    const hasDailyResetDate =
-      typeof parsed.lastDailyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDailyResetDate);
     const hasWeeklyResetDate =
       typeof parsed.lastWeeklyResetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastWeeklyResetDate);
+    const dailyFallbackDate = parsed.lastDailyResetDate === todayKey ? todayKey : undefined;
+    const weeklyFallbackDate = parsed.lastWeeklyResetDate === weekResetDateKey() ? todayKey : undefined;
     const normalizedChildren = children.map((child) =>
       normalizeChildEconomy(child as ChildEconomy, {
-        daily: hasDailyResetDate ? todayKey : undefined,
-        weekly: hasWeeklyResetDate ? todayKey : undefined,
+        daily: dailyFallbackDate,
+        weekly: weeklyFallbackDate,
         extras: todayKey,
       }),
     );
@@ -418,8 +496,7 @@ function loadState(userId?: string | null): ChoresState {
       availableExtraChores: Array.isArray(parsed.availableExtraChores)
         ? parsed.availableExtraChores
         : [],
-      lastDailyResetDate:
-        hasDailyResetDate ? parsed.lastDailyResetDate : '',
+      lastDailyResetDate: todayKey,
       lastWeeklyResetDate:
         hasWeeklyResetDate ? parsed.lastWeeklyResetDate : '',
     };
@@ -430,8 +507,9 @@ function loadState(userId?: string | null): ChoresState {
 
 function saveState(state: ChoresState, userId?: string | null) {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(choresStateKey(userId), JSON.stringify(state));
-  void persistChoresStateToAccount(userId, state as unknown as Record<string, unknown>);
+  const nextState = { ...state, updatedAt: new Date().toISOString() };
+  window.localStorage.setItem(choresStateKey(userId), JSON.stringify(nextState));
+  void persistChoresStateToAccount(userId, nextState as unknown as Record<string, unknown>);
   dispatchChoresStateUpdated();
 }
 
@@ -524,6 +602,7 @@ export default function ChoresPage() {
 
   const children = state.children;
   const availableExtraChores = state.availableExtraChores;
+  const financeEarningAdjustments = readStoredKidsFinanceState(activeScopeId).earningAdjustments;
   const eligibleFamilyChildren = useMemo(
     () => familyChildren.filter((child) => !children.some((existing) => existing.id === child.id)),
     [children, familyChildren],
@@ -665,6 +744,7 @@ export default function ChoresPage() {
           lastWeeklyResetDate: thisWeek,
           children: prev.children.map((child) => ({
             ...child,
+            pointsBank: 0,
             weeklyChores: child.weeklyChores.map((chore) => ({ ...chore, isCompleted: false })),
           })),
         };
@@ -712,6 +792,9 @@ export default function ChoresPage() {
   const isDailyDone = (child: ChildEconomy): boolean =>
     child.dailyChores.length === 0 || child.dailyChores.every((chore) => chore.isCompleted);
 
+  const hasActiveExtraClaim = (child: ChildEconomy, sourceId: string): boolean =>
+    child.extraChores.some((extra) => extra.sourceId === sourceId && !extra.isCompleted && !extra.isFailed);
+
   const toggleDailyChore = (childId: string, choreId: string) => {
     updateChild(childId, (child) => {
       const today = todayDateKey();
@@ -735,9 +818,9 @@ export default function ChoresPage() {
         dailyChores,
         piggyBank: Math.max(0, child.piggyBank + moneyDelta),
         pointsBank: Math.max(0, child.pointsBank + pointsDelta),
-        lifetimeEarned: moneyDelta > 0 ? child.lifetimeEarned + moneyDelta : child.lifetimeEarned,
+        lifetimeEarned: Math.max(0, child.lifetimeEarned + moneyDelta),
         lifetimePointsEarned:
-          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
+          Math.max(0, child.lifetimePointsEarned + pointsDelta),
       };
     });
   };
@@ -765,9 +848,9 @@ export default function ChoresPage() {
         weeklyChores,
         piggyBank: Math.max(0, child.piggyBank + moneyDelta),
         pointsBank: Math.max(0, child.pointsBank + pointsDelta),
-        lifetimeEarned: moneyDelta > 0 ? child.lifetimeEarned + moneyDelta : child.lifetimeEarned,
+        lifetimeEarned: Math.max(0, child.lifetimeEarned + moneyDelta),
         lifetimePointsEarned:
-          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
+          Math.max(0, child.lifetimePointsEarned + pointsDelta),
       };
     });
   };
@@ -1145,7 +1228,7 @@ export default function ChoresPage() {
         }),
         pointsBank: Math.max(0, child.pointsBank + pointsDelta),
         lifetimePointsEarned:
-          pointsDelta > 0 ? child.lifetimePointsEarned + pointsDelta : child.lifetimePointsEarned,
+          Math.max(0, child.lifetimePointsEarned + pointsDelta),
       };
     });
   };
@@ -1199,9 +1282,17 @@ export default function ChoresPage() {
         return prev;
       }
 
+      if (hasActiveExtraClaim(child, choreId)) {
+        toast({
+          title: 'Extra chore already claimed',
+          description: `${child.name} already has "${boardChore.name}" in progress.`,
+        });
+        return prev;
+      }
+
       const dueAt = new Date(Date.now() + boardChore.hoursToComplete * 60 * 60 * 1000).toISOString();
       return {
-        availableExtraChores: prev.availableExtraChores.filter((c) => c.id !== choreId),
+        ...prev,
         children: prev.children.map((c) =>
           c.id !== childId
             ? c
@@ -1330,7 +1421,7 @@ export default function ChoresPage() {
 
       <SectionCard
         title="Available Extra Chores"
-        subtitle="Anyone can grab these, but only after daily chores are complete."
+        subtitle="Kids can grab more than one extra chore after daily chores are complete."
         action={
           <Button variant="outline" size="sm" onClick={openPostExtra}>
             <Plus className="w-4 h-4 mr-2" />
@@ -1357,17 +1448,21 @@ export default function ChoresPage() {
               </div>
               {children.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {children.map((child) => (
-                    <Button
-                      key={`${chore.id}-${child.id}`}
-                      size="sm"
-                      variant="outline"
-                      disabled={!isDailyDone(child)}
-                      onClick={() => claimExtraChore(child.id, chore.id)}
-                    >
-                      {child.name}
-                    </Button>
-                  ))}
+                  {children.map((child) => {
+                    const alreadyClaimed = hasActiveExtraClaim(child, chore.id);
+                    return (
+                      <Button
+                        key={`${chore.id}-${child.id}`}
+                        size="sm"
+                        variant={alreadyClaimed ? 'secondary' : 'outline'}
+                        disabled={!isDailyDone(child) || alreadyClaimed}
+                        onClick={() => claimExtraChore(child.id, chore.id)}
+                      >
+                        {alreadyClaimed && <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                        {child.name}
+                      </Button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1378,7 +1473,7 @@ export default function ChoresPage() {
       <div className="mt-6 rounded-xl border border-primary/25 bg-primary/10 p-4">
         <p className="text-sm font-semibold text-foreground">How points work</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Point chores and skills count toward the weekly family leaderboard for prizes and privileges. The weekly race resets Monday,
+          Point chores and skills count toward the weekly family leaderboard for prizes and privileges. The weekly race resets Monday at 5:00 AM,
           but lifetime points stay visible here. Money rewards stay separate and flow into Kids Finance.
         </p>
       </div>
@@ -1387,6 +1482,7 @@ export default function ChoresPage() {
         {children.map((child) => {
           const dailyCompleted = child.dailyChores.filter((chore) => chore.isCompleted).length;
           const dailyTotal = child.dailyChores.length;
+          const moneyEarned = adjustedMoneyEarnedForChild(child, financeEarningAdjustments);
           const todaysWeekly = child.weeklyChores.filter((chore) =>
             normalizeWeeklyDays(chore).includes(currentDay),
           );
@@ -1445,7 +1541,7 @@ export default function ChoresPage() {
                   </div>
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground">Earned</p>
-                    <p className="font-semibold text-primary">{money(child.lifetimeEarned)}</p>
+                    <p className="font-semibold text-primary">{money(moneyEarned)}</p>
                   </div>
                   <div className="rounded-md border border-border p-2">
                     <p className="text-xs text-muted-foreground">Points Earned</p>
