@@ -32,6 +32,7 @@ import {
   spendingGoalForChild,
   type KidsFinanceEarningAdjustment,
   type KidsFinanceAllocation,
+  type KidsFinanceResetBucket,
   type KidsFinanceState,
   type KidsInvestmentLot,
   type VooQuote,
@@ -39,7 +40,7 @@ import {
 } from '@/lib/kidsFinanceStore';
 import { hydrateChoresStateFromAccount, readStoredChoresState } from '@/lib/choresStateStore';
 import { cn } from '@/lib/utils';
-import { ArrowRightLeft, ArrowUpRight, Banknote, ChevronDown, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, Target, Trash2, TrendingUp } from 'lucide-react';
+import { ArrowRightLeft, ArrowUpRight, Banknote, ChevronDown, CircleDollarSign, HandCoins, Landmark, Pencil, PiggyBank, RotateCcw, Target, Trash2, TrendingUp } from 'lucide-react';
 
 type PeriodPreset = 'this_week' | 'this_month' | 'this_year' | 'last_90' | 'all_time' | 'custom';
 
@@ -95,6 +96,12 @@ const emptyFinanceState: KidsFinanceState = {
   earningAdjustments: [],
   spendingGoals: [],
   transfers: [],
+  balanceResets: [],
+  seedEntries: [],
+  seedGoal: {
+    title: '',
+    targetAmount: 0,
+  },
 };
 
 const money = (amount: number) =>
@@ -282,6 +289,16 @@ function transferTotal(
     .reduce((sum, transfer) => sum + transfer.amount, 0);
 }
 
+function balanceResetTotal(
+  state: KidsFinanceState,
+  childId: string,
+  bucket?: KidsFinanceResetBucket,
+): number {
+  return state.balanceResets
+    .filter((reset) => reset.childId === childId && (!bucket || reset.bucket === bucket))
+    .reduce((sum, reset) => sum + reset.amount, 0);
+}
+
 function totalPercent(allocation: KidsFinanceAllocation): number {
   return allocation.tithing + allocation.investing + allocation.taxes + allocation.remaining;
 }
@@ -296,14 +313,6 @@ function lotsForChild(state: KidsFinanceState, childId: string): KidsInvestmentL
   return state.investmentLots.filter((lot) => lot.childId === childId);
 }
 
-function activeSharesForChild(state: KidsFinanceState, childId: string): number {
-  const bought = lotsForChild(state, childId).reduce((sum, lot) => sum + lot.shares, 0);
-  const sold = state.cashOuts
-    .filter((cashOut) => cashOut.childId === childId)
-    .reduce((sum, cashOut) => sum + cashOut.shares, 0);
-  return Math.max(0, bought - sold);
-}
-
 function eligibleCashOutShares(state: KidsFinanceState, childId: string): number {
   const matureShares = lotsForChild(state, childId)
     .filter((lot) => daysSince(lot.createdAt) >= 30)
@@ -312,6 +321,44 @@ function eligibleCashOutShares(state: KidsFinanceState, childId: string): number
     .filter((cashOut) => cashOut.childId === childId)
     .reduce((sum, cashOut) => sum + cashOut.shares, 0);
   return Math.max(0, matureShares - sold);
+}
+
+function investmentPositionForChild(state: KidsFinanceState, childId: string, currentPrice: number | null) {
+  const lots = lotsForChild(state, childId).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+  const cashOuts = state.cashOuts
+    .filter((cashOut) => cashOut.childId === childId)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const totalBoughtShares = lots.reduce((sum, lot) => sum + lot.shares, 0);
+  const totalSoldShares = cashOuts.reduce((sum, cashOut) => sum + cashOut.shares, 0);
+  let sharesSoldToAllocate = totalSoldShares;
+  let remainingShares = 0;
+  let remainingCostBasis = 0;
+
+  lots.forEach((lot) => {
+    const soldFromLot = Math.min(lot.shares, sharesSoldToAllocate);
+    sharesSoldToAllocate = Math.max(0, sharesSoldToAllocate - soldFromLot);
+    const sharesLeftInLot = Math.max(0, lot.shares - soldFromLot);
+    remainingShares += sharesLeftInLot;
+    remainingCostBasis += sharesLeftInLot * lot.pricePerShare;
+  });
+
+  const averagePurchasePrice = remainingShares > 0 ? remainingCostBasis / remainingShares : 0;
+  const currentValue = remainingShares * (currentPrice || 0);
+  const gainLoss = currentPrice ? currentValue - remainingCostBasis : 0;
+  const gainLossPercent = remainingCostBasis > 0 ? gainLoss / remainingCostBasis * 100 : 0;
+
+  return {
+    totalBoughtShares,
+    totalSoldShares,
+    activeShares: Math.max(0, remainingShares),
+    remainingCostBasis: Math.max(0, remainingCostBasis),
+    averagePurchasePrice,
+    currentValue,
+    gainLoss,
+    gainLossPercent,
+  };
 }
 
 function nextAllocationWithChangedField(
@@ -342,8 +389,17 @@ export default function KidsFinancePage() {
   const [cashOutAmounts, setCashOutAmounts] = useState<Record<string, string>>({});
   const [goalDrafts, setGoalDrafts] = useState<Record<string, { title: string; targetAmount: string }>>({});
   const [transferDrafts, setTransferDrafts] = useState<Record<string, { amount: string; to: 'tithing' | 'investing' }>>({});
+  const [seedDraft, setSeedDraft] = useState({ amount: '', note: '' });
+  const [seedGiftDraft, setSeedGiftDraft] = useState({ amount: '', note: '' });
+  const [seedGoalDraft, setSeedGoalDraft] = useState({ title: '', targetAmount: '' });
   const [editingEvent, setEditingEvent] = useState<EarnedEvent | null>(null);
   const [earningDraft, setEarningDraft] = useState({ sourceName: '', amount: '', dateKey: '' });
+  const [resetTarget, setResetTarget] = useState<{
+    childId: string;
+    childName: string;
+    bucket: KidsFinanceResetBucket;
+    amount: number;
+  } | null>(null);
 
   useEffect(() => {
     if (householdScopeLoading) return;
@@ -387,6 +443,14 @@ export default function KidsFinancePage() {
     writeStoredKidsFinanceState(financeState, activeScopeId);
     void persistKidsFinanceStateToAccount(activeScopeId, financeState);
   }, [activeScopeId, financeState, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    setSeedGoalDraft({
+      title: financeState.seedGoal.title,
+      targetAmount: financeState.seedGoal.targetAmount > 0 ? String(financeState.seedGoal.targetAmount) : '',
+    });
+  }, [financeState.seedGoal.targetAmount, financeState.seedGoal.title, loaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -616,6 +680,29 @@ export default function KidsFinancePage() {
     });
   };
 
+  const confirmBalanceReset = () => {
+    if (!resetTarget || resetTarget.amount <= 0) return;
+    const { childId, bucket, amount } = resetTarget;
+    setFinanceState((current) => ({
+      ...current,
+      balanceResets: [
+        ...current.balanceResets,
+        {
+          id: `balance-reset-${childId}-${bucket}-${Date.now()}`,
+          childId,
+          createdAt: new Date().toISOString(),
+          amount,
+          bucket,
+        },
+      ],
+    }));
+    setResetTarget(null);
+    toast({
+      title: 'Balance reset',
+      description: `${money(amount)} was cleared from ${bucket === 'remaining' ? 'spending money' : bucket} and kept in the running total.`,
+    });
+  };
+
   const handleCashOut = (childId: string) => {
     if (!quote?.price) return;
     const amount = normalizeMoney(cashOutAmounts[childId]);
@@ -653,6 +740,75 @@ export default function KidsFinancePage() {
     const earned = periodEvents.reduce((sum, event) => sum + event.amount, 0);
     return { earned };
   }, [periodEvents]);
+
+  const seedContributionTotal = useMemo(
+    () => financeState.seedEntries
+      .filter((entry) => entry.type === 'contribution')
+      .reduce((sum, entry) => sum + entry.amount, 0),
+    [financeState.seedEntries],
+  );
+  const seedGiftTotal = useMemo(
+    () => financeState.seedEntries
+      .filter((entry) => entry.type === 'gift')
+      .reduce((sum, entry) => sum + entry.amount, 0),
+    [financeState.seedEntries],
+  );
+  const seedBalance = Math.max(0, seedContributionTotal - seedGiftTotal);
+  const seedGoalTitle = seedGoalDraft.title;
+  const seedGoalTarget = normalizeMoney(seedGoalDraft.targetAmount);
+  const seedGoalProgress = seedGoalTarget > 0 ? Math.min(100, seedBalance / seedGoalTarget * 100) : 0;
+
+  const addSeedEntry = (type: 'contribution' | 'gift') => {
+    const draft = type === 'contribution' ? seedDraft : seedGiftDraft;
+    const amount = normalizeMoney(draft.amount);
+    if (amount <= 0) return;
+    if (type === 'gift' && amount > seedBalance + 0.01) {
+      toast({
+        title: 'Not enough SEED money',
+        description: `Only ${money(seedBalance)} is currently available to give.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFinanceState((current) => ({
+      ...current,
+      seedEntries: [
+        ...current.seedEntries,
+        {
+          id: `seed-${type}-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          amount,
+          type,
+          note: draft.note.trim() || undefined,
+        },
+      ],
+    }));
+
+    if (type === 'contribution') {
+      setSeedDraft({ amount: '', note: '' });
+      toast({ title: 'SEED contribution added', description: `${money(amount)} was added to the family generosity bucket.` });
+    } else {
+      setSeedGiftDraft({ amount: '', note: '' });
+      toast({ title: 'SEED gift recorded', description: `${money(amount)} was marked as given.` });
+    }
+  };
+
+  const saveSeedGoal = () => {
+    const targetAmount = normalizeMoney(seedGoalDraft.targetAmount);
+    setFinanceState((current) => ({
+      ...current,
+      seedGoal: {
+        title: seedGoalDraft.title.trim(),
+        targetAmount,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+    toast({
+      title: 'SEED goal saved',
+      description: targetAmount > 0 ? 'The family generosity goal is updated.' : 'The SEED goal was cleared.',
+    });
+  };
 
   return (
     <AppLayout contentWidthClassName="w-full max-w-[1700px]">
@@ -730,6 +886,101 @@ export default function KidsFinancePage() {
               </p>
             </div>
           </SectionCard>
+
+          <SectionCard title="SEED bucket" subtitle="Optional family generosity fund for blessing others.">
+            <div className="space-y-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Available to give</p>
+                    <p className="mt-2 font-display text-4xl font-semibold">{money(seedBalance)}</p>
+                  </div>
+                  <HandCoins className="h-8 w-8 text-primary" />
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-lg bg-background p-3">
+                    <p className="text-muted-foreground">Added</p>
+                    <p className="font-semibold">{money(seedContributionTotal)}</p>
+                  </div>
+                  <div className="rounded-lg bg-background p-3">
+                    <p className="text-muted-foreground">Given</p>
+                    <p className="font-semibold">{money(seedGiftTotal)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium">{seedGoalTitle.trim() || 'No SEED goal yet'}</span>
+                  <span className="text-muted-foreground">
+                    {seedGoalTarget > 0 ? `${money(Math.min(seedBalance, seedGoalTarget))} / ${money(seedGoalTarget)}` : money(0)}
+                  </span>
+                </div>
+                <Progress value={seedGoalProgress} />
+              </div>
+
+              <div className="grid gap-2">
+                <Input
+                  placeholder="Goal name, like Christmas family blessing"
+                  value={seedGoalDraft.title}
+                  onChange={(event) => setSeedGoalDraft((current) => ({ ...current, title: event.target.value }))}
+                />
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Goal amount"
+                    value={seedGoalDraft.targetAmount}
+                    onChange={(event) => setSeedGoalDraft((current) => ({ ...current, targetAmount: event.target.value }))}
+                  />
+                  <Button type="button" variant="outline" onClick={saveSeedGoal}>
+                    Save Goal
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Add to SEED</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Amount"
+                  value={seedDraft.amount}
+                  onChange={(event) => setSeedDraft((current) => ({ ...current, amount: event.target.value }))}
+                />
+                <Input
+                  placeholder="Optional note"
+                  value={seedDraft.note}
+                  onChange={(event) => setSeedDraft((current) => ({ ...current, note: event.target.value }))}
+                />
+                <Button type="button" onClick={() => addSeedEntry('contribution')}>
+                  Add SEED Money
+                </Button>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Record giving</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Amount given"
+                  value={seedGiftDraft.amount}
+                  onChange={(event) => setSeedGiftDraft((current) => ({ ...current, amount: event.target.value }))}
+                />
+                <Input
+                  placeholder="Who or what was blessed?"
+                  value={seedGiftDraft.note}
+                  onChange={(event) => setSeedGiftDraft((current) => ({ ...current, note: event.target.value }))}
+                />
+                <Button type="button" variant="outline" onClick={() => addSeedEntry('gift')} disabled={seedBalance <= 0}>
+                  Mark Given
+                </Button>
+              </div>
+            </div>
+          </SectionCard>
         </div>
 
         <div className="space-y-6">
@@ -748,13 +999,16 @@ export default function KidsFinancePage() {
               const childPeriodEvents = periodEvents.filter((event) => event.childId === child.id);
               const periodEarned = childPeriodEvents.reduce((sum, event) => sum + event.amount, 0);
               const allTimeEarned = allTimeEarnedByChild.get(child.id) || 0;
-              const periodBuckets = allocationDollars(periodEarned, allocation);
               const lifetimeBuckets = allocationDollars(allTimeEarned, allocation);
               const transferredToTithing = transferTotal(financeState, child.id, 'tithing');
               const transferredToInvesting = transferTotal(financeState, child.id, 'investing');
               const transferredFromRemaining = transferredToTithing + transferredToInvesting;
-              const remainingAvailable = Math.max(0, lifetimeBuckets.remaining - transferredFromRemaining);
-              const lifetimeGiving = lifetimeBuckets.tithing + transferredToTithing;
+              const resetTithing = balanceResetTotal(financeState, child.id, 'tithing');
+              const resetTaxes = balanceResetTotal(financeState, child.id, 'taxes');
+              const resetRemaining = balanceResetTotal(financeState, child.id, 'remaining');
+              const activeTithing = Math.max(0, lifetimeBuckets.tithing + transferredToTithing - resetTithing);
+              const activeTaxes = Math.max(0, lifetimeBuckets.taxes - resetTaxes);
+              const remainingAvailable = Math.max(0, lifetimeBuckets.remaining - transferredFromRemaining - resetRemaining);
               const spendingGoal = spendingGoalForChild(financeState, child.id);
               const goalDraft = goalDrafts[child.id] || {
                 title: spendingGoal.title,
@@ -763,16 +1017,50 @@ export default function KidsFinancePage() {
               const goalTarget = normalizeMoney(goalDraft.targetAmount || spendingGoal.targetAmount);
               const goalProgress = goalTarget > 0 ? Math.min(100, remainingAvailable / goalTarget * 100) : 0;
               const transferDraft = transferDrafts[child.id] || { amount: '', to: 'tithing' as const };
-              const childLots = lotsForChild(financeState, child.id);
-              const activeShares = activeSharesForChild(financeState, child.id);
-              const currentInvestmentValue = activeShares * (quote?.price || 0);
-              const principal = childLots.reduce((sum, lot) => sum + lot.amount, 0)
-                - financeState.cashOuts
-                  .filter((cashOut) => cashOut.childId === child.id)
-                  .reduce((sum, cashOut) => sum + cashOut.amount, 0);
-              const gainLoss = currentInvestmentValue - principal;
+              const investmentPosition = investmentPositionForChild(financeState, child.id, quote?.price || null);
+              const activeShares = investmentPosition.activeShares;
+              const currentInvestmentValue = investmentPosition.currentValue;
+              const gainLoss = investmentPosition.gainLoss;
               const cashOutAvailable = quote ? eligibleCashOutShares(financeState, child.id) * quote.price : 0;
               const allocationTotal = totalPercent(allocation);
+              const activeBalanceCards = [
+                {
+                  key: 'tithing',
+                  label: 'Tithing',
+                  amount: activeTithing,
+                  detail: `${money(resetTithing)} tithed so far`,
+                  Icon: HandCoins,
+                  color: 'text-amber-700',
+                  resetLabel: 'Mark Tithed',
+                },
+                {
+                  key: 'investing',
+                  label: 'Investing',
+                  amount: currentInvestmentValue,
+                  detail: `${activeShares.toFixed(4)} VOO shares`,
+                  Icon: TrendingUp,
+                  color: 'text-emerald-700',
+                  resetLabel: '',
+                },
+                {
+                  key: 'taxes',
+                  label: 'Taxes',
+                  amount: activeTaxes,
+                  detail: `${money(resetTaxes)} handled so far`,
+                  Icon: Landmark,
+                  color: 'text-sky-700',
+                  resetLabel: 'Reset Taxes',
+                },
+                {
+                  key: 'remaining',
+                  label: 'Spending Money',
+                  amount: remainingAvailable,
+                  detail: `${money(resetRemaining)} spent so far`,
+                  Icon: Banknote,
+                  color: 'text-primary',
+                  resetLabel: 'Mark Spent',
+                },
+              ];
 
               return (
                 <SectionCard
@@ -784,19 +1072,34 @@ export default function KidsFinancePage() {
                   <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
                     <div className="space-y-5">
                         <div className="grid gap-3 md:grid-cols-4">
-                        {[
-                          ['Tithing', periodBuckets.tithing, allocation.tithing, HandCoins, 'text-amber-700'],
-                          ['Investing', periodBuckets.investing, allocation.investing, TrendingUp, 'text-emerald-700'],
-                          ['Taxes', periodBuckets.taxes, allocation.taxes, Landmark, 'text-sky-700'],
-                          ['Remaining', periodBuckets.remaining, allocation.remaining, Banknote, 'text-primary'],
-                        ].map(([label, amount, allocationPercent, Icon, color]) => (
-                          <div key={String(label)} className="rounded-2xl border bg-background p-4">
+                        {activeBalanceCards.map(({ key, label, amount, detail, Icon, color, resetLabel }) => (
+                          <div key={key} className="rounded-2xl border bg-background p-4">
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs uppercase tracking-wide text-muted-foreground">{String(label)}</p>
-                              <Icon className={cn('h-4 w-4', String(color))} />
+                              <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+                              <Icon className={cn('h-4 w-4', color)} />
                             </div>
-                            <p className="mt-3 font-display text-2xl font-semibold">{money(Number(amount))}</p>
-                            <p className="text-sm text-muted-foreground">{percent(Number(allocationPercent))} of earnings</p>
+                            <p className="mt-3 font-display text-2xl font-semibold">{money(amount)}</p>
+                            <p className="text-sm text-muted-foreground">{detail}</p>
+                            {resetLabel ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="mt-3 w-full"
+                                onClick={() => setResetTarget({
+                                  childId: child.id,
+                                  childName: child.name,
+                                  bucket: key as KidsFinanceResetBucket,
+                                  amount,
+                                })}
+                                disabled={amount <= 0}
+                              >
+                                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                                {resetLabel}
+                              </Button>
+                            ) : (
+                              <p className="mt-3 text-xs text-muted-foreground">Cash out below when shares are eligible.</p>
+                            )}
                           </div>
                           ))}
                         </div>
@@ -963,16 +1266,21 @@ export default function KidsFinancePage() {
                           </CollapsibleContent>
                         </Collapsible>
 
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-3">
                         <div className="rounded-2xl border bg-background p-4">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime giving</p>
-                          <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeGiving)}</p>
-                          <p className="text-sm text-muted-foreground">allocation plus remaining transfers</p>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime tithed</p>
+                          <p className="mt-2 font-display text-3xl font-semibold">{money(resetTithing)}</p>
+                          <p className="text-sm text-muted-foreground">{money(activeTithing)} still ready to tithe</p>
                         </div>
                         <div className="rounded-2xl border bg-background p-4">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime taxes set aside</p>
-                          <p className="mt-2 font-display text-3xl font-semibold">{money(lifetimeBuckets.taxes)}</p>
-                          <p className="text-sm text-muted-foreground">practice bucket for future tax lessons</p>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime spent</p>
+                          <p className="mt-2 font-display text-3xl font-semibold">{money(resetRemaining)}</p>
+                          <p className="text-sm text-muted-foreground">{money(remainingAvailable)} still available</p>
+                        </div>
+                        <div className="rounded-2xl border bg-background p-4">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Lifetime taxes handled</p>
+                          <p className="mt-2 font-display text-3xl font-semibold">{money(resetTaxes)}</p>
+                          <p className="text-sm text-muted-foreground">{money(activeTaxes)} still set aside</p>
                         </div>
                       </div>
                     </div>
@@ -994,7 +1302,32 @@ export default function KidsFinancePage() {
                           <p className="text-muted-foreground">Gain/Loss</p>
                           <p className={cn('font-semibold', gainLoss >= 0 ? 'text-primary' : 'text-destructive')}>
                             {gainLoss >= 0 ? '+' : ''}{money(gainLoss)}
+                            {investmentPosition.remainingCostBasis > 0 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                ({investmentPosition.gainLossPercent >= 0 ? '+' : ''}{investmentPosition.gainLossPercent.toFixed(1)}%)
+                              </span>
+                            )}
                           </p>
+                        </div>
+                        <div className="rounded-xl bg-muted/40 p-3">
+                          <p className="text-muted-foreground">Avg bought at</p>
+                          <p className="font-semibold">
+                            {investmentPosition.averagePurchasePrice > 0 ? money(investmentPosition.averagePurchasePrice) : '$0.00'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-muted/40 p-3">
+                          <p className="text-muted-foreground">Current price</p>
+                          <p className="font-semibold">{quote ? money(quote.price) : 'Loading...'}</p>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Cost basis still invested</span>
+                          <span className="font-medium">{money(investmentPosition.remainingCostBasis)}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">Shares already cashed out</span>
+                          <span className="font-medium">{investmentPosition.totalSoldShares.toFixed(4)}</span>
                         </div>
                       </div>
                       <div>
@@ -1133,6 +1466,31 @@ export default function KidsFinancePage() {
             </Button>
             <Button type="button" onClick={saveEditedEarning}>
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(resetTarget)} onOpenChange={(open) => !open && setResetTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Reset {resetTarget?.bucket === 'remaining' ? 'spending money' : resetTarget?.bucket}
+            </DialogTitle>
+            <DialogDescription>
+              This clears the active balance for {resetTarget?.childName}, but keeps the amount in the running lifetime total.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-2xl border bg-muted/30 p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Amount to clear</p>
+            <p className="mt-2 font-display text-4xl font-semibold">{money(resetTarget?.amount || 0)}</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setResetTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmBalanceReset}>
+              Reset Balance
             </Button>
           </DialogFooter>
         </DialogContent>

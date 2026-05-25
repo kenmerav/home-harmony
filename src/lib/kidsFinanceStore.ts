@@ -61,6 +61,32 @@ export interface KidsFinanceTransfer {
   to: 'tithing' | 'investing';
 }
 
+export type KidsFinanceResetBucket = 'tithing' | 'taxes' | 'remaining';
+
+export interface KidsFinanceBalanceReset {
+  id: string;
+  childId: string;
+  createdAt: string;
+  amount: number;
+  bucket: KidsFinanceResetBucket;
+}
+
+export type KidsSeedFundEntryType = 'contribution' | 'gift';
+
+export interface KidsSeedFundEntry {
+  id: string;
+  createdAt: string;
+  amount: number;
+  type: KidsSeedFundEntryType;
+  note?: string;
+}
+
+export interface KidsSeedFundGoal {
+  title: string;
+  targetAmount: number;
+  updatedAt?: string;
+}
+
 export interface KidsFinanceState {
   childSettings: KidsFinanceChildSettings[];
   investmentLots: KidsInvestmentLot[];
@@ -68,6 +94,9 @@ export interface KidsFinanceState {
   earningAdjustments: KidsFinanceEarningAdjustment[];
   spendingGoals: KidsSpendingGoal[];
   transfers: KidsFinanceTransfer[];
+  balanceResets: KidsFinanceBalanceReset[];
+  seedEntries: KidsSeedFundEntry[];
+  seedGoal: KidsSeedFundGoal;
   updatedAt?: string;
 }
 
@@ -214,6 +243,45 @@ function normalizeFinanceState(input: unknown): KidsFinanceState {
           })
           .filter((item) => item.id && item.childId && item.amount > 0)
       : [],
+    balanceResets: Array.isArray(record.balanceResets)
+      ? record.balanceResets
+          .map((item) => {
+            const reset = item as Partial<KidsFinanceBalanceReset>;
+            const bucket = reset.bucket === 'taxes' || reset.bucket === 'remaining' ? reset.bucket : 'tithing';
+            return {
+              id: String(reset.id || '').trim(),
+              childId: String(reset.childId || '').trim(),
+              createdAt: typeof reset.createdAt === 'string' ? reset.createdAt : new Date().toISOString(),
+              amount: normalizeMoney(reset.amount),
+              bucket,
+            };
+          })
+          .filter((item) => item.id && item.childId && item.amount > 0)
+      : [],
+    seedEntries: Array.isArray(record.seedEntries)
+      ? record.seedEntries
+          .map((item) => {
+            const entry = item as Partial<KidsSeedFundEntry>;
+            return {
+              id: String(entry.id || '').trim(),
+              createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
+              amount: normalizeMoney(entry.amount),
+              type: entry.type === 'gift' ? 'gift' as const : 'contribution' as const,
+              note: typeof entry.note === 'string' ? entry.note.trim().slice(0, 120) : undefined,
+            };
+          })
+          .filter((item) => item.id && item.amount > 0)
+      : [],
+    seedGoal: (() => {
+      const goal = record.seedGoal && typeof record.seedGoal === 'object' && !Array.isArray(record.seedGoal)
+        ? record.seedGoal as Partial<KidsSeedFundGoal>
+        : {};
+      return {
+        title: typeof goal.title === 'string' ? goal.title.trim() : '',
+        targetAmount: normalizeMoney(goal.targetAmount),
+        updatedAt: typeof goal.updatedAt === 'string' ? goal.updatedAt : undefined,
+      };
+    })(),
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
   };
 }
@@ -256,6 +324,10 @@ export async function hydrateKidsFinanceStateFromAccount(userId?: string | null)
     || normalized.earningAdjustments.length > 0
     || normalized.spendingGoals.length > 0
     || normalized.transfers.length > 0
+    || normalized.balanceResets.length > 0
+    || normalized.seedEntries.length > 0
+    || normalized.seedGoal.targetAmount > 0
+    || normalized.seedGoal.title.length > 0
   ) {
     writeStoredKidsFinanceState(normalized, scopedUserId);
     return;
@@ -269,6 +341,10 @@ export async function hydrateKidsFinanceStateFromAccount(userId?: string | null)
     || local.earningAdjustments.length > 0
     || local.spendingGoals.length > 0
     || local.transfers.length > 0
+    || local.balanceResets.length > 0
+    || local.seedEntries.length > 0
+    || local.seedGoal.targetAmount > 0
+    || local.seedGoal.title.length > 0
   ) {
     await updateProfileSettingsValue(scopedUserId, ['shared_preferences', 'kidsFinance'], local);
     writeStoredKidsFinanceState(local, scopedUserId);
