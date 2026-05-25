@@ -26,6 +26,8 @@ export interface SmsPreferences {
   grocery_reminder_enabled: boolean;
   grocery_reminder_day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
   grocery_reminder_time: string;
+  daily_chore_digest_enabled: boolean;
+  daily_chore_digest_time: string;
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
@@ -59,6 +61,8 @@ const DEFAULT_SMS_PREFERENCES: SmsPreferences = {
   grocery_reminder_enabled: true,
   grocery_reminder_day: 'saturday',
   grocery_reminder_time: '20:00',
+  daily_chore_digest_enabled: false,
+  daily_chore_digest_time: '08:00',
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: '18:00',
@@ -168,6 +172,9 @@ function normalizePrefs(raw: Partial<SmsPreferences> | null | undefined): SmsPre
         ? raw.grocery_reminder_day
         : DEFAULT_SMS_PREFERENCES.grocery_reminder_day,
     grocery_reminder_time: raw.grocery_reminder_time || DEFAULT_SMS_PREFERENCES.grocery_reminder_time,
+    daily_chore_digest_enabled:
+      raw.daily_chore_digest_enabled ?? DEFAULT_SMS_PREFERENCES.daily_chore_digest_enabled,
+    daily_chore_digest_time: raw.daily_chore_digest_time || DEFAULT_SMS_PREFERENCES.daily_chore_digest_time,
     event_reminders_enabled: raw.event_reminders_enabled ?? DEFAULT_SMS_PREFERENCES.event_reminders_enabled,
     reminder_offsets_minutes:
       Array.isArray(raw.reminder_offsets_minutes) && raw.reminder_offsets_minutes.length > 0

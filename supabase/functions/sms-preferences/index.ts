@@ -21,6 +21,8 @@ const DEFAULT_PREFS = {
   grocery_reminder_enabled: true,
   grocery_reminder_day: "saturday",
   grocery_reminder_time: "20:00",
+  daily_chore_digest_enabled: false,
+  daily_chore_digest_time: "08:00",
   event_reminders_enabled: true,
   reminder_offsets_minutes: [0],
   preferred_dinner_time: "18:00",
@@ -246,6 +248,11 @@ serve(async (req) => {
           grocery_reminder_time: String(
             data.grocery_reminder_time || DEFAULT_PREFS.grocery_reminder_time,
           ).slice(0, 5),
+          daily_chore_digest_enabled:
+            data.daily_chore_digest_enabled ?? DEFAULT_PREFS.daily_chore_digest_enabled,
+          daily_chore_digest_time: String(
+            data.daily_chore_digest_time || DEFAULT_PREFS.daily_chore_digest_time,
+          ).slice(0, 5),
           event_reminders_enabled: !!data.event_reminders_enabled,
           reminder_offsets_minutes: Array.isArray(data.reminder_offsets_minutes)
             ? data.reminder_offsets_minutes
@@ -296,6 +303,8 @@ serve(async (req) => {
         grocery_reminder_enabled: payload?.grocery_reminder_enabled ?? DEFAULT_PREFS.grocery_reminder_enabled,
         grocery_reminder_day: validWeekday(payload?.grocery_reminder_day, DEFAULT_PREFS.grocery_reminder_day),
         grocery_reminder_time: validTime(payload?.grocery_reminder_time, DEFAULT_PREFS.grocery_reminder_time),
+        daily_chore_digest_enabled: payload?.daily_chore_digest_enabled ?? DEFAULT_PREFS.daily_chore_digest_enabled,
+        daily_chore_digest_time: validTime(payload?.daily_chore_digest_time, DEFAULT_PREFS.daily_chore_digest_time),
         event_reminders_enabled: !!payload?.event_reminders_enabled,
         reminder_offsets_minutes: normalizeOffsets(payload?.reminder_offsets_minutes),
         preferred_dinner_time: validTime(payload?.preferred_dinner_time, DEFAULT_PREFS.preferred_dinner_time),

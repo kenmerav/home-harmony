@@ -41,6 +41,8 @@ type SmsPreferenceRow = {
   grocery_reminder_enabled: boolean;
   grocery_reminder_day: string;
   grocery_reminder_time: string;
+  daily_chore_digest_enabled: boolean;
+  daily_chore_digest_time: string;
   event_reminders_enabled: boolean;
   reminder_offsets_minutes: number[];
   preferred_dinner_time: string;
@@ -63,6 +65,11 @@ type SmsTextReminder = {
   recipientPhone: string;
   completedAt?: string | null;
   createdAt: string;
+};
+
+type IncompleteDailyChore = {
+  childName: string;
+  choreName: string;
 };
 
 function preferredDinnerTimeForDay(row: SmsPreferenceRow, weekdayName: string): string {
@@ -264,6 +271,54 @@ function renderDigestText(
   const extraCount = Math.max(0, events.length - lines.length);
   const extra = extraCount > 0 ? `\n+${extraCount} more` : "";
   return `Home Harmony ${prefix}\n${lines.join("\n")}${extra}\n${DateTime.now().setZone(tz).toFormat("ZZZZ")}`;
+}
+
+function incompleteDailyChoresForDate(choresState: unknown, localDateKey: string): IncompleteDailyChore[] {
+  if (!choresState || typeof choresState !== "object" || Array.isArray(choresState)) return [];
+  const children = (choresState as Record<string, unknown>).children;
+  if (!Array.isArray(children)) return [];
+
+  const incomplete: IncompleteDailyChore[] = [];
+  for (const rawChild of children) {
+    if (!rawChild || typeof rawChild !== "object" || Array.isArray(rawChild)) continue;
+    const child = rawChild as Record<string, unknown>;
+    const childName = typeof child.name === "string" && child.name.trim() ? child.name.trim() : "Kid";
+    const dailyChores = child.dailyChores;
+    if (!Array.isArray(dailyChores)) continue;
+
+    for (const rawChore of dailyChores) {
+      if (!rawChore || typeof rawChore !== "object" || Array.isArray(rawChore)) continue;
+      const chore = rawChore as Record<string, unknown>;
+      const choreName = typeof chore.name === "string" && chore.name.trim() ? chore.name.trim() : "Daily chore";
+      const completionDates = Array.isArray(chore.completionDates)
+        ? chore.completionDates.filter((value): value is string => typeof value === "string")
+        : [];
+      const completedToday = completionDates.includes(localDateKey);
+      if (!completedToday) incomplete.push({ childName, choreName });
+    }
+  }
+
+  return incomplete;
+}
+
+function renderIncompleteDailyChoresText(localDate: DateTime, incomplete: IncompleteDailyChore[]): string | null {
+  if (incomplete.length === 0) return null;
+  const grouped = new Map<string, string[]>();
+  for (const item of incomplete) {
+    const chores = grouped.get(item.childName) || [];
+    chores.push(item.choreName);
+    grouped.set(item.childName, chores);
+  }
+
+  const lines = Array.from(grouped.entries()).slice(0, 8).map(([childName, chores]) => {
+    const visibleChores = chores.slice(0, 5);
+    const extraCount = Math.max(0, chores.length - visibleChores.length);
+    const extra = extraCount > 0 ? ` +${extraCount} more` : "";
+    return `- ${childName}: ${visibleChores.join(", ")}${extra}`;
+  });
+  const hiddenKids = Math.max(0, grouped.size - lines.length);
+  const hiddenText = hiddenKids > 0 ? `\n+${hiddenKids} more kids with unfinished chores` : "";
+  return `Home Harmony daily chores (${localDate.toFormat("EEE, LLL d")}):\n${lines.join("\n")}${hiddenText}`;
 }
 
 function isUsableDateTime(value: DateTime): boolean {
@@ -1075,6 +1130,52 @@ serve(async (req) => {
                   errors.push(`weekly-plan:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
                   await markLogStatus(supabase, logId, "failed", null, { error: String(sendError) });
                 }
+              }
+            }
+          }
+        }
+
+        const dailyChoreDigestEnabled = row.daily_chore_digest_enabled ?? false;
+        const dailyChoreDigestTime = String(row.daily_chore_digest_time || "08:00").slice(0, 5);
+        if (
+          dailyChoreDigestEnabled &&
+          isDueAt(localNow, dailyChoreDigestTime, windowMinutes, digestCatchupMinutes)
+        ) {
+          const todayKey = todayLocal.toISODate();
+          const choresState = getNestedValue(profileSettingsDocument, ["shared_preferences", "chores"]);
+          const incompleteChores = todayKey ? incompleteDailyChoresForDate(choresState, todayKey) : [];
+          const body = renderIncompleteDailyChoresText(todayLocal, incompleteChores);
+
+          if (body) {
+            for (const recipient of digestRecipients) {
+              const dedupeKey = `daily-chores:${row.user_id}:${todayKey}:${recipient}`;
+              const logId = await insertDedupeLog(
+                supabase,
+                row.user_id,
+                dedupeKey,
+                "daily_chore_digest",
+                nowUtc.toISO(),
+                {
+                  timezone,
+                  day: todayKey,
+                  incompleteCount: incompleteChores.length,
+                  to: recipient,
+                },
+              );
+              if (!logId) continue;
+
+              try {
+                const result = await sendTwilioSms(recipient, body);
+                messagesSent += 1;
+                await markLogStatus(supabase, logId, "sent", result.sid, {
+                  timezone,
+                  day: todayKey,
+                  incompleteCount: incompleteChores.length,
+                  to: recipient,
+                });
+              } catch (sendError) {
+                errors.push(`daily-chores:${row.user_id}:${sendError instanceof Error ? sendError.message : "send failed"}`);
+                await markLogStatus(supabase, logId, "failed", null, { error: String(sendError), to: recipient });
               }
             }
           }

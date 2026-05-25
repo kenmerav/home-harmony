@@ -1330,6 +1330,27 @@ export default function SettingsPage() {
                 </p>
               </div>
 
+              <div className="rounded-xl border border-border p-4 space-y-3">
+                <label className="w-full flex items-center justify-between">
+                  <span className="text-sm font-medium">Daily unfinished chore text</span>
+                  <Switch
+                    checked={smsPrefs.daily_chore_digest_enabled}
+                    onCheckedChange={(checked) => updateSmsPref('daily_chore_digest_enabled', Boolean(checked))}
+                  />
+                </label>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground mb-1">Time</p>
+                  <Input
+                    type="time"
+                    value={smsPrefs.daily_chore_digest_time}
+                    onChange={(e) => updateSmsPref('daily_chore_digest_time', e.target.value || '08:00')}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sends one text listing which kids still have daily chores unchecked for that day.
+                </p>
+              </div>
+
               <label className="w-full rounded-xl border border-border px-4 py-3 flex items-center justify-between">
                 <span className="text-sm">Event reminder texts</span>
                 <Switch
