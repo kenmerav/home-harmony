@@ -95,6 +95,53 @@ function hasAnyWorkoutData(state: PersistedWorkoutState): boolean {
   );
 }
 
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+
+  [...primary, ...secondary].forEach(item => {
+    if (seen.has(item.id)) return;
+    seen.add(item.id);
+    merged.push(item);
+  });
+
+  return merged;
+}
+
+function mergeWeightLogs(primary: WeightLog[], secondary: WeightLog[]): WeightLog[] {
+  const seen = new Set<string>();
+  const merged: WeightLog[] = [];
+
+  [...primary, ...secondary].forEach(log => {
+    const key = log.id || log.date;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(log);
+  });
+
+  return merged;
+}
+
+function mergeStringLists(primary: string[], secondary: string[]): string[] {
+  return [...new Set([...primary, ...secondary])];
+}
+
+function mergePersistedStates(primary: PersistedWorkoutState, secondary: PersistedWorkoutState): PersistedWorkoutState {
+  return {
+    schemaVersion: Math.max(primary.schemaVersion, secondary.schemaVersion, STATE_SCHEMA_VERSION),
+    workouts: mergeById(primary.workouts, secondary.workouts),
+    templates: mergeById(primary.templates, secondary.templates),
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...secondary.settings,
+      ...primary.settings,
+    },
+    customExercises: mergeStringLists(primary.customExercises, secondary.customExercises),
+    cardioSessions: mergeById(primary.cardioSessions, secondary.cardioSessions),
+    weightLogs: mergeWeightLogs(primary.weightLogs, secondary.weightLogs),
+  };
+}
+
 function coerceRemoteState(raw: unknown): PersistedWorkoutState | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Partial<PersistedWorkoutState>;
@@ -186,9 +233,27 @@ function useWorkoutStoreInternal() {
 
         const remoteState = coerceRemoteState(data?.state);
         if (remoteState) {
-          applyState(remoteState);
-          toLocalStorage(remoteState);
+          const stateToApply = hasAnyWorkoutData(localState)
+            ? mergePersistedStates(localState, remoteState)
+            : remoteState;
+
+          applyState(stateToApply);
+          toLocalStorage(stateToApply);
           setIsLoaded(true);
+
+          if (stateToApply !== remoteState) {
+            const { error: saveError } = await db.from('workout_state').upsert(
+              {
+                user_id: user.id,
+                state: stateToApply,
+              },
+              { onConflict: 'user_id' },
+            );
+            if (saveError) {
+              console.error('Failed merging workout state into Supabase:', saveError.message || saveError);
+            }
+          }
+
           return;
         }
 

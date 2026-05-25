@@ -12,6 +12,17 @@ import { useRestTimer } from '@/workouts/hooks/useRestTimer';
 import type { Workout, Exercise, WorkoutSet } from '@/workouts/types/workout';
 import { CORE_EXERCISES } from '@/workouts/types/workout';
 
+const ACTIVE_WORKOUT_DRAFT_KEY = 'liftlog_active_workout_draft';
+const ACTIVE_WORKOUT_DRAFT_SCHEMA_VERSION = 1;
+
+type ActiveWorkoutDraft = {
+  schemaVersion: number;
+  templateId?: string;
+  workout: Workout;
+  lastSetTimestamp: number | null;
+  updatedAt: number;
+};
+
 function generateId() {
   return Math.random().toString(36).substring(2, 9);
 }
@@ -19,6 +30,89 @@ function generateId() {
 function getLocalISODate() {
   // YYYY-MM-DD in the user's locale (stable for sorting + display)
   return new Date().toLocaleDateString('en-CA');
+}
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function getWorkoutTemplateId(workout: Workout) {
+  return workout.templateId || undefined;
+}
+
+function readActiveWorkoutDraft(templateId: string | null): ActiveWorkoutDraft | null {
+  if (!canUseStorage()) return null;
+
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_WORKOUT_DRAFT_KEY);
+    if (!raw) return null;
+
+    const draft = JSON.parse(raw) as Partial<ActiveWorkoutDraft>;
+    if (!draft.workout || typeof draft.workout !== 'object') return null;
+
+    const requestedTemplateId = templateId || undefined;
+    if (draft.templateId !== requestedTemplateId && getWorkoutTemplateId(draft.workout as Workout) !== requestedTemplateId) {
+      return null;
+    }
+
+    return {
+      schemaVersion:
+        typeof draft.schemaVersion === 'number' && Number.isFinite(draft.schemaVersion)
+          ? Math.round(draft.schemaVersion)
+          : ACTIVE_WORKOUT_DRAFT_SCHEMA_VERSION,
+      templateId: draft.templateId,
+      workout: draft.workout as Workout,
+      lastSetTimestamp: typeof draft.lastSetTimestamp === 'number' ? draft.lastSetTimestamp : null,
+      updatedAt: typeof draft.updatedAt === 'number' ? draft.updatedAt : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveWorkoutDraft(workout: Workout, lastSetTimestamp: number | null) {
+  if (!canUseStorage()) return;
+
+  const draft: ActiveWorkoutDraft = {
+    schemaVersion: ACTIVE_WORKOUT_DRAFT_SCHEMA_VERSION,
+    templateId: getWorkoutTemplateId(workout),
+    workout,
+    lastSetTimestamp,
+    updatedAt: Date.now(),
+  };
+
+  window.localStorage.setItem(ACTIVE_WORKOUT_DRAFT_KEY, JSON.stringify(draft));
+}
+
+function clearActiveWorkoutDraft() {
+  if (!canUseStorage()) return;
+  window.localStorage.removeItem(ACTIVE_WORKOUT_DRAFT_KEY);
+}
+
+function createWorkoutFromTemplate(templateId: string | null, templates: ReturnType<typeof useWorkoutStore>['templates']): Workout {
+  const template = templates.find(t => t.id === templateId);
+  const exercises: Exercise[] = template
+    ? template.exercises.map(te => ({
+        id: generateId(),
+        name: te.name,
+        sets: Array.from({ length: te.targetSets }, () => ({
+          id: generateId(),
+          reps: te.targetReps || 0,
+          weight: 0,
+          timestamp: 0,
+          isCompleted: false,
+        })),
+        restTimerDuration: te.restTimerDuration,
+      }))
+    : [];
+
+  return {
+    id: generateId(),
+    date: getLocalISODate(),
+    startTime: Date.now(),
+    exercises,
+    templateId: templateId || undefined,
+  };
 }
 
 export default function WorkoutSession() {
@@ -30,6 +124,7 @@ export default function WorkoutSession() {
     templates,
     settings,
     customExercises,
+    isLoaded,
     addWorkout,
     addCustomExercise,
     getLastExerciseData,
@@ -37,34 +132,14 @@ export default function WorkoutSession() {
   } = useWorkoutStore();
 
   const [workout, setWorkout] = useState<Workout>(() => {
-    const template = templates.find(t => t.id === templateId);
-    const exercises: Exercise[] = template
-      ? template.exercises.map(te => ({
-          id: generateId(),
-          name: te.name,
-          sets: Array.from({ length: te.targetSets }, () => ({
-            id: generateId(),
-            reps: te.targetReps || 0,
-            weight: 0,
-            timestamp: 0,
-            isCompleted: false,
-          })),
-          restTimerDuration: te.restTimerDuration,
-        }))
-      : [];
-
-    return {
-      id: generateId(),
-      date: getLocalISODate(),
-      startTime: Date.now(),
-      exercises,
-      templateId: templateId || undefined,
-    };
+    return readActiveWorkoutDraft(templateId)?.workout ?? createWorkoutFromTemplate(templateId, templates);
   });
 
   const [showExerciseSearch, setShowExerciseSearch] = useState(false);
   const [showRestTimer, setShowRestTimer] = useState(false);
-  const [lastSetTimestamp, setLastSetTimestamp] = useState<number | null>(null);
+  const [lastSetTimestamp, setLastSetTimestamp] = useState<number | null>(
+    () => readActiveWorkoutDraft(templateId)?.lastSetTimestamp ?? null,
+  );
 
   const restTimer = useRestTimer({
     defaultDuration: settings.defaultRestTimer,
@@ -74,6 +149,34 @@ export default function WorkoutSession() {
       // Timer completed
     },
   });
+
+  useEffect(() => {
+    if (!isLoaded || !templateId || workout.exercises.length > 0) return;
+
+    const draft = readActiveWorkoutDraft(templateId);
+    if (draft) return;
+
+    const template = templates.find(t => t.id === templateId);
+    if (!template) return;
+
+    setWorkout(createWorkoutFromTemplate(templateId, templates));
+  }, [isLoaded, templateId, templates, workout.exercises.length]);
+
+  useEffect(() => {
+    writeActiveWorkoutDraft(workout, lastSetTimestamp);
+  }, [lastSetTimestamp, workout]);
+
+  useEffect(() => {
+    const persistDraft = () => writeActiveWorkoutDraft(workout, lastSetTimestamp);
+
+    window.addEventListener('pagehide', persistDraft);
+    document.addEventListener('visibilitychange', persistDraft);
+
+    return () => {
+      window.removeEventListener('pagehide', persistDraft);
+      document.removeEventListener('visibilitychange', persistDraft);
+    };
+  }, [lastSetTimestamp, workout]);
 
   // Pre-populate weights from last workout
   useEffect(() => {
@@ -247,12 +350,14 @@ export default function WorkoutSession() {
       date: workout.date || getLocalISODate(),
       endTime: Date.now(),
     };
+    clearActiveWorkoutDraft();
     addWorkout(finishedWorkout);
     navigate('/workouts');
   }, [workout, addWorkout, navigate]);
 
   const handleDiscard = useCallback(() => {
     if (confirm('Discard this workout? All progress will be lost.')) {
+      clearActiveWorkoutDraft();
       navigate('/workouts');
     }
   }, [navigate]);
