@@ -1293,6 +1293,7 @@ export default function ChoresPage() {
       const dueAt = new Date(Date.now() + boardChore.hoursToComplete * 60 * 60 * 1000).toISOString();
       return {
         ...prev,
+        availableExtraChores: prev.availableExtraChores.filter((chore) => chore.id !== choreId),
         children: prev.children.map((c) =>
           c.id !== childId
             ? c
@@ -1370,19 +1371,34 @@ export default function ChoresPage() {
   };
 
   const completeExtraChore = (childId: string, extraId: string) => {
-    updateChild(childId, (child) => {
+    setState((prev) => {
+      const child = prev.children.find((item) => item.id === childId);
+      const extra = child?.extraChores.find((item) => item.id === extraId);
+      if (!child || !extra || extra.isCompleted || extra.isFailed) return prev;
+
+      const completedAt = new Date().toISOString();
       let earned = 0;
-      const extraChores = child.extraChores.map((extra) => {
-        if (extra.id !== extraId) return extra;
-        if (extra.isCompleted || extra.isFailed) return extra;
-        earned = extra.reward;
-        return { ...extra, isCompleted: true, completedAt: new Date().toISOString() };
+      const children = prev.children.map((item) => {
+        if (item.id !== childId) return item;
+
+        const extraChores = item.extraChores.map((currentExtra) => {
+          if (currentExtra.id !== extraId) return currentExtra;
+          earned = currentExtra.reward;
+          return { ...currentExtra, isCompleted: true, completedAt };
+        });
+
+        return {
+          ...item,
+          extraChores,
+          piggyBank: item.piggyBank + earned,
+          lifetimeEarned: item.lifetimeEarned + earned,
+        };
       });
+
       return {
-        ...child,
-        extraChores,
-        piggyBank: child.piggyBank + earned,
-        lifetimeEarned: child.lifetimeEarned + earned,
+        ...prev,
+        availableExtraChores: prev.availableExtraChores.filter((chore) => chore.id !== extra.sourceId),
+        children,
       };
     });
   };
@@ -1798,10 +1814,10 @@ export default function ChoresPage() {
 
                 <div className="rounded-lg border border-border p-3 space-y-2">
                   <h4 className="text-sm font-medium">Claimed Extra Chores</h4>
-                  {child.extraChores.length === 0 && (
+                  {child.extraChores.filter((extra) => !extra.isCompleted && !extra.isFailed).length === 0 && (
                     <p className="text-xs text-muted-foreground">No extra chores claimed yet.</p>
                   )}
-                  {child.extraChores.map((extra) => (
+                  {child.extraChores.filter((extra) => !extra.isCompleted && !extra.isFailed).map((extra) => (
                     <div key={extra.id} className="rounded-md border border-border p-2">
                       <div className="flex items-start justify-between gap-2">
                         <div>
