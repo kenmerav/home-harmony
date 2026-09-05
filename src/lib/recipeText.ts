@@ -185,7 +185,7 @@ function startsWithLeanRatioDescriptor(line: string): boolean {
 }
 
 function endsWithLooseDescriptor(line: string): boolean {
-  return /(plain|small|medium|large|boneless|skinless|ground|diced|chopped)\s*$/i.test(line.trim());
+  return /(plain|small|medium|large|boneless|skinless|ground)\s*$/i.test(line.trim());
 }
 
 function looksLikeStandaloneDescriptor(text: string): boolean {
@@ -287,7 +287,7 @@ function repairIngredientFragments(parts: string[]): string[] {
         (
           startsWithPercentDescriptor(current) ||
           startsWithLeanRatioDescriptor(current) ||
-          endsWithLooseDescriptor(out[out.length - 1])
+          (endsWithLooseDescriptor(out[out.length - 1]) && !/^\d/.test(current))
         )
       ) {
         out[out.length - 1] = `${out[out.length - 1]} ${current}`.replace(/\s+/g, ' ').trim();
@@ -301,8 +301,16 @@ function repairIngredientFragments(parts: string[]): string[] {
   return out;
 }
 
+// Decode before separator parsing: the semicolon in &#39; is not a list separator.
+function decodeIngredientEntities(text: string): string {
+  return text.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (entity, code: string) => {
+    const value = code.toLowerCase().startsWith('x') ? parseInt(code.slice(1), 16) : Number(code);
+    return value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : entity;
+  }).replace(/&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&');
+}
+
 function splitMergedIngredientLine(line: string): string[] {
-  const text = normalizeFractions(line)
+  const text = normalizeFractions(decodeIngredientEntities(line))
     .replace(/\u00a0/g, ' ')
     .replace(/[•]/g, ' ')
     .replace(/^\d+\.\s+/, '')
@@ -354,14 +362,7 @@ function splitMergedIngredientLine(line: string): string[] {
     const semicolonParts = text.split(/\s*;\s*/).map((part) => part.trim()).filter(Boolean);
     if (semicolonParts.length > 1) return semicolonParts;
 
-    const commaParts = text.split(',').map((part) => part.trim()).filter(Boolean);
-    const simpleCommaList =
-      commaParts.length > 1 &&
-      commaParts.length <= 3 &&
-      commaParts.every((part) => part.split(/\s+/).length <= 4) &&
-      commaParts.every((part) => !/\d/.test(part));
-    if (simpleCommaList) return commaParts;
-
+    // Commas often introduce preparation notes, not another ingredient.
     return [text];
   }
 
@@ -373,25 +374,6 @@ function splitMergedIngredientLine(line: string): string[] {
     if (part) out.push(part);
   }
   return out;
-}
-
-function restoreLikelyQuarterFractions(line: string): string {
-  const trimmed = line.trim();
-  if (/^\/4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b/i.test(trimmed)) {
-    return trimmed.replace(/^\/4/i, '1/4');
-  }
-  const match = trimmed.match(/^4\s*(cup|cups|tsp|tbsp|teaspoon|teaspoons|tablespoon|tablespoons)\b\s*(.*)$/i);
-  if (!match) return line;
-
-  const unit = match[1].toLowerCase();
-  const rest = (match[2] || '').trim();
-  const restLower = rest.toLowerCase();
-  const hasStrongQuarterSignal =
-    /^4\s*cup\b/i.test(trimmed) ||
-    /(powder|pepper|paprika|cumin|oregano|thyme|garlic|onion|salt|seasoning|sauce|vinegar|juice|oil|sesame|chili|cinnamon|nutmeg|ginger|dill)\b/.test(restLower);
-
-  if (!hasStrongQuarterSignal) return line;
-  return `1/4 ${unit}${rest ? ` ${rest}` : ''}`.replace(/\s+/g, ' ').trim();
 }
 
 function looksLikeInstructionFragment(line: string): boolean {
@@ -433,7 +415,6 @@ function capitalizeIngredient(line: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  cleaned = restoreLikelyQuarterFractions(cleaned);
 
   if (/^\d*%?\s*plain greek$/i.test(cleaned) || /^\d*%?\s*greek$/i.test(cleaned)) {
     cleaned = 'Greek yogurt';
@@ -467,7 +448,14 @@ export function normalizeRecipeName(input?: string | null): string {
 
 export function normalizeRecipeIngredients(input?: string[] | string | null): string[] {
   if (!input) return [];
-  const source = Array.isArray(input) ? input : String(input).split(/\n+/);
+  const sourceLines = (Array.isArray(input) ? input : [String(input)]).flatMap(line => String(line).split(/\n+/));
+  // Recover the observed persisted split: "Trader Joe&#39" + "S Thai Wheat Noodles".
+  const source: string[] = [];
+  for (const line of sourceLines) {
+    if (source.length && /&(?:#(?:[0-9]+|x[0-9a-f]+)|apos|quot|amp|nbsp)$/i.test(source[source.length - 1])) {
+      source[source.length - 1] += `;${line}`;
+    } else source.push(line);
+  }
   const expanded = source.flatMap((line) => splitMergedIngredientLine(String(line || '')));
   const repaired = repairIngredientFragments(expanded);
   const normalized = repaired.map(capitalizeIngredient).filter(Boolean);
