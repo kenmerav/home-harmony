@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { resolveSharedScopeUserId } from '@/lib/householdScope';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
-import { buildWalmartCartUrl, CartIngredient, ingredientKey, isSeasoning, isWater, packageCount, parseWalmartId, suggestedProducts, WalmartProduct, walmartSearch } from '@/lib/walmartCart';
+import { buildWalmartCartUrl, CartIngredient, ingredientKey, isSeasoning, isWater, packageCount, parseWalmartId, automaticProduct, bestPackageCount, WalmartProduct, walmartSearch } from '@/lib/walmartCart';
 
 type Choice = CartIngredient & { included: boolean; product: string; label: string; size: string; count: string; estimated: boolean };
 type Saved = { products: Record<string, WalmartProduct>; skipSeasonings: boolean };
@@ -17,7 +17,7 @@ function normalizeSaved(value: unknown): Saved {
       if (product && typeof product.id === 'string' && parseWalmartId(product.id) && typeof product.label === 'string') products[key] = { id: product.id, label: product.label, size: typeof product.size === 'string' ? product.size : '' };
     });
   }
-  return { products, skipSeasonings: data?.skipSeasonings !== false };
+  return { products, skipSeasonings: false };
 }
 
 export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: CartIngredient[]; userId: string; weekOf: string; onClose: () => void }) {
@@ -25,17 +25,15 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
   const cacheKey = `homehub.walmart-cart.v1.${scope}`;
   const sentKey = `${cacheKey}.${weekOf}.opened`;
   const [rows, setRows] = useState<Choice[]>([]);
-  const [saved, setSaved] = useState<Saved>({ products: {}, skipSeasonings: true });
+  const [saved, setSaved] = useState<Saved>({ products: {}, skipSeasonings: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [reviewed, setReviewed] = useState(false);
-  const [readyUrl, setReadyUrl] = useState('');
   const [opened, setOpened] = useState(() => { try { return sessionStorage.getItem(sentKey) === 'true'; } catch { return false; } });
   const [message, setMessage] = useState('');
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      let prefs: Saved = { products: {}, skipSeasonings: true };
+      let prefs: Saved = { products: {}, skipSeasonings: false };
       try { prefs = normalizeSaved(JSON.parse(localStorage.getItem(cacheKey) || 'null')); } catch { /* Empty cache. */ }
       try {
         const value = getProfileSettingsValue(await loadProfileSettingsDocument(scope), settingsPath);
@@ -44,9 +42,9 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
       if (cancelled) return;
       setSaved(prefs);
       setRows(items.filter(item => !item.isChecked && !isWater(item.name)).map(item => {
-        const product = prefs.products[ingredientKey(item.name)] || suggestedProducts[ingredientKey(item.name)];
+        const product = prefs.products[ingredientKey(item.name)] || automaticProduct(item.name);
         const count = packageCount(item.quantity, product?.size);
-        return { ...item, included: !(prefs.skipSeasonings && isSeasoning(item.name)), product: product?.id || '', label: product?.label || '', size: product?.size || '', count: String(count || 1), estimated: count === null };
+        return { ...item, included: true, product: product?.id || '', label: product?.label || '', size: product?.size || '', count: String(bestPackageCount(item.quantity, product?.size)), estimated: count === null };
       }));
       setLoading(false);
     }
@@ -55,18 +53,20 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
     // The parent mounts a fresh dialog per household/week; the snapshot stays stable during review.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, cacheKey]);
-  const selected = rows.filter(row => row.included);
+  const selected = rows.filter(row => row.included && parseWalmartId(row.product));
+  const unresolved = rows.filter(row => row.included && !parseWalmartId(row.product));
   const invalid = selected.some(row => !parseWalmartId(row.product) || !/^\d+$/.test(row.count) || Number(row.count) < 1 || Number(row.count) > 999);
   function change(key: string, patch: Partial<Choice>) {
     setRows(previous => previous.map(row => row.key === key ? { ...row, ...patch } : row));
-    setReviewed(false);
-    setReadyUrl('');
   }
-  async function prepare() {
+  let readyUrl = '';
+  let cartError = '';
+  try { if (selected.length && !invalid) readyUrl = buildWalmartCartUrl(selected.map(row => ({ id: parseWalmartId(row.product)!, quantity: Number(row.count) }))); }
+  catch (error) { cartError = error instanceof Error ? error.message : 'Check package counts.'; }
+  async function saveChoices() {
     setSaving(true);
     setMessage('');
     try {
-      const url = buildWalmartCartUrl(selected.map(row => ({ id: parseWalmartId(row.product)!, quantity: Number(row.count) })));
       const products = { ...saved.products };
       rows.forEach(row => {
         const id = parseWalmartId(row.product);
@@ -78,7 +78,6 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
       try { await updateProfileSettingsValue(scope, settingsPath, next); }
       catch { setMessage(localSaved ? 'Choices saved on this device only; account sync failed.' : 'Choices could not be saved. You can still continue to Walmart.'); }
       setSaved(next);
-      setReadyUrl(url);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Check your selections.'); }
     finally { setSaving(false); }
   }
@@ -89,19 +88,21 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
         <DialogDescription>Week of {weekOf}. Review the unchecked ingredients from your grocery list, including weekly staples. Great Value, lean meat and reduced fat are preferred when choosing products.</DialogDescription>
       </DialogHeader>
       {loading ? <p role="status">Loading your saved products…</p> : <>
-        <p className="text-sm text-muted-foreground">Choose new products once using Walmart search, then paste their product links. Your household can reuse those choices next week. Availability, substitutions and prices are confirmed at Walmart.</p>
+        <p className="text-sm text-muted-foreground">Products are chosen automatically from saved choices and known matches. Review or change them if you want. Walmart confirms availability, substitutions and prices.</p>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={saved.skipSeasonings} disabled={saving} onChange={event => {
           const skipSeasonings = event.target.checked;
           setSaved(previous => ({ ...previous, skipSeasonings }));
           setRows(previous => previous.map(row => isSeasoning(row.name) ? { ...row, included: !skipSeasonings } : row));
-          setReviewed(false); setReadyUrl('');
+          
         }} />Skip seasonings such as salt, pepper and garlic powder</label>
-        <p className="text-xs text-muted-foreground">Water and checked-off items are excluded. This sends selected items to Walmart regardless of individual store preferences.</p>
+        <p className="text-xs text-muted-foreground">All unchecked items are included by default, including seasonings. Water is excluded. This sends selected items to Walmart regardless of individual store preferences.</p>
         <fieldset disabled={saving} className="space-y-3 min-w-0">
           {rows.map((row, index) => <div key={row.key} className="rounded-lg border p-3 space-y-3">
             <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={row.included} onChange={event => change(row.key, { included: event.target.checked })} />{row.name}<span className="ml-auto text-sm font-normal text-muted-foreground">{row.quantity}</span></label>
             {row.included && <>
-              <div className="flex flex-wrap items-center gap-3 text-sm">
+              <p className="text-sm">{row.label || 'No reliable automatic match yet'} {parseWalmartId(row.product) && `— ${row.count} package${row.count === '1' ? '' : 's'}`}</p>
+              <details><summary className="text-sm text-primary cursor-pointer">Change product or quantity (optional)</summary>
+              <div className="flex flex-wrap items-center gap-3 text-sm mt-2">
                 <a href={walmartSearch(row.name)} target="_blank" rel="noopener noreferrer" className="text-primary underline">Find product at Walmart ↗</a>
                 {parseWalmartId(row.product) && <a href={`https://www.walmart.com/ip/${parseWalmartId(row.product)}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">View selected product ↗</a>}
               </div>
@@ -117,19 +118,22 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
                 <label className="text-sm">Packages to add<Input type="number" min="1" max="999" step="1" value={row.count} onChange={event => change(row.key, { count: event.target.value, estimated: false })} /></label>
               </div>
               <p className="text-xs text-muted-foreground">{row.estimated ? 'Check package count: the recipe amount cannot be converted automatically. Starts at 1 package.' : 'Review the package count against the product size and what you already have.'}</p>
+              </details>
             </>}
           </div>)}
         </fieldset>
         {!rows.length && <p>No remaining groceries for this week.</p>}
-        {selected.length > 0 && <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={reviewed} disabled={saving} onChange={event => { setReviewed(event.target.checked); setReadyUrl(''); }} />I checked the products and package counts for all {selected.length} selected ingredients.</label>}
+        {unresolved.length > 0 && <p role="status" className="text-sm text-amber-700">{unresolved.length} items could not be matched and will not be added: {unresolved.map(row => row.name).join(', ')}. They remain unchecked on your grocery list. You can send the matched items now.</p>}
+        {cartError && <p role="alert" className="text-sm text-destructive">{cartError}</p>}
         {message && <p role="status" className="text-sm">{message}</p>}
-        {opened ? <div className="rounded-lg bg-muted p-3 space-y-2 text-sm"><p>This week’s cart link has already been opened. Check Walmart before sending again to avoid duplicate quantities.</p><Button variant="outline" onClick={() => { setOpened(false); setReadyUrl(''); setReviewed(false); }}>Review and send again</Button></div> : readyUrl ? <div className="space-y-2">
+        {opened ? <div className="rounded-lg bg-muted p-3 space-y-2 text-sm"><p>This week’s cart link has already been opened. Check Walmart before sending again to avoid duplicate quantities.</p><Button variant="outline" onClick={() => { setOpened(false);  }}>Review and send again</Button></div> : readyUrl ? <div className="space-y-2">
           <Button asChild className="w-full"><a href={readyUrl} target="_blank" rel="noopener noreferrer" onClick={() => {
             try { sessionStorage.setItem(sentKey, 'true'); } catch { /* Session storage is optional. */ }
             setOpened(true);
-          }}>Add selected items to Walmart cart ↗</a></Button>
+            void saveChoices();
+          }}>Add {selected.length} matched items to Walmart cart ↗</a></Button>
           <p className="text-xs text-muted-foreground">Adds to your existing Walmart cart. Review Walmart’s result for unavailable items and complete checkout there. This does not mark your groceries ordered.</p>
-        </div> : <Button disabled={saving || !selected.length || invalid || !reviewed} onClick={() => void prepare()}>{saving ? 'Saving choices…' : `Save choices & prepare ${selected.length} ingredients`}</Button>}
+        </div> : <Button disabled={true} onClick={() => void saveChoices()}>No matched items ready</Button>}
         <Button variant="outline" onClick={onClose}>Close</Button>
       </>}
     </DialogContent>

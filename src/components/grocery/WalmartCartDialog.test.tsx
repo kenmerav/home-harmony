@@ -12,33 +12,26 @@ const items = [
   { key: 'water', name: 'Water', quantity: '2 cups', isChecked: false },
   { key: 'milk', name: 'Milk', quantity: '1 cup', isChecked: true },
 ];
-it('excludes checked groceries and water, skips salt, saves choices and guards duplicate sends', async () => {
+it('automatically prepares unchecked matches without requiring product links', async () => {
   render(<WalmartCartDialog items={items} userId="test" weekOf="2026-09-07" onClose={() => {}} />);
-  const review = await screen.findByLabelText(/I checked the products/);
+  const link = await screen.findByRole('link', { name: /Add 1 matched items/ });
   expect(screen.queryByText('Milk')).not.toBeInTheDocument();
   expect(screen.queryByText('Water')).not.toBeInTheDocument();
-  expect(screen.getByLabelText(/Salt/)).not.toBeChecked();
-  expect(screen.getByLabelText('Packages to add')).toHaveValue(3);
-  expect(screen.getByRole('button', { name: /Save choices/ })).toBeDisabled();
-  fireEvent.click(review);
-  fireEvent.click(screen.getByRole('button', { name: /Save choices/ }));
-  const link = await screen.findByRole('link', { name: /Add selected items/ });
+  expect(screen.getByLabelText(/Salt/)).toBeChecked();
+  expect(screen.getByText(/1 items could not be matched/)).toBeInTheDocument();
   expect(link).toHaveAttribute('href', 'https://www.walmart.com/sc/cart/addToCart?items=16322759490_3');
-  expect(persist).toHaveBeenCalledWith('test', ['shared_preferences', 'walmart_cart'], expect.objectContaining({ skipSeasonings: true }));
-  // Prevent navigation: validate only the local handoff behavior.
   link.addEventListener('click', event => event.preventDefault());
   fireEvent.click(link);
   expect(await screen.findByText(/already been opened/)).toBeInTheDocument();
+  await waitFor(() => expect(persist).toHaveBeenCalled());
 });
-it('requires a valid product for unknown ingredients and invalidates review on edits', async () => {
-  render(<WalmartCartDialog items={[{ key: 'pasta', name: 'Spaghetti', quantity: '32 oz', isChecked: false }]} userId="test" weekOf="2026-09-07" onClose={() => {}} />);
-  const review = await screen.findByLabelText(/I checked the products/);
-  fireEvent.click(review);
-  expect(screen.getByRole('button', { name: /Save choices/ })).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Walmart product link or item ID'), { target: { value: 'https://www.walmart.com/ip/12345678' } });
-  expect(review).not.toBeChecked();
-  fireEvent.change(screen.getByLabelText(/Package size/), { target: { value: '16 oz' } });
-  expect(screen.getByLabelText('Packages to add')).toHaveValue(2);
-  fireEvent.click(review);
-  await waitFor(() => expect(screen.getByRole('button', { name: /Save choices/ })).toBeEnabled());
+it('includes all ten weekly staples automatically with grocery counts', async () => {
+  const names = ['Bananas', 'Apples', 'Blueberries', 'Rasberries', 'Whole Milk', 'Chocolate Milk', 'Great Value Light Nonfat Greek Yogurt 5.3 oz Cups 4 Pack', 'Great Value Vanilla Light Nonfat Greek Yogurt 32oz Tub', 'Great Value Pre-Sliced Cinnamon Raisin Bagels', 'Jimmy Dean Protein Waffles'];
+  const quantities = ['6', '4', '1', '1', 'Half Gallon', 'Half Gallon', '1', '2', '1', '3'];
+  render(<WalmartCartDialog items={names.map((name, i) => ({ key: name, name, quantity: quantities[i], isChecked: false }))} userId="test" weekOf="2026-09-07" onClose={() => {}} />);
+  const link = await screen.findByRole('link', { name: /Add 10 matched items/ });
+  expect(link.getAttribute('href')).toContain('44390948_6,44390953_4');
+  expect(link.getAttribute('href')).toContain('41972648_2');
+  expect(link.getAttribute('href')).toContain('18375414744_3');
+  expect(screen.queryByText(/could not be matched/)).not.toBeInTheDocument();
 });

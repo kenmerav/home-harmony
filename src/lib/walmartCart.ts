@@ -15,6 +15,38 @@ export const suggestedProducts: Record<string, WalmartProduct> = {
   'fresh basil': { id: '3757188318', label: 'Fresh Basil, 0.5 oz', size: '0.5 oz' },
 };
 
+// Product IDs verified against Walmart product pages. Availability is checked by Walmart.
+Object.assign(suggestedProducts, {
+  'bananas': { id: '44390948', label: 'Fresh Banana, each', size: '1 each' },
+  'apples': { id: '44390953', label: 'Fresh Gala Apple, each', size: '1 each' },
+  'blueberries': { id: '1732560925', label: 'Fresh Blueberries, 1 pint container', size: '11 oz' },
+  'raspberries': { id: '44391666', label: 'Fresh Raspberries, 6 oz container', size: '6 oz' },
+  'whole milk': { id: '10450118', label: 'Great Value Whole Milk, half gallon', size: '64 fl oz' },
+  'chocolate milk': { id: '44391121', label: 'Great Value 1% Low-fat Chocolate Milk, half gallon', size: '64 fl oz' },
+  'great value light nonfat greek yogurt 5 3 oz cups 4 pack': { id: '34788349', label: 'Great Value Vanilla Light Nonfat Greek Yogurt, 4 × 5.3 oz cups', size: '21.2 oz' },
+  'great value vanilla light nonfat greek yogurt 32oz tub': { id: '41972648', label: 'Great Value Vanilla Light Nonfat Greek Yogurt, 32 oz tub', size: '32 oz' },
+  'great value pre sliced cinnamon raisin bagels': { id: '588263237', label: 'Great Value Cinnamon Raisin Bagels, 6 count', size: '20 oz' },
+  'jimmy dean protein waffles': { id: '18375414744', label: 'Jimmy Dean Protein Buttermilk Waffles, 8 count', size: '11.28 oz' },
+});
+const aliases: Record<string, string> = {
+  banana: 'bananas', apple: 'apples', 'gala apple': 'apples', 'gala apples': 'apples',
+  rasberries: 'raspberries', raspberry: 'raspberries', blueberry: 'blueberries',
+  'extra virgin olive oil': 'olive oil', 'grated parmesan cheese': 'parmesan cheese',
+  'sweet onion': 'sweet onions',
+  'great value vanilla light nonfat greek yogurt 32 oz tub': 'great value vanilla light nonfat greek yogurt 32oz tub',
+};
+export function automaticProduct(name: string): WalmartProduct | undefined {
+  const key = ingredientKey(name);
+  return suggestedProducts[key] || suggestedProducts[aliases[key]];
+}
+export function bestPackageCount(required: string, size?: string): number {
+  const raw = required.trim().toLowerCase();
+  // A standalone grocery count is packages (or individual produce), not ounces.
+  if (/^\d+(?:\.\d+)?(?:x)?$/.test(raw)) return Math.max(1, Math.ceil(parseFloat(raw)));
+  const normalized = raw.replace(/^half gallon$/, '64 fl oz').replace(/^one gallon$/, '128 fl oz');
+  return packageCount(normalized, size) || 1;
+}
+
 export function parseWalmartId(input: string): string | null {
   const value = input.trim();
   if (/^\d{6,20}$/.test(value)) return value;
