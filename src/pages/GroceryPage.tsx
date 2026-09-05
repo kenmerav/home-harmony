@@ -1,3 +1,4 @@
+import { WalmartCartDialog } from '@/components/grocery/WalmartCartDialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addWeeks, format, startOfWeek } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -495,6 +496,7 @@ function buildGroceryList(
 }
 
 export default function GroceryPage() {
+  const [walmartCartOpen, setWalmartCartOpen] = useState(false);
   const { user } = useAuth();
   const currentDate = useCurrentDate();
   const currentWeekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
@@ -1130,6 +1132,17 @@ export default function GroceryPage() {
           </div>
         }
       />
+
+      <div className="mb-6 rounded-xl border bg-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+        <div>
+          <h2 className="font-semibold">Meals planned. Groceries ready.</h2>
+          <p className="text-sm text-muted-foreground">Send this week’s remaining ingredients to Walmart with your saved product choices.</p>
+        </div>
+        <Button disabled={loading || !user?.id || remainingItems.length === 0} onClick={() => setWalmartCartOpen(true)}>
+          <ShoppingCart className="w-4 h-4 mr-2" />Add to Walmart cart
+        </Button>
+      </div>
+      {walmartCartOpen && user?.id && <WalmartCartDialog key={`${user.id}:${activeWeekOf}`} items={remainingItems} userId={user.id} weekOf={activeWeekOf} onClose={() => setWalmartCartOpen(false)} />}
 
       {/* Progress */}
       {totalCount > 0 && (
