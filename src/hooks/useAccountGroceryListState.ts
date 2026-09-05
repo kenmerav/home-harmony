@@ -20,6 +20,8 @@ function serializeState(state: StoredGroceryListState): string {
 
 interface UseAccountGroceryListStateResult {
   groceryListState: StoredGroceryListState;
+  isHydrating: boolean;
+  hydrationError: boolean;
   setGroceryListState: Dispatch<SetStateAction<StoredGroceryListState>>;
 }
 
@@ -29,6 +31,8 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
   const [groceryListState, setInternalState] = useState<StoredGroceryListState>(() =>
     loadLocalGroceryListState(scopedUserId),
   );
+  const [hydratedScope, setHydratedScope] = useState<string | null>(null);
+  const [hydrationError, setHydrationError] = useState(false);
   const activeScopeRef = useRef<string | null>(null);
   const persistedSnapshotRef = useRef<string | null>(null);
   const latestStateRef = useRef(groceryListState);
@@ -40,6 +44,8 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
   useEffect(() => {
     let cancelled = false;
     activeScopeRef.current = null;
+    setHydratedScope(null);
+    setHydrationError(false);
 
     const localState = loadLocalGroceryListState(scopedUserId);
     const localSnapshot = serializeState(localState);
@@ -55,6 +61,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
       persistedSnapshotRef.current = snapshot;
       activeScopeRef.current = scopeKey;
       setInternalState(normalized);
+      setHydratedScope(scopeKey);
     };
 
     if (!scopedUserId) {
@@ -91,6 +98,7 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
         finishHydration(localState);
       } catch (error) {
         console.error('Failed to hydrate grocery list state:', error);
+        if (!cancelled) setHydrationError(true);
         finishHydration(latestStateRef.current);
       }
     })();
@@ -193,7 +201,9 @@ export function useAccountGroceryListState(userId?: string | null): UseAccountGr
     () => ({
       groceryListState,
       setGroceryListState,
+      isHydrating: hydratedScope !== scopeKey,
+      hydrationError,
     }),
-    [groceryListState, setGroceryListState],
+    [groceryListState, setGroceryListState, hydratedScope, scopeKey, hydrationError],
   );
 }
