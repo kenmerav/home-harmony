@@ -32,3 +32,28 @@ describe('Walmart weekly cart', () => {
     expect(decodeURIComponent(walmartSearch('ground beef'))).toContain('lean');
   });
 });
+
+import { automaticProduct, cartPackageCount } from './walmartCart';
+it('matches next week meal ingredients despite imported preparation text', () => {
+  const names = ['Thai Basil', 'handfuls Cilantro chopped', 'small Lime zest and juice', 'Baby Spinach chopped', 'lemons zest of 1, juice of both', '-2 Frozen Crushed Garlic Cubes or 1-2 cloves freshly crushed garlic', 'Black Pepper', 'bag 14 oz Frozen Fire Roasted Peppers and Onions', 'fresh ginger', 'Cherry Tomatoes halved', 'Shredded Lettuce', 'Extra Lean Ground Beef', 'Chicken Bone Broth', 'Boneless Skinless Chicken Breast', 'Ground Chicken or Turkey', '1/4 cup Beef Broth or Water', 'Fiesta cheese', 'can Reduced Fat Coconut Milk', 'taco seasoning', 'box hard shell tacos', 'Thai Red Curry Paste or another chili sauce/paste', '112g Roasted Salted Peanuts roughly chopped', '10 oz bags Frozen Steamed Jasmine Rice or 6 cups of cooked jasmine rice', 'dry Protein Pasta', '1/4 cup 72g Hoisin Sauce', 'Tortilla chips', 'Queso', '1/4 cup Coconut Aminos', '5 oz Grated Parmesan', '15 oz Artichoke Hearts drained and chopped', 'Coarse Dijon Mustard', '/2 cup 56g Roasted Cashew Halves'];
+  for (const name of names) expect(automaticProduct(name), name).toBeDefined();
+  for (const name of ['Trader Joe&#39', 'unknown food', 'peanut butter', 'beef broth powder', 'chicken flavored noodles']) expect(automaticProduct(name), name).toBeUndefined();
+  expect(isWater('1/4 cup Water')).toBe(true);
+  expect(isWater('1/4 cup Beef Broth or Water')).toBe(false);
+});
+it('covers meal quantities without confusing recipe occurrences with packages', () => {
+  const count = (name: string, quantity: string) => cartPackageCount({ key: name, name, quantity, isChecked: false }, automaticProduct(name));
+  expect(count('Extra Lean Ground Beef', '5 lb')).toBe(5);
+  expect(count('Chicken Bone Broth', '6 cups')).toBe(2);
+  expect(count('small Lime zest and juice', '2 items')).toBe(2);
+  expect(count('lemons zest of 1, juice of both', '4 items')).toBe(4);
+  expect(count('handfuls Cilantro chopped', '4 items')).toBe(2);
+  expect(count('Black Pepper', '2x')).toBe(1);
+  expect(count('taco seasoning', '2 packets')).toBe(2);
+  expect(count('can Reduced Fat Coconut Milk', '28 oz')).toBe(3);
+  expect(count('10 oz bags Frozen Steamed Jasmine Rice or 6 cups of cooked jasmine rice', '6 items')).toBe(7);
+  expect(count('15 oz Artichoke Hearts drained and chopped', '2 cans')).toBe(3);
+  expect(count('5 oz Grated Parmesan', '2.5 cups')).toBe(2);
+  expect(count('1/4 cup Coconut Aminos', '2 items')).toBe(1);
+  expect(count('dry Protein Pasta', '24 oz')).toBe(2);
+});

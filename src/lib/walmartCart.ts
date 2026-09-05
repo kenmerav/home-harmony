@@ -1,8 +1,9 @@
+import { mealProduct } from './walmartMealProducts';
 export interface WalmartProduct { id: string; label: string; size?: string }
 export interface CartIngredient { key: string; name: string; quantity: string; isChecked: boolean }
 export const ingredientKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 export const isSeasoning = (name: string) => /^(coarse |kosher |sea )?salt$|^(ground )?(black )?pepper$|^(italian seasoning|garlic powder|onion powder|paprika|cumin|dried oregano|dried basil|cinnamon)$/.test(ingredientKey(name));
-export const isWater = (name: string) => /^(water|cold water|warm water|hot water|boiling water)$/.test(ingredientKey(name));
+export const isWater = (name: string) => /^(?:[0-9 ]+ (?:cup|cups|tablespoon|tablespoons|tbsp|tsp) )?(water|cold water|warm water|hot water|boiling water)(?: to thin)?$/.test(ingredientKey(name));
 
 // Exact ingredient matches only. Walmart confirms local availability and price at handoff.
 export const suggestedProducts: Record<string, WalmartProduct> = {
@@ -37,7 +38,7 @@ const aliases: Record<string, string> = {
 };
 export function automaticProduct(name: string): WalmartProduct | undefined {
   const key = ingredientKey(name);
-  return suggestedProducts[key] || suggestedProducts[aliases[key]];
+  return suggestedProducts[key] || suggestedProducts[aliases[key]] || mealProduct(key);
 }
 export function bestPackageCount(required: string, size?: string): number {
   const raw = required.trim().toLowerCase();
@@ -45,6 +46,29 @@ export function bestPackageCount(required: string, size?: string): number {
   if (/^\d+(?:\.\d+)?(?:x)?$/.test(raw)) return Math.max(1, Math.ceil(parseFloat(raw)));
   const normalized = raw.replace(/^half gallon$/, '64 fl oz').replace(/^one gallon$/, '128 fl oz');
   return packageCount(normalized, size) || 1;
+}
+
+// Keep the original grocery key and checkmark. Interpret malformed imported quantities
+// only for the cart, with an explicit estimate rather than rewriting saved groceries.
+export function cartPackageCount(item: CartIngredient, product?: WalmartProduct): number {
+  const key = ingredientKey(item.name);
+  const qty = item.quantity.trim().toLowerCase();
+  const n = parseFloat(qty) || 1;
+  if (product?.id === '160597260' && key.startsWith('handful')) return Math.max(1, Math.ceil(n / 2));
+  if (/^(?:small )?lime|^lemons?/.test(key) && /^\d+ items?$/.test(qty)) return Math.ceil(n);
+  if (key === 'black pepper' && /x$/.test(qty)) return 1; // Unspecified seasoning occurrences, not jars.
+  if (key === 'taco seasoning' && /packets?$/.test(qty)) return Math.ceil(n);
+  if (/^15 oz artichoke hearts/.test(key) && /cans?$/.test(qty)) return Math.ceil(n * 15 / 13.75);
+  if (/^10 oz bags frozen steamed jasmine rice/.test(key) && /items?$/.test(qty)) return Math.ceil(n * 10 / 8.8);
+  if (/^(?:can )?reduced fat coconut milk$/.test(key) && / oz$/.test(qty)) return Math.ceil(n / 13.66);
+  // Grated Parmesan is approximately 4 oz per cup; the imported 5 oz is a second measurement.
+  if (/grated parmesan$/.test(key) && /cups?$/.test(qty)) return packageCount(`${n * 4} oz`, product?.size) || 1;
+  // A fraction left in the name belongs to each recipe occurrence, not a package count.
+  const embedded = item.name.match(/^(\d+\/\d+)\s+(cups?|tbsp|tsp)\s/i);
+  if (embedded && /^\d+ items?$/.test(qty)) {
+    return packageCount(Array.from({ length: Math.ceil(n) }, () => `${embedded[1]} ${embedded[2]}`).join(' + '), product?.size) || 1;
+  }
+  return bestPackageCount(item.quantity, product?.size);
 }
 
 export function parseWalmartId(input: string): string | null {
