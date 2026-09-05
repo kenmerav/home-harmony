@@ -497,13 +497,16 @@ function buildGroceryList(
 
 export default function GroceryPage() {
   const [walmartCartOpen, setWalmartCartOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, loading: authLoading, profileLoading, householdScopeLoading, sharedHouseholdOwnerId } = useAuth();
   const currentDate = useCurrentDate();
   const currentWeekOf = format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
   const nextWeekOf = format(addWeeks(startOfWeek(currentDate, { weekStartsOn: 1 }), 1), 'yyyy-MM-dd');
-  const { groceryListState, setGroceryListState } = useAccountGroceryListState(user?.id);
+  const { groceryListState, setGroceryListState, isHydrating: groceryHydrating, hydrationError } = useAccountGroceryListState(user?.id);
   const [plannedMealsByWeek, setPlannedMealsByWeek] = useState<Record<string, DbPlannedMeal[]>>({});
   const [loading, setLoading] = useState(true);
+  const [groceryLoadError, setGroceryLoadError] = useState(false);
+  const [groceryReload, setGroceryReload] = useState(0);
+  const scopePending = authLoading || profileLoading || householdScopeLoading;
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [preferredStoreId, setPreferredStoreIdState] = useState('walmart');
@@ -642,29 +645,24 @@ export default function GroceryPage() {
     };
   }, []);
 
-  const loadGroceryList = async () => {
-    try {
-      setLoading(true);
-      const [currentMeals, nextMeals] = await Promise.all([
-        fetchMealsForWeek(0),
-        fetchMealsForWeek(1),
-      ]);
-      setPlannedMealsByWeek({
-        [currentWeekOf]: currentMeals,
-        [nextWeekOf]: nextMeals,
-      });
-    } catch (err) {
-      console.error('Failed to load grocery list:', err);
-      setPlannedMealsByWeek({});
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     saveExcludePreppedMealPrepPreference(excludePreppedMealPrep);
-    void loadGroceryList();
-  }, [excludePreppedMealPrep, user?.id]);
+    let cancelled = false;
+    setLoading(true);
+    setWalmartCartOpen(false);
+    if (scopePending || !user?.id) return;
+    setGroceryLoadError(false);
+    void Promise.all([fetchMealsForWeek(0), fetchMealsForWeek(1)])
+      .then(([currentMeals, nextMeals]) => {
+        if (!cancelled) setPlannedMealsByWeek({ [currentWeekOf]: currentMeals, [nextWeekOf]: nextMeals });
+      })
+      .catch(error => {
+        console.error('Failed to load grocery list:', error);
+        if (!cancelled) setGroceryLoadError(true);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [excludePreppedMealPrep, user?.id, sharedHouseholdOwnerId, scopePending, currentWeekOf, nextWeekOf, groceryReload]);
 
   const items = useMemo(
     () =>
@@ -1138,11 +1136,12 @@ export default function GroceryPage() {
           <h2 className="font-semibold">Meals planned. Groceries ready.</h2>
           <p className="text-sm text-muted-foreground">Send this week’s remaining ingredients to Walmart with your saved product choices.</p>
         </div>
-        <Button disabled={loading || !user?.id || remainingItems.length === 0} onClick={() => setWalmartCartOpen(true)}>
+        <Button disabled={loading || scopePending || groceryHydrating || hydrationError || groceryLoadError || !user?.id || remainingItems.length === 0} onClick={() => setWalmartCartOpen(true)}>
           <ShoppingCart className="w-4 h-4 mr-2" />Add to Walmart cart
         </Button>
       </div>
-      {walmartCartOpen && user?.id && <WalmartCartDialog key={`${user.id}:${activeWeekOf}`} items={remainingItems} userId={user.id} weekOf={activeWeekOf} onClose={() => setWalmartCartOpen(false)} />}
+      {(groceryLoadError || hydrationError) && <p role="alert" className="mb-4 text-sm text-destructive">Your meals or checked-off groceries could not finish loading. Reload before sending to Walmart. <Button variant="outline" size="sm" onClick={() => hydrationError ? window.location.reload() : setGroceryReload(value => value + 1)}>Reload groceries</Button></p>}
+      {walmartCartOpen && !scopePending && !groceryHydrating && !hydrationError && !groceryLoadError && user?.id && <WalmartCartDialog key={`${user.id}:${activeWeekOf}`} items={remainingItems} userId={user.id} weekOf={activeWeekOf} onClose={() => setWalmartCartOpen(false)} />}
 
       {/* Progress */}
       {totalCount > 0 && (

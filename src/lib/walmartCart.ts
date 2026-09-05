@@ -8,7 +8,7 @@ export const isWater = (name: string) => /^(?:[0-9 ]+ (?:cup|cups|tablespoon|tab
 // Exact ingredient matches only. Walmart confirms local availability and price at handoff.
 export const suggestedProducts: Record<string, WalmartProduct> = {
   'ground beef': { id: '16322759490', label: 'Extra Lean Ground Beef, 96% lean, 1 lb', size: '1 lb' },
-  'parmesan cheese': { id: '10315402', label: 'Great Value Grated Parmesan, 8 oz (regular fat)', size: '8 oz' },
+  'parmesan cheese': { id: '10307326', label: '4C Parmesan-Romano Grated Cheese, 6 oz', size: '6 oz' },
   'nutritional yeast': { id: '226488899', label: 'Great Value Nutritional Yeast Flakes, 5 oz', size: '5 oz' },
   'olive oil': { id: '10315102', label: 'Great Value Extra Virgin Olive Oil, 17 fl oz', size: '17 fl oz' },
   'tomato paste': { id: '10415519', label: 'Great Value Tomato Paste, 6 oz', size: '6 oz' },
@@ -20,8 +20,8 @@ export const suggestedProducts: Record<string, WalmartProduct> = {
 Object.assign(suggestedProducts, {
   'bananas': { id: '44390948', label: 'Fresh Banana, each', size: '1 each' },
   'apples': { id: '44390953', label: 'Fresh Gala Apple, each', size: '1 each' },
-  'blueberries': { id: '1732560925', label: 'Fresh Blueberries, 1 pint container', size: '11 oz' },
-  'raspberries': { id: '44391666', label: 'Fresh Raspberries, 6 oz container', size: '6 oz' },
+  'blueberries': { id: '161115457', label: 'Fresh Blueberries, 18 oz container', size: '18 oz' },
+  'raspberries': { id: '44390957', label: 'Fresh Raspberries, 12 oz container', size: '12 oz' },
   'whole milk': { id: '10450118', label: 'Great Value Whole Milk, half gallon', size: '64 fl oz' },
   'chocolate milk': { id: '44391121', label: 'Great Value 1% Low-fat Chocolate Milk, half gallon', size: '64 fl oz' },
   'great value light nonfat greek yogurt 5 3 oz cups 4 pack': { id: '34788349', label: 'Great Value Vanilla Light Nonfat Greek Yogurt, 4 × 5.3 oz cups', size: '21.2 oz' },
@@ -55,18 +55,18 @@ export function cartPackageCount(item: CartIngredient, product?: WalmartProduct)
   const qty = item.quantity.trim().toLowerCase();
   const n = parseFloat(qty) || 1;
   if (product?.id === '160597260' && key.startsWith('handful')) return Math.max(1, Math.ceil(n / 2));
-  if (/^(?:small )?lime|^lemons?/.test(key) && /^\d+ items?$/.test(qty)) return Math.ceil(n);
+  if (/^(?:small )?lime|^lemons?/.test(key) && /^\d+ items?$/.test(qty)) return packageCount(`${n} each`, product?.size) || 1;
   if (key === 'black pepper' && /x$/.test(qty)) return 1; // Unspecified seasoning occurrences, not jars.
-  if (key === 'taco seasoning' && /packets?$/.test(qty)) return Math.ceil(n);
-  if (/^15 oz artichoke hearts/.test(key) && /cans?$/.test(qty)) return Math.ceil(n * 15 / 13.75);
-  if (/^10 oz bags frozen steamed jasmine rice/.test(key) && /items?$/.test(qty)) return Math.ceil(n * 10 / 8.8);
-  if (/^(?:can )?reduced fat coconut milk$/.test(key) && / oz$/.test(qty)) return Math.ceil(n / 13.66);
+  if (key === 'taco seasoning' && /packets?$/.test(qty)) return packageCount(`${n} oz`, product?.size) || 1;
+  if (/^15 oz artichoke hearts/.test(key) && /cans?$/.test(qty)) return product?.id === '975471117' ? Math.ceil(n) : packageCount(`${n * 15} oz`, product?.size) || 1; // Recipe specifies standard cans.
+  if (/^10 oz bags frozen steamed jasmine rice/.test(key) && /items?$/.test(qty)) return packageCount(`${n * 10} oz`, product?.size) || 1;
+  if (/^(?:can )?reduced fat coconut milk$/.test(key) && / oz$/.test(qty)) return product?.id === '47737969' ? Math.ceil(n / 14) : packageCount(`${n} fl oz`, product?.size) || 1; // Recipe uses rounded 14 oz standard cans.
   // Grated Parmesan is approximately 4 oz per cup; the imported 5 oz is a second measurement.
   if (/grated parmesan$/.test(key) && /cups?$/.test(qty)) return packageCount(`${n * 4} oz`, product?.size) || 1;
   // A fraction left in the name belongs to each recipe occurrence, not a package count.
   const embedded = item.name.match(/^(\d+\/\d+)\s+(cups?|tbsp|tsp)\s/i);
   if (embedded && /^\d+ items?$/.test(qty)) {
-    return packageCount(Array.from({ length: Math.ceil(n) }, () => `${embedded[1]} ${embedded[2]}`).join(' + '), product?.size) || 1;
+    return packageCount(Array.from({ length: Math.min(999, Math.ceil(n)) }, () => `${embedded[1]} ${embedded[2]}`).join(' + '), product?.size) || 1;
   }
   return bestPackageCount(item.quantity, product?.size);
 }
@@ -118,4 +118,28 @@ export function buildWalmartCartUrl(rows: Array<{ id: string; quantity: number }
   const url = `https://www.walmart.com/sc/cart/addToCart?items=${[...merged].map(([id, qty]) => `${id}_${qty}`).join(',')}`;
   if (url.length > 7500) throw new Error('This list is too long for one link. Send it in smaller groups.');
   return url;
+}
+
+// Upgrade only known obsolete defaults; keep unrelated custom product choices.
+const replacedDefaults: Record<string, string> = {
+  '1732560925': '161115457', '44391666': '44390957', '34017490': '13893738',
+  '39104764': '13893731', '749715014': '898309191', '50067993': '27935840',
+  '23591412': '47737969', '1657981925': '10313122', '15094357071': '17382561917',
+  '12329756': '14780722693', '41191893': '784580921', '10315402': '10307326',
+  '5293673342': '19685753820', '10309835': '156783992', '940387142': '975471117',
+};
+export function preferredProduct(name: string, saved?: WalmartProduct): WalmartProduct | undefined {
+  const current = automaticProduct(name);
+  return !saved || (current && replacedDefaults[saved.id] === current.id) ? current : saved;
+}
+
+export type SentQuantities = Record<string, number>;
+export function normalizeSent(value: unknown): SentQuantities {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([id, count]) => parseWalmartId(id) === id && Number.isSafeInteger(count) && Number(count) >= 0 && Number(count) <= 999));
+}
+export function pendingCartItems(rows: Array<{ id: string; quantity: number }>, sent: SentQuantities, retryIds: string[] = []) {
+  const totals: SentQuantities = {};
+  for (const row of rows) totals[row.id] = (totals[row.id] || 0) + row.quantity;
+  return Object.entries(totals).map(([id, quantity]) => ({ id, quantity: retryIds.includes(id) ? quantity : Math.max(0, quantity - (sent[id] || 0)) })).filter(row => row.quantity > 0);
 }
