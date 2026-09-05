@@ -1,3 +1,4 @@
+import { RecipeCleanupDialog } from '@/components/recipes/RecipeCleanupDialog';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -471,6 +472,7 @@ function dbRecipeToDisplayRecipe(
 }
 
 export default function RecipesPage() {
+  const [cleanupReviewOpen, setCleanupReviewOpen] = useState(false);
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('all');
@@ -1855,11 +1857,13 @@ export default function RecipesPage() {
 
   return (
     <AppLayout>
+      {cleanupReviewOpen && <RecipeCleanupDialog onClose={() => setCleanupReviewOpen(false)} onChanged={() => void loadRecipes()} />}
       <PageHeader 
         title="Recipes" 
         subtitle={`${recipes.length} recipes • ${savedFoods.length} saved foods`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => setCleanupReviewOpen(true)}>Review recipe cleanup</Button>
             <Button variant="outline" onClick={() => void runIngredientCleanup()} disabled={isCleaningIngredients}>
               <Check className="w-4 h-4 mr-2" />
               {isCleaningIngredients ? 'Cleaning...' : 'Clean Up Ingredients'}
