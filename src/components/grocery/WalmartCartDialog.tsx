@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { resolveSharedScopeUserId } from '@/lib/householdScope';
 import { getProfileSettingsValue, loadProfileSettingsDocument, updateProfileSettingsValue } from '@/lib/profileSettingsStore';
-import { buildWalmartCartUrl, CartIngredient, ingredientKey, isSeasoning, isWater, packageCount, parseWalmartId, automaticProduct, bestPackageCount, WalmartProduct, walmartSearch } from '@/lib/walmartCart';
+import { buildWalmartCartUrl, CartIngredient, ingredientKey, isSeasoning, isWater, packageCount, parseWalmartId, automaticProduct, cartPackageCount, WalmartProduct, walmartSearch } from '@/lib/walmartCart';
 
 type Choice = CartIngredient & { included: boolean; product: string; label: string; size: string; count: string; estimated: boolean };
 type Saved = { products: Record<string, WalmartProduct>; skipSeasonings: boolean };
@@ -44,7 +44,7 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
       setRows(items.filter(item => !item.isChecked && !isWater(item.name)).map(item => {
         const product = prefs.products[ingredientKey(item.name)] || automaticProduct(item.name);
         const count = packageCount(item.quantity, product?.size);
-        return { ...item, included: true, product: product?.id || '', label: product?.label || '', size: product?.size || '', count: String(bestPackageCount(item.quantity, product?.size)), estimated: count === null };
+        return { ...item, included: true, product: product?.id || '', label: product?.label || '', size: product?.size || '', count: String(cartPackageCount(item, product)), estimated: count === null };
       }));
       setLoading(false);
     }
@@ -96,11 +96,20 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
           
         }} />Skip seasonings such as salt, pepper and garlic powder</label>
         <p className="text-xs text-muted-foreground">All unchecked items are included by default, including seasonings. Water is excluded. This sends selected items to Walmart regardless of individual store preferences.</p>
+        {opened ? <div className="rounded-lg bg-muted p-3 space-y-2 text-sm"><p>This week’s cart link has already been opened. Check Walmart before sending again to avoid duplicate quantities.</p><Button variant="outline" onClick={() => { setOpened(false);  }}>Review and send again</Button></div> : readyUrl ? <div className="space-y-2">
+          <Button asChild className="w-full"><a href={readyUrl} target="_blank" rel="noopener noreferrer" onClick={() => {
+            try { sessionStorage.setItem(sentKey, 'true'); } catch { /* Session storage is optional. */ }
+            setOpened(true);
+            void saveChoices();
+          }}>Add {selected.length} matched items to Walmart cart ↗</a></Button>
+          <p className="text-xs text-muted-foreground">Adds to your existing Walmart cart. Review Walmart’s result for unavailable items and complete checkout there. This does not mark your groceries ordered.</p>
+        </div> : <Button disabled={true} onClick={() => void saveChoices()}>No matched items ready</Button>}
         <fieldset disabled={saving} className="space-y-3 min-w-0">
           {rows.map((row, index) => <div key={row.key} className="rounded-lg border p-3 space-y-3">
             <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={row.included} onChange={event => change(row.key, { included: event.target.checked })} />{row.name}<span className="ml-auto text-sm font-normal text-muted-foreground">{row.quantity}</span></label>
             {row.included && <>
               <p className="text-sm">{row.label || 'No reliable automatic match yet'} {parseWalmartId(row.product) && `— ${row.count} package${row.count === '1' ? '' : 's'}`}</p>
+              {row.estimated && row.product && <p className="text-xs text-muted-foreground">Estimated package count — check before checkout.</p>}
               <details><summary className="text-sm text-primary cursor-pointer">Change product or quantity (optional)</summary>
               <div className="flex flex-wrap items-center gap-3 text-sm mt-2">
                 <a href={walmartSearch(row.name)} target="_blank" rel="noopener noreferrer" className="text-primary underline">Find product at Walmart ↗</a>
@@ -117,7 +126,7 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
                 }} /></label>
                 <label className="text-sm">Packages to add<Input type="number" min="1" max="999" step="1" value={row.count} onChange={event => change(row.key, { count: event.target.value, estimated: false })} /></label>
               </div>
-              <p className="text-xs text-muted-foreground">{row.estimated ? 'Check package count: the recipe amount cannot be converted automatically. Starts at 1 package.' : 'Review the package count against the product size and what you already have.'}</p>
+              <p className="text-xs text-muted-foreground">{row.estimated ? 'Package count is a best estimate from the recipe. Adjust if needed.' : 'Review the package count against the product size and what you already have.'}</p>
               </details>
             </>}
           </div>)}
@@ -126,14 +135,6 @@ export function WalmartCartDialog({ items, userId, weekOf, onClose }: { items: C
         {unresolved.length > 0 && <p role="status" className="text-sm text-amber-700">{unresolved.length} items could not be matched and will not be added: {unresolved.map(row => row.name).join(', ')}. They remain unchecked on your grocery list. You can send the matched items now.</p>}
         {cartError && <p role="alert" className="text-sm text-destructive">{cartError}</p>}
         {message && <p role="status" className="text-sm">{message}</p>}
-        {opened ? <div className="rounded-lg bg-muted p-3 space-y-2 text-sm"><p>This week’s cart link has already been opened. Check Walmart before sending again to avoid duplicate quantities.</p><Button variant="outline" onClick={() => { setOpened(false);  }}>Review and send again</Button></div> : readyUrl ? <div className="space-y-2">
-          <Button asChild className="w-full"><a href={readyUrl} target="_blank" rel="noopener noreferrer" onClick={() => {
-            try { sessionStorage.setItem(sentKey, 'true'); } catch { /* Session storage is optional. */ }
-            setOpened(true);
-            void saveChoices();
-          }}>Add {selected.length} matched items to Walmart cart ↗</a></Button>
-          <p className="text-xs text-muted-foreground">Adds to your existing Walmart cart. Review Walmart’s result for unavailable items and complete checkout there. This does not mark your groceries ordered.</p>
-        </div> : <Button disabled={true} onClick={() => void saveChoices()}>No matched items ready</Button>}
         <Button variant="outline" onClick={onClose}>Close</Button>
       </>}
     </DialogContent>
