@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { TablesUpdate } from '@/integrations/supabase/types';
@@ -25,6 +25,7 @@ import { hydrateGroceryPrefsFromAccount } from '@/lib/groceryPrefs';
 import { hydrateChoresStateFromAccount } from '@/lib/choresStateStore';
 import { upsertFamilyMemberShadow } from '@/lib/familyMemberShadow';
 import { clearPendingInviteOnboarding, loadPendingInviteOnboarding } from '@/lib/onboardingStore';
+import { withTimeout } from '@/lib/async';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'inactive' | 'past_due' | 'canceled' | string;
 
@@ -54,6 +55,7 @@ interface AuthContextValue {
   isDemoUser: boolean;
   isAdmin: boolean;
   loading: boolean;
+  loadingError: string | null;
   sharedHouseholdOwnerId: string | null;
   householdScopeLoading: boolean;
   profile: ProfileInfo | null;
@@ -92,40 +94,51 @@ const DEMO_PROFILE: ProfileInfo = {
 };
 
 const ADMIN_EMAIL = 'kroberts035@gmail.com';
+const STARTUP_REQUEST_TIMEOUT_MS = 12_000;
+const BACKGROUND_REFRESH_COOLDOWN_MS = 15_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [authLoadingError, setAuthLoadingError] = useState<string | null>(null);
+  const [profileLoadingError, setProfileLoadingError] = useState<string | null>(null);
+  const [subscriptionLoadingError, setSubscriptionLoadingError] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
   const [sharedHouseholdOwnerId, setSharedHouseholdOwnerId] = useState<string | null>(null);
   const [householdScopeLoading, setHouseholdScopeLoading] = useState(false);
+  const backgroundRefreshRef = useRef<Promise<void> | null>(null);
+  const lastBackgroundRefreshAtRef = useRef(0);
+  const loadingError = authLoadingError || profileLoadingError || subscriptionLoadingError;
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
       setProfile(null);
+      setProfileLoadingError(null);
       setProfileLoading(false);
       return;
     }
     if (isDemoUser) {
       setProfile(DEMO_PROFILE);
+      setProfileLoadingError(null);
       setProfileLoading(false);
       return;
     }
     setProfileLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('full_name,household_name,phone,family_size,goals,dietary_preferences,timezone,onboarding_completed_at')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Failed to load profile:', error.message);
-      setProfile(null);
-    } else {
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('profiles')
+          .select('full_name,household_name,phone,family_size,goals,dietary_preferences,timezone,onboarding_completed_at')
+          .eq('id', user.id)
+          .maybeSingle(),
+        STARTUP_REQUEST_TIMEOUT_MS,
+        'Profile loading timed out.',
+      );
+      if (error) throw error;
       setProfile({
         fullName: data?.full_name || null,
         householdName: data?.household_name || null,
@@ -136,13 +149,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         timezone: data?.timezone || null,
         onboardingCompletedAt: data?.onboarding_completed_at || null,
       });
+      setProfileLoadingError(null);
+    } catch (error) {
+      console.error('Failed to load profile:', error);
+      setProfileLoadingError('We could not load your profile.');
+    } finally {
+      setProfileLoading(false);
     }
-    setProfileLoading(false);
   }, [isDemoUser, user]);
 
   const refreshSubscription = useCallback(async () => {
     if (!user) {
       setSubscription(null);
+      setSubscriptionLoadingError(null);
       setSubscriptionLoading(false);
       return;
     }
@@ -156,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         cancelAt: null,
         canceledAt: null,
       });
+      setSubscriptionLoadingError(null);
       setSubscriptionLoading(false);
       return;
     }
@@ -169,6 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         cancelAt: null,
         canceledAt: null,
       });
+      setSubscriptionLoadingError(null);
       setSubscriptionLoading(false);
       return;
     }
@@ -182,20 +203,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         cancelAt: null,
         canceledAt: null,
       });
+      setSubscriptionLoadingError(null);
       setSubscriptionLoading(false);
       return;
     }
     setSubscriptionLoading(true);
-    const { data, error } = await supabase
-      .from('subscriptions')
-      .select('status,current_period_end,trial_ends_at,price_id,cancel_at_period_end,cancel_at,canceled_at')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Failed to load subscription:', error.message);
-      setSubscription(null);
-    } else {
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('subscriptions')
+          .select('status,current_period_end,trial_ends_at,price_id,cancel_at_period_end,cancel_at,canceled_at')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+        STARTUP_REQUEST_TIMEOUT_MS,
+        'Subscription loading timed out.',
+      );
+      if (error) throw error;
       const nextSubscription = {
         status: data?.status || 'inactive',
         currentPeriodEnd: data?.current_period_end || null,
@@ -208,7 +231,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!hasSubscriptionAccess(nextSubscription)) {
         try {
-          const household = await getHouseholdDashboard();
+          const household = await withTimeout(
+            getHouseholdDashboard(),
+            STARTUP_REQUEST_TIMEOUT_MS,
+            'Household access loading timed out.',
+          );
           const activeMembers = (household.members || []).filter((member) => member.status === 'active');
           const currentMember = activeMembers.find((member) => member.user_id === user.id) || null;
           if (currentMember && currentMember.role !== 'owner') {
@@ -221,7 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               cancelAt: null,
               canceledAt: null,
             });
-            setSubscriptionLoading(false);
+            setSubscriptionLoadingError(null);
             return;
           }
         } catch (householdError) {
@@ -230,8 +257,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setSubscription(nextSubscription);
+      setSubscriptionLoadingError(null);
+    } catch (error) {
+      console.error('Failed to load subscription:', error);
+      setSubscriptionLoadingError('We could not verify your subscription.');
+    } finally {
+      setSubscriptionLoading(false);
     }
-    setSubscriptionLoading(false);
   }, [isDemoUser, user]);
 
   useEffect(() => {
@@ -244,18 +276,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resetDemoStore();
       }
 
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
+      try {
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          STARTUP_REQUEST_TIMEOUT_MS,
+          'Session loading timed out.',
+        );
+        if (error) throw error;
+        if (!mounted) return;
 
-      setIsDemoUser(false);
-      setUser(data.session?.user ?? null);
-      setProfileLoading(Boolean(data.session?.user));
-      setSubscriptionLoading(Boolean(data.session?.user) && BILLING_ENABLED && !isBillingExemptEmail(data.session?.user?.email));
-      setLoading(false);
+        setIsDemoUser(false);
+        setUser(data.session?.user ?? null);
+        setProfileLoading(Boolean(data.session?.user));
+        setSubscriptionLoading(Boolean(data.session?.user) && BILLING_ENABLED && !isBillingExemptEmail(data.session?.user?.email));
+        setAuthLoadingError(null);
+      } catch (error) {
+        console.error('Failed to restore session:', error);
+        if (mounted) setAuthLoadingError('We could not restore your session.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
     };
     init();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthLoadingError(null);
       setIsDemoUser(false);
       setUser(session?.user ?? null);
       setProfileLoading(Boolean(session?.user));
@@ -331,9 +376,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let currentMember: HouseholdMember | null = null;
         let activeMembers: HouseholdMember[] = [];
 
-        const maxAttempts = pendingInvite?.token ? 8 : 1;
+        const maxAttempts = pendingInvite?.token ? 4 : 1;
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-          const household = await getHouseholdDashboard();
+          const household = await withTimeout(
+            getHouseholdDashboard(),
+            STARTUP_REQUEST_TIMEOUT_MS,
+            'Household loading timed out.',
+          );
           if (cancelled) return;
 
           activeMembers = (household.members || []).filter((member) => member.status === 'active');
@@ -407,14 +456,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user?.id || isDemoUser || householdScopeLoading) return;
 
     const refreshMacroState = () => {
-      void hydrateMacroGameProfilesFromAccount(user.id);
-      void hydrateMacroGameActivityFromAccount(user.id);
-      void hydrateMealPrefsFromAccount(sharedHouseholdOwnerId || user.id);
-      void hydrateGroceryPrefsFromAccount(sharedHouseholdOwnerId || user.id);
-      void hydrateChoresStateFromAccount(sharedHouseholdOwnerId || user.id);
-      void hydrateMealBudgetPlannerFromAccount(sharedHouseholdOwnerId || user.id);
-      void hydrateTasksFromAccount(sharedHouseholdOwnerId || user.id);
-      void syncDerivedCalendarSnapshot(sharedHouseholdOwnerId || user.id, new Date());
+      const now = Date.now();
+      if (
+        backgroundRefreshRef.current ||
+        now - lastBackgroundRefreshAtRef.current < BACKGROUND_REFRESH_COOLDOWN_MS
+      ) {
+        return;
+      }
+
+      const scopeId = sharedHouseholdOwnerId || user.id;
+      lastBackgroundRefreshAtRef.current = now;
+      backgroundRefreshRef.current = Promise.allSettled([
+        hydrateMacroGameProfilesFromAccount(user.id),
+        hydrateMacroGameActivityFromAccount(user.id),
+        hydrateMealPrefsFromAccount(scopeId),
+        hydrateGroceryPrefsFromAccount(scopeId),
+        hydrateChoresStateFromAccount(scopeId),
+        hydrateMealBudgetPlannerFromAccount(scopeId),
+        hydrateTasksFromAccount(scopeId),
+        syncDerivedCalendarSnapshot(scopeId, new Date()),
+      ]).then(() => undefined).finally(() => {
+        backgroundRefreshRef.current = null;
+      });
     };
 
     const handleVisibilityChange = () => {
@@ -503,6 +566,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isDemoUser,
       isAdmin,
       loading,
+      loadingError,
       sharedHouseholdOwnerId,
       householdScopeLoading,
       profile,
@@ -614,6 +678,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [
     loading,
+    loadingError,
     isDemoUser,
     profile,
     profileLoading,

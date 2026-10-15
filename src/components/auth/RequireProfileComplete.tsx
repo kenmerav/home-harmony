@@ -1,17 +1,18 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { loadPendingInviteOnboarding } from '@/lib/onboardingStore';
+import { AuthLoadingState } from './AuthLoadingState';
 
 export function RequireProfileComplete({ children }: { children: JSX.Element }) {
-  const { user, loading, profileLoading, isProfileComplete } = useAuth();
+  const { user, loading, loadingError, profileLoading, isProfileComplete } = useAuth();
   const location = useLocation();
   const targetLocation = `${location.pathname}${location.search}`;
   const pendingInvite = loadPendingInviteOnboarding();
   const isFamilyInviteRoute =
     location.pathname === '/family' && new URLSearchParams(location.search).has('invite');
 
-  if (loading || profileLoading) {
-    return <div className="min-h-screen grid place-items-center text-muted-foreground">Loading profile...</div>;
+  if (loading || profileLoading || loadingError) {
+    return <AuthLoadingState message="Loading your profile..." failed={Boolean(loadingError)} />;
   }
 
   if (!user) return <Navigate to="/signin" replace state={{ from: targetLocation }} />;
