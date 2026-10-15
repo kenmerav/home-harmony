@@ -4,15 +4,31 @@ import { loadPendingInviteOnboarding } from '@/lib/onboardingStore';
 import { AuthLoadingState } from './AuthLoadingState';
 
 export function RequireProfileComplete({ children }: { children: JSX.Element }) {
-  const { user, loading, loadingError, profileLoading, isProfileComplete } = useAuth();
+  const {
+    user,
+    loading,
+    authLoadingError,
+    profileLoadingError,
+    profile,
+    profileLoading,
+    isProfileComplete,
+    retryLoading,
+  } = useAuth();
   const location = useLocation();
   const targetLocation = `${location.pathname}${location.search}`;
   const pendingInvite = loadPendingInviteOnboarding();
   const isFamilyInviteRoute =
     location.pathname === '/family' && new URLSearchParams(location.search).has('invite');
 
-  if (loading || profileLoading || loadingError) {
-    return <AuthLoadingState message="Loading your profile..." failed={Boolean(loadingError)} />;
+  const blockingError = !user ? authLoadingError : (!profile ? profileLoadingError : null);
+  if (loading || (profileLoading && !profile) || blockingError) {
+    return (
+      <AuthLoadingState
+        message="Loading your profile..."
+        failed={Boolean(blockingError)}
+        onRetry={retryLoading}
+      />
+    );
   }
 
   if (!user) return <Navigate to="/signin" replace state={{ from: targetLocation }} />;

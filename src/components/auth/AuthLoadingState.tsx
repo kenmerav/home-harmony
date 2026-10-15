@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 interface AuthLoadingStateProps {
   message: string;
   failed?: boolean;
+  onRetry?: () => void | Promise<void>;
 }
 
-export function AuthLoadingState({ message, failed = false }: AuthLoadingStateProps) {
+export function AuthLoadingState({ message, failed = false, onRetry }: AuthLoadingStateProps) {
   const [isTakingLonger, setIsTakingLonger] = useState(false);
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export function AuthLoadingState({ message, failed = false }: AuthLoadingStatePr
             <p className="mt-2 text-sm text-muted-foreground">
               Check your connection, then try loading again.
             </p>
-            <Button className="mt-5" onClick={() => window.location.reload()}>
+            <Button className="mt-5" onClick={() => void (onRetry ? onRetry() : window.location.reload())}>
               <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
               Try again
             </Button>

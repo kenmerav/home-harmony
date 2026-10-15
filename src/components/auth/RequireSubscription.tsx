@@ -5,14 +5,33 @@ import { loadPendingInviteOnboarding } from '@/lib/onboardingStore';
 import { AuthLoadingState } from './AuthLoadingState';
 
 export function RequireSubscription({ children }: { children: JSX.Element }) {
-  const { user, loading, loadingError, isSubscribed, subscriptionLoading, householdScopeLoading } = useAuth();
+  const {
+    user,
+    loading,
+    authLoadingError,
+    subscriptionLoadingError,
+    isSubscribed,
+    subscriptionLoading,
+    householdScopeLoading,
+    retryLoading,
+  } = useAuth();
   const location = useLocation();
   const targetLocation = `${location.pathname}${location.search}`;
   const pendingInvite = loadPendingInviteOnboarding();
   if (!BILLING_ENABLED) return children;
 
-  if (loading || subscriptionLoading || householdScopeLoading || loadingError) {
-    return <AuthLoadingState message="Loading your household..." failed={Boolean(loadingError)} />;
+  const blockingError = !user
+    ? authLoadingError
+    : (!isSubscribed ? subscriptionLoadingError : null);
+  const accessStillResolving = !isSubscribed && (subscriptionLoading || householdScopeLoading);
+  if (loading || accessStillResolving || blockingError) {
+    return (
+      <AuthLoadingState
+        message="Loading your household..."
+        failed={Boolean(blockingError)}
+        onRetry={retryLoading}
+      />
+    );
   }
 
   if (!user) return <Navigate to="/signin" replace state={{ from: targetLocation }} />;

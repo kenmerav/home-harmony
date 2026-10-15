@@ -56,6 +56,9 @@ interface AuthContextValue {
   isAdmin: boolean;
   loading: boolean;
   loadingError: string | null;
+  authLoadingError: string | null;
+  profileLoadingError: string | null;
+  subscriptionLoadingError: string | null;
   sharedHouseholdOwnerId: string | null;
   householdScopeLoading: boolean;
   profile: ProfileInfo | null;
@@ -78,6 +81,7 @@ interface AuthContextValue {
   updateProfile: (updates: TablesUpdate<'profiles'>) => Promise<void>;
   refreshProfile: () => Promise<void>;
   refreshSubscription: () => Promise<void>;
+  retryLoading: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -110,6 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
   const [sharedHouseholdOwnerId, setSharedHouseholdOwnerId] = useState<string | null>(null);
   const [householdScopeLoading, setHouseholdScopeLoading] = useState(false);
+  const [householdRetryToken, setHouseholdRetryToken] = useState(0);
   const backgroundRefreshRef = useRef<Promise<void> | null>(null);
   const lastBackgroundRefreshAtRef = useRef(0);
   const loadingError = authLoadingError || profileLoadingError || subscriptionLoadingError;
@@ -265,6 +270,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSubscriptionLoading(false);
     }
   }, [isDemoUser, user]);
+
+  const retryLoading = useCallback(async () => {
+    setAuthLoadingError(null);
+    setProfileLoadingError(null);
+    setSubscriptionLoadingError(null);
+
+    if (!user) {
+      setLoading(true);
+      try {
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          STARTUP_REQUEST_TIMEOUT_MS,
+          'Session loading timed out.',
+        );
+        if (error) throw error;
+        setUser(data.session?.user ?? null);
+        setAuthLoadingError(null);
+      } catch (error) {
+        console.error('Failed to restore session:', error);
+        setAuthLoadingError('We could not restore your session.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    await Promise.allSettled([refreshProfile(), refreshSubscription()]);
+    setHouseholdRetryToken((current) => current + 1);
+  }, [refreshProfile, refreshSubscription, user]);
 
   useEffect(() => {
     let mounted = true;
@@ -450,7 +484,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isDemoUser, profile?.fullName, user?.email, user?.id]);
+  }, [householdRetryToken, isDemoUser, profile?.fullName, user?.email, user?.id]);
 
   useEffect(() => {
     if (!user?.id || isDemoUser || householdScopeLoading) return;
@@ -567,6 +601,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin,
       loading,
       loadingError,
+      authLoadingError,
+      profileLoadingError,
+      subscriptionLoadingError,
       sharedHouseholdOwnerId,
       householdScopeLoading,
       profile,
@@ -675,15 +712,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       refreshProfile,
       refreshSubscription,
+      retryLoading,
     };
   }, [
     loading,
     loadingError,
+    authLoadingError,
+    profileLoadingError,
+    subscriptionLoadingError,
     isDemoUser,
     profile,
     profileLoading,
     refreshProfile,
     refreshSubscription,
+    retryLoading,
     sharedHouseholdOwnerId,
     householdScopeLoading,
     subscription,
